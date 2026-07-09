@@ -1,0 +1,328 @@
+#!/usr/bin/env python3
+import os
+import sys
+import json
+import subprocess
+import urllib.request
+import base64
+import argparse
+
+CONFIG_DIR = os.path.expanduser("~/.gemini/agy-swap")
+ACCOUNTS_FILE = os.path.join(CONFIG_DIR, "accounts.json")
+
+# Colors
+GREEN = "\033[92m"
+BLUE = "\033[94m"
+YELLOW = "\033[93m"
+RED = "\033[91m"
+BOLD = "\033[1m"
+RESET = "\033[0m"
+
+def get_current_keychain_token():
+    try:
+        val = subprocess.check_output(
+            ["security", "find-generic-password", "-a", "antigravity", "-s", "gemini", "-w"],
+            stderr=subprocess.DEVNULL
+        ).decode("utf-8").strip()
+        return val
+    except subprocess.CalledProcessError:
+        return None
+
+def set_keychain_token(token_data_str):
+    try:
+        # Delete first to ensure it updates cleanly
+        subprocess.run(
+            ["security", "delete-generic-password", "-a", "antigravity", "-s", "gemini"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        subprocess.run(
+            ["security", "add-generic-password", "-a", "antigravity", "-s", "gemini", "-w", token_data_str],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"{RED}Error updating Keychain: {e}{RESET}", file=sys.stderr)
+        return False
+
+def get_google_userinfo(access_token):
+    try:
+        req = urllib.request.Request(
+            "https://www.googleapis.com/oauth2/v3/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        with urllib.request.urlopen(req, timeout=5) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except Exception:
+        # Fallback if offline
+        return None
+
+def load_accounts():
+    if not os.path.exists(ACCOUNTS_FILE):
+        return {}
+    try:
+        with open(ACCOUNTS_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save_accounts(accounts):
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    with open(ACCOUNTS_FILE, "w") as f:
+        json.dump(accounts, f, indent=2)
+
+def decode_token(keychain_val):
+    if not keychain_val or not keychain_val.startswith("go-keyring-base64:"):
+        return None
+    try:
+        encoded = keychain_val.split(":", 1)[1]
+        return json.loads(base64.b64decode(encoded).decode("utf-8"))
+    except Exception:
+        return None
+
+def cmd_add(args):
+    token_arg = getattr(args, "token", None)
+    if token_arg is not None:
+        # Import a token blob (e.g. pulled from another machine's keychain).
+        # '-' means read from stdin. Doesn't touch the active session.
+        token_str = sys.stdin.read().strip() if token_arg == "-" else token_arg.strip()
+        if not token_str:
+            print(f"{RED}Empty token provided.{RESET}")
+            sys.exit(1)
+    else:
+        token_str = get_current_keychain_token()
+        if not token_str:
+            print(f"{RED}No active Antigravity session found in Keychain. Please log in first using 'agy'.{RESET}")
+            sys.exit(1)
+    
+    token_json = decode_token(token_str)
+    if not token_json or "token" not in token_json or "access_token" not in token_json["token"]:
+        print(f"{RED}Could not parse active token from Keychain.{RESET}")
+        sys.exit(1)
+        
+    access_token = token_json["token"]["access_token"]
+    print(f"Fetching user info from Google...")
+    userinfo = get_google_userinfo(access_token)
+    
+    if not userinfo:
+        # Offline or token expired
+        print(f"{YELLOW}Could not fetch Google user info. Token might be expired or network is offline.{RESET}")
+        email = input("Enter email address manually: ").strip()
+        name = "Unknown User"
+    else:
+        email = userinfo.get("email")
+        name = userinfo.get("name", "Unknown User")
+        print(f"Logged in as: {GREEN}{name} <{email}>{RESET}")
+
+    if not email:
+        print(f"{RED}Email address is required.{RESET}")
+        sys.exit(1)
+
+    accounts = load_accounts()
+    accounts[email] = {
+        "email": email,
+        "name": name,
+        "token_data": token_str
+    }
+    save_accounts(accounts)
+    print(f"{GREEN}Account '{email}' successfully added to agy-swap.{RESET}")
+
+def cmd_list(args):
+    accounts = load_accounts()
+    if not accounts:
+        print("No accounts added yet. Use 'agy-swap add' to add your current account.")
+        return
+
+    current_token = get_current_keychain_token()
+    
+    print(f"\n{BOLD}Managed Antigravity Accounts:{RESET}")
+    print(f"{'-'*60}")
+    
+    for i, (email, acc) in enumerate(accounts.items(), 1):
+        is_active = (acc["token_data"] == current_token)
+        marker = f"{GREEN}* {RESET}" if is_active else "  "
+        active_str = f" {GREEN}(active){RESET}" if is_active else ""
+        print(f"{marker}[{i}] {acc['name']} <{acc['email']}>{active_str}")
+    print(f"{'-'*60}\n")
+
+def cmd_switch(args):
+    accounts = load_accounts()
+    if not accounts:
+        print("No accounts found. Add one with 'agy-swap add' first.")
+        sys.exit(1)
+
+    target = getattr(args, "account", None)
+    if not target:
+        # Interactive switch
+        cmd_list(None)
+        try:
+            choice = input("Select account to switch to (number or email): ").strip()
+            if not choice:
+                return
+            target = choice
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return
+
+    # Try resolving index
+    selected_email = None
+    if target.isdigit():
+        idx = int(target) - 1
+        keys = list(accounts.keys())
+        if 0 <= idx < len(keys):
+            selected_email = keys[idx]
+    else:
+        # Resolve by email
+        for email in accounts.keys():
+            if target.lower() in email.lower():
+                selected_email = email
+                break
+
+    if not selected_email:
+        print(f"{RED}Account '{target}' not found.{RESET}")
+        sys.exit(1)
+
+    acc = accounts[selected_email]
+    print(f"Switching to {BLUE}{acc['name']} <{acc['email']}>{RESET}...")
+    if set_keychain_token(acc["token_data"]):
+        print(f"{GREEN}Successfully switched to {acc['email']}.{RESET}")
+    else:
+        print(f"{RED}Failed to switch account.{RESET}")
+
+def cmd_remove(args):
+    accounts = load_accounts()
+    if not accounts:
+        print("No accounts found.")
+        sys.exit(1)
+
+    target = getattr(args, "account", None)
+    if not target:
+        cmd_list(None)
+        try:
+            choice = input("Select account to remove (number or email): ").strip()
+            if not choice:
+                return
+            target = choice
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return
+
+    selected_email = None
+    if target.isdigit():
+        idx = int(target) - 1
+        keys = list(accounts.keys())
+        if 0 <= idx < len(keys):
+            selected_email = keys[idx]
+    else:
+        for email in accounts.keys():
+            if target.lower() in email.lower():
+                selected_email = email
+                break
+
+    if not selected_email:
+        print(f"{RED}Account '{target}' not found.{RESET}")
+        sys.exit(1)
+
+    confirm = input(f"Are you sure you want to remove '{selected_email}'? [y/N]: ").strip().lower()
+    if confirm == 'y':
+        del accounts[selected_email]
+        save_accounts(accounts)
+        print(f"{GREEN}Removed account '{selected_email}'.{RESET}")
+
+def cmd_status(args):
+    current_token = get_current_keychain_token()
+    if not current_token:
+        print("Status: Not logged in (No keychain token found)")
+        return
+
+    accounts = load_accounts()
+    active_email = None
+    for email, acc in accounts.items():
+        if acc["token_data"] == current_token:
+            active_email = email
+            break
+
+    if active_email:
+        acc = accounts[active_email]
+        print(f"Active Account: {GREEN}{acc['name']} <{acc['email']}>{RESET}")
+    else:
+        # Active but not saved
+        token_json = decode_token(current_token)
+        email = "Unknown (unsaved)"
+        if token_json and "token" in token_json and "access_token" in token_json["token"]:
+            userinfo = get_google_userinfo(token_json["token"]["access_token"])
+            if userinfo:
+                email = userinfo.get("email", "Unknown")
+        print(f"Active Account: {YELLOW}{email} (Not saved in agy-swap, run 'agy-swap add' to save it){RESET}")
+
+def cmd_logout(args):
+    current_token = get_current_keychain_token()
+    if not current_token:
+        print("You are already logged out.")
+        return
+    subprocess.run(
+        ["security", "delete-generic-password", "-a", "antigravity", "-s", "gemini"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+    print(f"{GREEN}Successfully logged out of active session. Next run of 'agy' will trigger login.{RESET}")
+
+def main():
+    parser = argparse.ArgumentParser(description="Multi-Account Switcher for Google Antigravity CLI (agy)")
+    
+    # Flags matching claude-swap
+    parser.add_argument("--add", action="store_true", help="Add current account to managed accounts")
+    parser.add_argument("--token", metavar="BLOB|-", help="Import a go-keyring token blob instead of reading the active session ('-' = stdin). Use with --add.")
+    parser.add_argument("--list", action="store_true", help="List all saved accounts")
+    parser.add_argument("--switch-to", dest="switch_to", metavar="ACCOUNT", help="Switch to specific account (email or number)")
+    parser.add_argument("--switch", action="store_true", help="Rotate/interactive switch")
+    parser.add_argument("--remove", dest="remove_account", metavar="ACCOUNT", help="Remove a saved account")
+    parser.add_argument("--status", action="store_true", help="Show active account details")
+    parser.add_argument("--logout", action="store_true", help="Logout of the active session")
+
+    # Subcommands matching codex-auth
+    subparsers = parser.add_subparsers(dest="command", help="Subcommand to run")
+    subparsers.add_parser("add", help="Add current account")
+    subparsers.add_parser("list", help="List all saved accounts")
+    subparsers.add_parser("logout", help="Logout of active session")
+    
+    switch_parser = subparsers.add_parser("switch", help="Switch to an account")
+    switch_parser.add_argument("account", nargs="?", help="Account email or index")
+
+    remove_parser = subparsers.add_parser("remove", help="Remove a saved account")
+    remove_parser.add_argument("account", nargs="?", help="Account email or index")
+
+    subparsers.add_parser("status", help="Show active account details")
+
+    args = parser.parse_args()
+
+    # Determine command from either flag or subcommand
+    if args.add or args.command == "add" or args.token is not None:
+        cmd_add(args)
+    elif args.list or args.command == "list":
+        cmd_list(args)
+    elif args.logout or args.command == "logout":
+        cmd_logout(args)
+    elif args.switch_to:
+        args.account = args.switch_to
+        cmd_switch(args)
+    elif args.switch:
+        args.account = None
+        cmd_switch(args)
+    elif args.remove_account:
+        args.account = args.remove_account
+        cmd_remove(args)
+    elif args.command == "switch":
+        cmd_switch(args)
+    elif args.command == "remove":
+        cmd_remove(args)
+    elif args.status or args.command == "status":
+        cmd_status(args)
+    else:
+        # Fallback to interactive switch if no command/flag provided
+        cmd_switch(args)
+
+if __name__ == "__main__":
+    main()
