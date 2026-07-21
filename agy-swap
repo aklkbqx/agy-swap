@@ -8,11 +8,16 @@ import subprocess
 import urllib.request
 import base64
 import argparse
+import datetime
+from datetime import datetime, timezone, timedelta
+import re
 import threading
 import time
 import platform
+import glob
 
 CONFIG_DIR = os.path.expanduser("~/.gemini/agy-swap")
+
 ACCOUNTS_FILE = os.path.join(CONFIG_DIR, "accounts.json")
 
 ORANGE = "\033[38;5;208m"
@@ -266,14 +271,103 @@ def get_google_userinfo(access_token):
     except Exception:
         return None
 
-def load_accounts():
+def auto_scan_logs_for_limits():
+    log_dir = os.path.expanduser("~/.gemini/antigravity-cli/log")
+    if not os.path.exists(log_dir):
+        return {}
+    log_files = sorted(glob.glob(os.path.join(log_dir, "cli-*.log")), key=os.path.getmtime, reverse=True)
+    if not log_files:
+        return {}
+        
+    email_regex = re.compile(r"applyAuthResult:\s*email=([^\s,]+)")
+    error_regex = re.compile(r"RESOURCE_EXHAUSTED.*?Resets\s+in\s+((?:\d+h)?(?:\d+m)?(?:\d+s)?)")
+    ts_regex = re.compile(r"^[IWEF](\d{2})(\d{2})\s+(\d{2}):(\d{2}):(\d{2})")
+    
+    detected_limits = {}
+    now = datetime.now(timezone.utc)
+    current_year = now.year
+
+    for log_file in log_files[:15]:
+        current_email = None
+        try:
+            with open(log_file, "r", errors="ignore") as f:
+                for line in f:
+                    em_match = email_regex.search(line)
+                    if em_match:
+                        current_email = em_match.group(1).lower()
+                    
+                    err_match = error_regex.search(line)
+                    if err_match and current_email:
+                        dur_str = err_match.group(1).strip()
+                        h_m = re.search(r"(\d+)h", dur_str)
+                        m_m = re.search(r"(\d+)m", dur_str)
+                        s_m = re.search(r"(\d+)s", dur_str)
+                        h = int(h_m.group(1)) if h_m else 0
+                        m = int(m_m.group(1)) if m_m else 0
+                        s = int(s_m.group(1)) if s_m else 0
+                        total_secs = h*3600 + m*60 + s
+                        
+                        ts_match = ts_regex.match(line)
+                        if ts_match:
+                            mon = int(ts_match.group(1))
+                            day = int(ts_match.group(2))
+                            hr = int(ts_match.group(3))
+                            mi = int(ts_match.group(4))
+                            se = int(ts_match.group(5))
+                            log_dt = datetime(current_year, mon, day, hr, mi, se, tzinfo=timezone.utc)
+                        else:
+                            file_mtime = os.path.getmtime(log_file)
+                            log_dt = datetime.fromtimestamp(file_mtime, tz=timezone.utc)
+                            
+                        reset_dt = log_dt + timedelta(seconds=total_secs)
+                        
+                        if reset_dt > now:
+                            if current_email not in detected_limits or reset_dt > detected_limits[current_email]:
+                                detected_limits[current_email] = reset_dt
+        except Exception:
+            pass
+            
+    return detected_limits
+
+def load_accounts(sync_logs=True):
     if not os.path.exists(ACCOUNTS_FILE):
-        return {}
-    try:
-        with open(ACCOUNTS_FILE, "r") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+        accounts = {}
+    else:
+        try:
+            with open(ACCOUNTS_FILE, "r") as f:
+                accounts = json.load(f)
+        except Exception:
+            accounts = {}
+
+    if sync_logs and accounts:
+        changed = False
+        now = datetime.now(timezone.utc)
+        
+        for email, acc in list(accounts.items()):
+            limit_reset = acc.get("limit_reset")
+            if limit_reset:
+                try:
+                    dt = datetime.fromisoformat(limit_reset)
+                    if dt <= now:
+                        acc.pop("limit_reset", None)
+                        changed = True
+                except Exception:
+                    pass
+                    
+        detected_limits = auto_scan_logs_for_limits()
+        for email, reset_dt in detected_limits.items():
+            for acc_email, acc in accounts.items():
+                if acc_email.lower() == email:
+                    existing = acc.get("limit_reset")
+                    new_iso = reset_dt.isoformat()
+                    if existing != new_iso:
+                        acc["limit_reset"] = new_iso
+                        changed = True
+
+        if changed:
+            save_accounts(accounts)
+
+    return accounts
 
 def save_accounts(accounts):
     os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -288,6 +382,117 @@ def decode_token(keychain_val):
         return json.loads(base64.b64decode(encoded).decode("utf-8"))
     except Exception:
         return None
+
+def get_token_reset_info(token_data_str):
+    token_json = decode_token(token_data_str)
+    if not token_json or "token" not in token_json:
+        return None
+    token_obj = token_json["token"]
+    expiry_str = token_obj.get("expiry")
+    has_refresh = bool(token_obj.get("refresh_token"))
+    
+    if not expiry_str:
+        return None
+    try:
+        dt = datetime.fromisoformat(expiry_str)
+        now = datetime.now(timezone.utc)
+        diff = (dt - now).total_seconds()
+        if diff > 0:
+            mins = int(diff // 60)
+            secs = int(diff % 60)
+            if mins >= 60:
+                hours = mins // 60
+                rem_mins = mins % 60
+                return {"status": "active", "remaining_str": f"{hours}h {rem_mins}m", "seconds": diff, "expiry_dt": dt}
+            return {"status": "active", "remaining_str": f"{mins}m {secs}s", "seconds": diff, "expiry_dt": dt}
+        else:
+            if has_refresh:
+                return {"status": "ready", "remaining_str": "Token Ready (Auto-refreshes)", "seconds": diff, "expiry_dt": dt}
+            else:
+                abs_mins = int(abs(diff) // 60)
+                return {"status": "expired", "remaining_str": f"Expired {abs_mins}m ago", "seconds": diff, "expiry_dt": dt}
+    except Exception:
+        return None
+
+def get_account_limit_display(acc, is_active=False, current_token_str=None):
+    token_str = current_token_str if (is_active and current_token_str) else acc.get("token_data", "")
+    token_info = get_token_reset_info(token_str)
+    limit_reset = acc.get("limit_reset")
+    parts = []
+    
+    has_active_cooldown = False
+    if limit_reset:
+        try:
+            dt = datetime.fromisoformat(limit_reset)
+            now = datetime.now(timezone.utc)
+            diff = (dt - now).total_seconds()
+            if diff > 0:
+                has_active_cooldown = True
+                mins = int(diff // 60)
+                secs = int(diff % 60)
+                if mins >= 60:
+                    h = mins // 60
+                    m = mins % 60
+                    parts.append(f"{RED}🔴 Quota Cooldown: Reset in {h}h {m}m{RESET}")
+                else:
+                    parts.append(f"{RED}🔴 Quota Cooldown: Reset in {mins}m {secs}s{RESET}")
+            else:
+                parts.append(f"{GREEN}🟢 Quota: Ready{RESET}")
+        except Exception:
+            pass
+
+    if not has_active_cooldown and not limit_reset:
+        parts.append(f"{GREEN}🟢 Quota: Ready{RESET}")
+
+    return " │ ".join(parts) if parts else f"{GRAY}No status info{RESET}"
+
+
+
+ANSI_ESCAPE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+def visible_len(text):
+    return len(ANSI_ESCAPE.sub('', text))
+
+import shutil
+
+def get_responsive_width():
+    try:
+        cols, _ = shutil.get_terminal_size((80, 24))
+        return max(50, min(cols - 2, 110))
+    except Exception:
+        return 76
+
+def tui_box_top(title="", width=76):
+
+    if title:
+        v_title_len = visible_len(title)
+        pad = max(0, width - 5 - v_title_len)
+        dashes = "─" * pad
+        return f"{DARK_GRAY}╭─ {RESET}{BOLD}{BRIGHT_WHITE}{title}{RESET} {DARK_GRAY}{dashes}╮{RESET}"
+    dashes = "─" * (width - 2)
+    return f"{DARK_GRAY}╭{dashes}╮{RESET}"
+
+def tui_box_mid(width=76):
+    dashes = "─" * (width - 2)
+    return f"{DARK_GRAY}├{dashes}┤{RESET}"
+
+def tui_box_bot(width=76):
+    dashes = "─" * (width - 2)
+    return f"{DARK_GRAY}╰{dashes}╯{RESET}"
+
+def tui_box_line(content_ansi, width=76):
+    v_len = visible_len(content_ansi)
+    if v_len > width - 4:
+        raw_text = ANSI_ESCAPE.sub('', content_ansi)
+        content_ansi = raw_text[:width - 7] + "..."
+        v_len = visible_len(content_ansi)
+
+    pad = max(0, width - 4 - v_len)
+    spaces = " " * pad
+    return f"{DARK_GRAY}│{RESET} {content_ansi}{spaces} {DARK_GRAY}│{RESET}"
+
+
+
 
 def get_key():
     if platform.system() == "Windows":
@@ -355,6 +560,92 @@ def print_header():
         f"{GRAY}└────────────────────────────────────────────────────────┘{RESET}"
     ]
 
+def cmd_add_flow():
+    current_token = get_current_keychain_token()
+    accounts = load_accounts()
+    
+    active_email = None
+    userinfo = None
+    if current_token:
+        token_json = decode_token(current_token)
+        if token_json and "token" in token_json and "access_token" in token_json["token"]:
+            with Spinner("Checking active Keychain session..."):
+                userinfo = get_google_userinfo(token_json["token"]["access_token"])
+            if userinfo and userinfo.get("email"):
+                active_email = userinfo.get("email")
+
+    if active_email and active_email not in accounts:
+        name = userinfo.get("name", "Google User")
+        accounts[active_email] = {
+            "email": active_email,
+            "name": name,
+            "token_data": current_token
+        }
+        save_accounts(accounts)
+        print(f"\n{GREEN}✔ Saved active session: {name} <{active_email}>{RESET}")
+        return True, f"Saved session {active_email}"
+
+    print(f"\n{BOLD}{ORANGE}=== Add New Antigravity Account ==={RESET}")
+    print(f"{GRAY}Launching 'agy' to initiate Google OAuth browser login...{RESET}")
+    print(f"{YELLOW}Please complete login in the opened browser window.{RESET}\n")
+    
+    backup_token = current_token
+    try:
+        delete_keychain_token()
+        subprocess.run(["agy", "--print", "Hello"], check=False)
+        
+        new_token = get_current_keychain_token()
+        if not new_token:
+            print(f"\n{RED}Login was canceled or failed.{RESET}")
+            if backup_token:
+                set_keychain_token(backup_token)
+            return False, "Login canceled"
+            
+        token_json = decode_token(new_token)
+        if not token_json or "token" not in token_json or "access_token" not in token_json["token"]:
+            print(f"\n{RED}Could not parse new login token.{RESET}")
+            if backup_token:
+                set_keychain_token(backup_token)
+            return False, "Failed to parse token"
+            
+        access_token = token_json["token"]["access_token"]
+        new_userinfo = None
+        with Spinner("Fetching new profile details from Google..."):
+            new_userinfo = get_google_userinfo(access_token)
+            
+        if new_userinfo and new_userinfo.get("email"):
+            email = new_userinfo.get("email")
+            name = new_userinfo.get("name", "Google User")
+            accounts[email] = {
+                "email": email,
+                "name": name,
+                "token_data": new_token
+            }
+            save_accounts(accounts)
+            print(f"\n{GREEN}✔ Successfully logged in & saved account: {name} <{email}>{RESET}")
+            return True, f"Logged in & added {email}"
+        else:
+            print(f"\n{YELLOW}Logged in, but could not fetch Google profile info.{RESET}")
+            email = input("Enter account email manually: ").strip()
+            if email:
+                accounts[email] = {
+                    "email": email,
+                    "name": "Google User",
+                    "token_data": new_token
+                }
+                save_accounts(accounts)
+                print(f"\n{GREEN}✔ Added account: {email}{RESET}")
+                return True, f"Added {email}"
+            else:
+                if backup_token:
+                    set_keychain_token(backup_token)
+                return False, "No email provided"
+    except Exception as e:
+        print(f"\n{RED}Error during login flow: {e}{RESET}")
+        if backup_token:
+            set_keychain_token(backup_token)
+        return False, f"Login error: {e}"
+
 def cmd_add(args):
     token_arg = getattr(args, "token", None)
     if token_arg is not None:
@@ -362,59 +653,258 @@ def cmd_add(args):
         if not token_str:
             print(f"{RED}Empty token provided.{RESET}")
             sys.exit(1)
-    else:
-        token_str = get_current_keychain_token()
-        if not token_str:
-            print(f"{RED}No active Antigravity session found in Keychain. Please log in first using 'agy'.{RESET}")
+        token_json = decode_token(token_str)
+        if not token_json or "token" not in token_json or "access_token" not in token_json["token"]:
+            print(f"{RED}Could not parse active token from Keychain.{RESET}")
             sys.exit(1)
-    
-    token_json = decode_token(token_str)
-    if not token_json or "token" not in token_json or "access_token" not in token_json["token"]:
-        print(f"{RED}Could not parse active token from Keychain.{RESET}")
-        sys.exit(1)
+            
+        access_token = token_json["token"]["access_token"]
+        userinfo = None
+        with Spinner("Fetching user info from Google..."):
+            userinfo = get_google_userinfo(access_token)
         
-    access_token = token_json["token"]["access_token"]
-    userinfo = None
-    with Spinner("Fetching user info from Google..."):
-        userinfo = get_google_userinfo(access_token)
-    
-    if not userinfo:
-        print(f"{YELLOW}Could not fetch Google user info. Token might be expired or network is offline.{RESET}")
-        email = input("Enter email address manually: ").strip()
-        name = "Unknown User"
+        if not userinfo:
+            email = input("Enter email address manually: ").strip()
+            name = "Unknown User"
+        else:
+            email = userinfo.get("email")
+            name = userinfo.get("name", "Unknown User")
+
+        if not email:
+            print(f"{RED}Email address is required.{RESET}")
+            sys.exit(1)
+
+        accounts = load_accounts()
+        accounts[email] = {
+            "email": email,
+            "name": name,
+            "token_data": token_str
+        }
+        save_accounts(accounts)
+        print(f"{GREEN}Account '{email}' successfully added to agy-swap.{RESET}")
     else:
-        email = userinfo.get("email")
-        name = userinfo.get("name", "Unknown User")
-        print(f"Logged in as: {GREEN}{name} <{email}>{RESET}")
+        cmd_add_flow()
 
-    if not email:
-        print(f"{RED}Email address is required.{RESET}")
-        sys.exit(1)
 
-    accounts = load_accounts()
-    accounts[email] = {
-        "email": email,
-        "name": name,
-        "token_data": token_str
-    }
-    save_accounts(accounts)
-    print(f"{GREEN}Account '{email}' successfully added to agy-swap.{RESET}")
+SORT_MODES = [
+    ("active", "Active First"),
+    ("limit", "Limit Cooldown / Expiry"),
+    ("name", "Name A-Z"),
+    ("email", "Email A-Z"),
+    ("default", "Default Order")
+]
+
+def sort_accounts(acc_list, mode="active", active_email=None):
+    if not acc_list or not mode or mode == "default":
+        return list(acc_list)
+        
+    if mode in ("active", "active_first"):
+        return sorted(acc_list, key=lambda a: 0 if (active_email and a.get("email", "").lower() == active_email.lower()) else 1)
+        
+    elif mode in ("name", "name_az"):
+        return sorted(acc_list, key=lambda a: a.get("name", "").lower())
+        
+    elif mode in ("email", "email_az"):
+        return sorted(acc_list, key=lambda a: a.get("email", "").lower())
+        
+    elif mode in ("limit", "expiry", "reset"):
+        def limit_key(acc):
+            limit_reset = acc.get("limit_reset")
+            if limit_reset:
+                try:
+                    dt = datetime.fromisoformat(limit_reset)
+                    diff = (dt - datetime.now(timezone.utc)).total_seconds()
+                    if diff > 0:
+                        return diff
+                except Exception:
+                    pass
+            info = get_token_reset_info(acc.get("token_data", ""))
+            if info and info.get("status") == "active":
+                return info.get("seconds", 0)
+            elif info and info.get("status") == "ready":
+                return 0
+            return 9999999
+        return sorted(acc_list, key=limit_key)
+        
+    return list(acc_list)
 
 def cmd_list(args):
     accounts = load_accounts()
     if not accounts:
-        print("No accounts added yet. Use 'agy-swap add' to add your current account.")
+        print("No accounts added yet. Use 'agy-swap add' to add a Google account.")
+        return
+
+    sort_mode = getattr(args, "sort", "active") or "active"
+    current_token = get_current_keychain_token()
+    
+    active_email = None
+    if current_token:
+        token_json = decode_token(current_token)
+        if token_json and "token" in token_json and "access_token" in token_json["token"]:
+            userinfo = get_google_userinfo(token_json["token"]["access_token"])
+            if userinfo:
+                active_email = userinfo.get("email")
+
+    raw_list = list(accounts.values())
+    acc_list = sort_accounts(raw_list, mode=sort_mode, active_email=active_email)
+
+    mode_label = dict(SORT_MODES).get(sort_mode, sort_mode)
+    print(f"\n{BOLD}Managed Antigravity Accounts{RESET} {GRAY}[Sort: {mode_label}]{RESET}:")
+    print(f"{GRAY}{'-'*65}{RESET}")
+    for i, acc in enumerate(acc_list, 1):
+        email = acc["email"]
+        is_active = (active_email and email.lower() == active_email.lower())
+        marker = f"{GREEN}* {RESET}" if is_active else "  "
+        active_str = f" {GREEN}(active){RESET}" if is_active else ""
+        limit_info = get_account_limit_display(acc, is_active=is_active, current_token_str=current_token)
+        print(f"{marker}[{i}] {acc['name']} <{email}>{active_str}")
+        print(f"     ↳ {GRAY}Limit / Reset:{RESET} {limit_info}")
+    print(f"{GRAY}{'-'*65}{RESET}\n")
+
+
+def cmd_limits(args):
+    accounts = load_accounts()
+    if not accounts:
+        print("No accounts found.")
         return
 
     current_token = get_current_keychain_token()
-    print(f"\n{BOLD}Managed Antigravity Accounts:{RESET}")
-    print(f"{GRAY}{'-'*60}{RESET}")
+    print(f"\n{BOLD}Antigravity Account Limit Reset & Token Expiry Overview:{RESET}")
+    print(f"{GRAY}{'='*70}{RESET}")
     for i, (email, acc) in enumerate(accounts.items(), 1):
         is_active = (acc["token_data"] == current_token)
-        marker = f"{GREEN}* {RESET}" if is_active else "  "
         active_str = f" {GREEN}(active){RESET}" if is_active else ""
-        print(f"{marker}[{i}] {acc['name']} <{acc['email']}>{active_str}")
-    print(f"{GRAY}{'-'*60}{RESET}\n")
+        
+        token_info = get_token_reset_info(acc.get("token_data", ""))
+        limit_reset = acc.get("limit_reset")
+        
+        print(f"[{i}] {BOLD}{acc['name']}{RESET} <{acc['email']}>{active_str}")
+        
+        if limit_reset:
+            try:
+                dt = datetime.fromisoformat(limit_reset)
+                now = datetime.now(timezone.utc)
+                diff = (dt - now).total_seconds()
+                if diff > 0:
+                    mins = int(diff // 60)
+                    secs = int(diff % 60)
+                    if mins >= 60:
+                        h = mins // 60
+                        m = mins % 60
+                        print(f"    ├─ Rate Limit Cooldown: {RED}Reset in {h}h {m}m{RESET} ({dt.strftime('%H:%M:%S UTC')})")
+                    else:
+                        print(f"    ├─ Rate Limit Cooldown: {RED}Reset in {mins}m {secs}s{RESET} ({dt.strftime('%H:%M:%S UTC')})")
+                else:
+                    print(f"    ├─ Rate Limit Cooldown: {GREEN}Reset Passed / Quota Ready{RESET}")
+            except Exception:
+                print(f"    ├─ Rate Limit Cooldown: {GRAY}Invalid timestamp{RESET}")
+        else:
+            print(f"    ├─ Rate Limit Cooldown: {GREEN}No limit cooldown set{RESET}")
+
+        if token_info:
+            rem = token_info.get("remaining_str", "")
+            if token_info["status"] == "active":
+                print(f"    └─ Token Expiry / Reset: {CYAN}In {rem}{RESET}")
+            elif token_info["status"] == "ready":
+                print(f"    └─ Token Expiry / Reset: {GREEN}{rem}{RESET}")
+            else:
+                print(f"    └─ Token Expiry / Reset: {GRAY}{rem}{RESET}")
+        else:
+            print(f"    └─ Token Expiry / Reset: {GRAY}Unknown{RESET}")
+
+        print(f"{GRAY}{'-'*70}{RESET}")
+    print()
+
+def parse_duration_seconds(duration_str):
+    if not duration_str:
+        return None
+    duration_str = duration_str.strip().lower()
+    if duration_str in ("reset", "clear", "0", "none"):
+        return 0
+    hours, mins, secs = 0, 0, 0
+    
+    h_match = re.search(r"(\d+)\s*h", duration_str)
+    m_match = re.search(r"(\d+)\s*m", duration_str)
+    s_match = re.search(r"(\d+)\s*s", duration_str)
+    
+    if h_match:
+        hours = int(h_match.group(1))
+    if m_match:
+        mins = int(m_match.group(1))
+    if s_match:
+        secs = int(s_match.group(1))
+        
+    if not h_match and not m_match and not s_match:
+        if duration_str.isdigit():
+            mins = int(duration_str)
+        else:
+            return None
+            
+    return hours * 3600 + mins * 60 + secs
+
+def cmd_set_limit(args):
+    accounts = load_accounts()
+    if not accounts:
+        print("No accounts found.")
+        return
+
+    target = getattr(args, "account", None)
+    duration_str = getattr(args, "duration", None)
+    
+    if not target:
+        target = input("Enter account email or index: ").strip()
+    
+    selected_email = None
+    if target and target.isdigit():
+        idx = int(target) - 1
+        keys = list(accounts.keys())
+        if 0 <= idx < len(keys):
+            selected_email = keys[idx]
+    elif target:
+        for email in accounts.keys():
+            if target.lower() in email.lower():
+                selected_email = email
+                break
+
+    if not selected_email:
+        print(f"{RED}Account '{target}' not found.{RESET}")
+        return
+
+    if not duration_str:
+        print(f"\n{BOLD}Preset Options:{RESET}")
+        print("  [1] 5 Hours (Standard 5-Hour Rolling Limit)")
+        print("  [2] Custom (e.g. '4h41m', '30m')")
+        print("  [3] Clear / Reset")
+        choice = input("\nSelect option or enter duration (default 5h): ").strip()
+        if choice == "1" or not choice:
+            duration_str = "5h"
+        elif choice == "3":
+            duration_str = "reset"
+        elif choice == "2":
+            duration_str = input("Enter duration (e.g. '4h41m'): ").strip()
+        else:
+            duration_str = choice
+
+    seconds = parse_duration_seconds(duration_str)
+    if seconds is None:
+        print(f"{RED}Invalid duration format. Use e.g. '5h', '4h41m', '30m', 'reset'.{RESET}")
+        return
+
+    if seconds == 0:
+        accounts[selected_email].pop("limit_reset", None)
+        save_accounts(accounts)
+        print(f"{GREEN}✔ Cleared rate limit cooldown timer for '{selected_email}'.{RESET}")
+        return
+
+    reset_time = datetime.now(timezone.utc) + timedelta(seconds=seconds)
+    accounts[selected_email]["limit_reset"] = reset_time.isoformat()
+    save_accounts(accounts)
+    
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    dur_fmt = f"{h}h {m}m" if h else f"{m}m"
+    print(f"{GREEN}✔ Set rate limit cooldown for '{selected_email}' to {reset_time.strftime('%H:%M:%S UTC')} (in {dur_fmt}).{RESET}")
+
 
 def cmd_switch(args):
     accounts = load_accounts()
@@ -508,7 +998,9 @@ def cmd_status(args):
 
     if active_email:
         acc = accounts[active_email]
+        limit_info = get_account_limit_display(acc)
         print(f"Active Account: {GREEN}{acc['name']} <{acc['email']}>{RESET}")
+        print(f"Limit / Reset Status: {limit_info}")
     else:
         token_json = decode_token(current_token)
         email = "Unknown (unsaved)"
@@ -516,7 +1008,10 @@ def cmd_status(args):
             userinfo = get_google_userinfo(token_json["token"]["access_token"])
             if userinfo:
                 email = userinfo.get("email", "Unknown")
+        limit_info = get_account_limit_display({"token_data": current_token})
         print(f"Active Account: {YELLOW}{email} (Not saved in agy-swap, run 'agy-swap add' to save it){RESET}")
+        print(f"Limit / Reset Status: {limit_info}")
+
 
 def cmd_logout(args):
     current_token = get_current_keychain_token()
@@ -562,18 +1057,36 @@ def cmd_interactive(args):
     def get_active_account_details(token_str, accounts):
         if not token_str:
             return None, None, False
+            
         for email, acc in accounts.items():
             if acc["token_data"] == token_str:
                 return email, acc["name"], True
-        if token_str in resolved_cache:
-            email, name = resolved_cache[token_str]
-            return email, name, False
+                
+        token_email, token_name = resolved_cache.get(token_str, (None, None))
+        if not token_email:
+            token_json = decode_token(token_str)
+            if token_json and "token" in token_json and "access_token" in token_json["token"]:
+                userinfo = get_google_userinfo(token_json["token"]["access_token"])
+                if userinfo:
+                    token_email = userinfo.get("email")
+                    token_name = userinfo.get("name", "Unknown User")
+                    resolved_cache[token_str] = (token_email, token_name)
+
+        if token_email:
+            for email, acc in accounts.items():
+                if email.lower() == token_email.lower():
+                    accounts[email]["token_data"] = token_str
+                    save_accounts(accounts)
+                    return email, acc["name"], True
+            return token_email, token_name, False
+
         return None, None, False
 
     try:
         selected_idx = 0
         message = ""
         message_type = "info"
+        current_sort_idx = 0
 
         while True:
             accounts = load_accounts()
@@ -582,7 +1095,7 @@ def cmd_interactive(args):
             if current_token and current_token not in resolved_cache:
                 found_in_accounts = False
                 for email, acc in accounts.items():
-                    if acc["token_data"] == current_token:
+                    if acc["token_data"] == current_token or email.lower() == str(resolved_cache.get(current_token, (None, ""))[0]).lower():
                         found_in_accounts = True
                         break
                 if not found_in_accounts:
@@ -598,66 +1111,124 @@ def cmd_interactive(args):
                                 resolved_cache[current_token] = (email, name)
             
             active_email, active_name, is_saved = get_active_account_details(current_token, accounts)
-            acc_list = list(accounts.values())
+            
+            sort_code, sort_name = SORT_MODES[current_sort_idx]
+            raw_list = list(accounts.values())
+            acc_list = sort_accounts(raw_list, mode=sort_code, active_email=active_email)
             
             items = []
             for acc in acc_list:
                 items.append(('account', f"{acc['name']} <{acc['email']}>", acc))
                 
-            items.append(('separator', f"{GRAY}────────────────────────────────────────────────────────{RESET}", None))
-            items.append(('action', "[+] Add Current Session", 'add'))
-            items.append(('action', "[-] Remove Account (Highlight + Delete)", 'remove'))
-            items.append(('action', "[ℹ] Check Session Status", 'status'))
+            items.append(('action', "[+] Log In & Add Account", 'add'))
+            items.append(('action', f"[🔀] Sort Order: {sort_name} (Press 'r')", 'sort'))
+            items.append(('action', "[-] Remove Highlighted Account", 'remove'))
+            items.append(('action', "[⏱] View Limit Resets & Quota Overview", 'limits'))
+            items.append(('action', "[⌛] Set Rate Limit Cooldown Timer", 'set_limit'))
+            items.append(('action', "[ℹ] Session Status Details", 'status'))
             items.append(('action', "[🔄] Update Switcher Script", 'update'))
             items.append(('action', "[🔓] Logout Active Session", 'logout'))
-            items.append(('action', "[❌] Quit", 'quit'))
+            items.append(('action', "[❌] Quit agy-swap", 'quit'))
 
             if selected_idx >= len(items):
                 selected_idx = len(items) - 1
             if selected_idx < 0:
                 selected_idx = 0
 
+            w = get_responsive_width()
             buf = []
-            buf.extend(print_header())
             
+            # --- HEADER PANEL ---
+            buf.append(tui_box_top("⚡ AGY-SWAP CONTROL CENTER", width=w))
+            buf.append(tui_box_line(f"{BOLD}{ORANGE}Google Antigravity Session Manager{RESET} {GRAY}(by @aklkbqx){RESET}", width=w))
+            buf.append(tui_box_mid(width=w))
             if active_email:
                 if is_saved:
-                    buf.append(f" {BOLD}Active Account:{RESET} {GREEN}● {active_name} <{active_email}>{RESET}")
+                    buf.append(tui_box_line(f"{BOLD}Active Session:{RESET} {GREEN}● {active_name} <{active_email}>{RESET} {GREEN}(Saved){RESET}", width=w))
                 else:
-                    buf.append(f" {BOLD}Active Account:{RESET} {YELLOW}● {active_email} (Not saved, press 'a' to save){RESET}")
+                    buf.append(tui_box_line(f"{BOLD}Active Session:{RESET} {YELLOW}● {active_email}{RESET} {YELLOW}(Unsaved, press 'a' to save){RESET}", width=w))
             else:
                 if current_token:
-                    buf.append(f" {BOLD}Active Account:{RESET} {YELLOW}● Unknown Session (Not saved, press 'a' to save){RESET}")
+                    buf.append(tui_box_line(f"{BOLD}Active Session:{RESET} {YELLOW}● Unknown Session{RESET} {YELLOW}(Unsaved, press 'a' to save){RESET}", width=w))
                 else:
-                    buf.append(f" {BOLD}Active Account:{RESET} {RED}○ Not logged in{RESET}")
-                
-            buf.append("")
-            buf.append(f" {GRAY}Arrows (↑/↓) to select. Enter to run. 'd' / Backspace to Delete:{RESET}")
+                    buf.append(tui_box_line(f"{BOLD}Active Session:{RESET} {RED}○ Not logged in{RESET}", width=w))
+            buf.append(tui_box_line(f"{GRAY}Managed Profiles: {BOLD}{BRIGHT_WHITE}{len(acc_list)}{RESET}", width=w))
+            buf.append(tui_box_bot(width=w))
             buf.append("")
 
-            for idx, (itype, label, val) in enumerate(items):
-                is_selected = (idx == selected_idx)
-                prefix = f"{ORANGE}❯{RESET} " if is_selected else "  "
-                
-                if itype == 'separator':
-                    buf.append(label)
-                    continue
+            # --- SAVED ACCOUNTS PANEL ---
+            buf.append(tui_box_top(f"MANAGED ACCOUNTS ({len(acc_list)} Total) [Sort: {sort_name}]", width=w))
+            if not acc_list:
+                buf.append(tui_box_line(f"{GRAY}No saved accounts yet. Select '[+] Log In & Add Account' below.{RESET}", width=w))
+
+            else:
+                for idx_acc, acc in enumerate(acc_list):
+                    item_idx = idx_acc
+                    is_selected = (item_idx == selected_idx)
+                    is_active = bool(active_email and acc["email"].lower() == active_email.lower())
                     
-                if itype == 'account':
-                    is_active = (val["token_data"] == current_token)
-                    marker = f"{GREEN}●{RESET} " if is_active else f"{GRAY}○{RESET} "
+                    cursor = f"{ORANGE}➜{RESET} " if is_selected else "  "
+                    marker = f"{GREEN}🟢{RESET}" if is_active else f"{GRAY}⚪{RESET}"
+                    active_badge = f" {GREEN}[ACTIVE]{RESET}" if is_active else ""
+                    
+                    limit_badge = get_account_limit_display(acc, is_active=is_active, current_token_str=current_token)
                     
                     if is_selected:
-                        line = f"{prefix}{marker}{BOLD}{BRIGHT_WHITE}{label}{RESET} {GREEN}(active){RESET}" if is_active else f"{prefix}{marker}{BOLD}{BRIGHT_WHITE}{label}{RESET}"
+                        line1 = f"{cursor}{marker} {BOLD}{BRIGHT_WHITE}{idx_acc+1}. {acc['name']}{RESET} <{acc['email']}>{active_badge}"
                     else:
-                        line = f"{prefix}{marker}{label} {GREEN}(active){RESET}" if is_active else f"{prefix}{marker}{GRAY}{label}{RESET}"
-                else:
-                    if is_selected:
-                        line = f"{prefix}{BOLD}{ORANGE}{label}{RESET}"
+                        line1 = f"{cursor}{marker} {idx_acc+1}. {acc['name']} <{acc['email']}>{active_badge}"
+                        
+                    line2 = f"   {GRAY}↳ Status: {limit_badge}{RESET}"
+                    buf.append(tui_box_line(line1, width=w))
+                    buf.append(tui_box_line(line2, width=w))
+                    if idx_acc < len(acc_list) - 1:
+                        sep = "─" * (w - 4)
+                        buf.append(tui_box_line(f"{DARK_GRAY}{sep}{RESET}", width=w))
+
+
+            buf.append(tui_box_bot(width=w))
+            buf.append("")
+
+            # --- QUICK ACTIONS PANEL ---
+            buf.append(tui_box_top("QUICK ACTIONS", width=w))
+            action_start_idx = len(acc_list)
+            actions = items[action_start_idx:]
+
+            if w >= 85:
+                half = (len(actions) + 1) // 2
+                col1 = actions[:half]
+                col2 = actions[half:]
+                col_width = (w - 6) // 2
+
+                for row_idx in range(half):
+                    idx1 = action_start_idx + row_idx
+                    item1 = col1[row_idx]
+                    is_sel1 = (idx1 == selected_idx)
+                    cur1 = f"{ORANGE}➜{RESET} " if is_sel1 else "  "
+                    lbl1 = f"{cur1}{BOLD}{ORANGE}{item1[1]}{RESET}" if is_sel1 else f"{cur1}{item1[1]}"
+                    v1_len = visible_len(lbl1)
+                    pad1 = max(0, col_width - v1_len)
+                    col1_str = f"{lbl1}{' ' * pad1}"
+
+                    if row_idx < len(col2):
+                        idx2 = action_start_idx + half + row_idx
+                        item2 = col2[row_idx]
+                        is_sel2 = (idx2 == selected_idx)
+                        cur2 = f"{ORANGE}➜{RESET} " if is_sel2 else "  "
+                        lbl2 = f"{cur2}{BOLD}{ORANGE}{item2[1]}{RESET}" if is_sel2 else f"{cur2}{item2[1]}"
+                        line_str = f"{col1_str}  {lbl2}"
                     else:
-                        line = f"{prefix}{label}"
-                buf.append(line)
-                
+                        line_str = col1_str
+                    buf.append(tui_box_line(line_str, width=w))
+            else:
+                for idx_act, (itype, label, val) in enumerate(actions, action_start_idx):
+                    is_selected = (idx_act == selected_idx)
+                    cursor = f"{ORANGE}➜{RESET} " if is_selected else "  "
+                    line = f"{cursor}{BOLD}{ORANGE}{label}{RESET}" if is_selected else f"{cursor}{label}"
+                    buf.append(tui_box_line(line, width=w))
+            buf.append(tui_box_bot(width=w))
+
+            # --- TOAST / FOOTER MSG ---
             buf.append("")
             if message:
                 if message_type == "success":
@@ -665,9 +1236,11 @@ def cmd_interactive(args):
                 elif message_type == "error":
                     buf.append(f" {RED}✘ {message}{RESET}")
                 else:
-                    buf.append(f" {BLUE}ℹ {message}{RESET}")
+                    buf.append(f" {CYAN}ℹ {message}{RESET}")
             else:
-                buf.append("")
+                buf.append(f" {GRAY}─── [↑/↓] Move │ [Enter] Select │ [r] Sort │ [a] Add │ [d] Delete │ [q] Quit ───{RESET}")
+
+
 
             sys.stdout.write("\033[H")
             for line in buf:
@@ -682,38 +1255,38 @@ def cmd_interactive(args):
                 selected_idx -= 1
                 if selected_idx < 0:
                     selected_idx = len(items) - 1
-                if items[selected_idx][0] == 'separator':
-                    selected_idx -= 1
             elif key == 'down':
                 selected_idx += 1
                 if selected_idx >= len(items):
                     selected_idx = 0
-                if items[selected_idx][0] == 'separator':
-                    selected_idx += 1
             elif key.isdigit():
                 num = int(key)
                 if 1 <= num <= len(acc_list):
                     selected_idx = num - 1
             elif key == 'a':
-                selected_idx = len(acc_list) + 1
+                selected_idx = len(acc_list)
             elif key == 'r':
-                selected_idx = len(acc_list) + 2
-            elif key == 's':
+                current_sort_idx = (current_sort_idx + 1) % len(SORT_MODES)
+                message = f"Sort order: {SORT_MODES[current_sort_idx][1]}"
+                message_type = "info"
+                continue
+            elif key == 't':
                 selected_idx = len(acc_list) + 3
-            elif key == 'u':
-                selected_idx = len(acc_list) + 4
             elif key == 'l':
+                selected_idx = len(acc_list) + 4
+            elif key == 's':
                 selected_idx = len(acc_list) + 5
+            elif key == 'u':
+                selected_idx = len(acc_list) + 6
+            elif key == 'o':
+                selected_idx = len(acc_list) + 7
             elif key in ('q', 'esc', '\x03', '\x04'):
                 break
             elif key in ('d', 'x', 'delete', 'backspace') and items[selected_idx][0] == 'account':
                 acc_to_del = items[selected_idx][2]
                 email_to_remove = acc_to_del["email"]
                 
-                message = f"Delete {email_to_remove}? Press 'y' to confirm, any other key to cancel"
-                message_type = "info"
-                
-                buf[-2] = f" {BLUE}ℹ {message}{RESET}"
+                buf[-1] = f" {RED}⚠️ Delete {email_to_remove}? Press [y] to confirm, any key to cancel.{RESET}"
                 sys.stdout.write("\033[H")
                 for line in buf:
                     sys.stdout.write(line + "\033[K\n")
@@ -734,10 +1307,10 @@ def cmd_interactive(args):
                 continue
             elif key in ('\r', '\n'):
                 itype, label, val = items[selected_idx]
-                sys.stdout.write("\033[?1049l\033[?25h")
-                sys.stdout.flush()
                 
                 if itype == 'account':
+                    sys.stdout.write("\033[?1049l\033[?25h")
+                    sys.stdout.flush()
                     acc = val
                     print(f"Switching account to {BLUE}{acc['name']} <{acc['email']}>{RESET}...")
                     with Spinner("Updating Keychain credentials..."):
@@ -750,51 +1323,34 @@ def cmd_interactive(args):
                         message = f"Failed to switch to {acc['email']}"
                         message_type = "error"
                 elif itype == 'action':
+                    if val == 'sort':
+                        current_sort_idx = (current_sort_idx + 1) % len(SORT_MODES)
+                        message = f"Sort order: {SORT_MODES[current_sort_idx][1]}"
+                        message_type = "info"
+                        continue
+
+                    sys.stdout.write("\033[?1049l\033[?25h")
+                    sys.stdout.flush()
+
                     if val == 'add':
-                        print(f"{BOLD}{ORANGE}--- Add Current Antigravity Session ---{RESET}")
-                        token_str = get_current_keychain_token()
-                        if not token_str:
-                            print(f"{RED}No active Antigravity session found in Keychain. Please login first via 'agy'.{RESET}")
-                            input("\nPress Enter to return...")
-                        else:
-                            token_json = decode_token(token_str)
-                            if not token_json or "token" not in token_json or "access_token" not in token_json["token"]:
-                                print(f"{RED}Could not parse active token.{RESET}")
-                                input("\nPress Enter to return...")
-                            else:
-                                access_token = token_json["token"]["access_token"]
-                                userinfo = None
-                                with Spinner("Fetching Google user details..."):
-                                    userinfo = get_google_userinfo(access_token)
-                                    time.sleep(0.4)
-                                
-                                if not userinfo:
-                                    print(f"{YELLOW}Could not fetch Google user info. Token might be expired.{RESET}")
-                                    email = input("Enter email manually: ").strip()
-                                    name = "Unknown User"
-                                else:
-                                    email = userinfo.get("email")
-                                    name = userinfo.get("name", "Unknown User")
-                                    print(f"Detected Session: {GREEN}{name} <{email}>{RESET}")
-                                
-                                if email:
-                                    accounts = load_accounts()
-                                    accounts[email] = {
-                                        "email": email,
-                                        "name": name,
-                                        "token_data": token_str
-                                    }
-                                    save_accounts(accounts)
-                                    print(f"\n{GREEN}✔ Account '{email}' added successfully.{RESET}")
-                                    time.sleep(1.0)
-                                    message = f"Account {email} added"
-                                    message_type = "success"
-                                else:
-                                    print(f"{RED}Email is required.{RESET}")
-                                    time.sleep(1.0)
+                        print(f"{BOLD}{ORANGE}--- Add / Login Account ---{RESET}")
+                        success, msg = cmd_add_flow()
+                        input("\nPress Enter to return...")
+                        message = msg
+                        message_type = "success" if success else "error"
+
+
                     elif val == 'remove':
                         message = "Highlight any account and press 'd', 'x' or Backspace to delete it."
                         message_type = "info"
+                    elif val == 'limits':
+                        print(f"{BOLD}{CYAN}--- Account Limit Resets & Quota Overview ---{RESET}")
+                        cmd_limits(None)
+                        input("\nPress Enter to return...")
+                    elif val == 'set_limit':
+                        print(f"{BOLD}{ORANGE}--- Set Account Limit Cooldown ---{RESET}")
+                        cmd_set_limit(argparse.Namespace(account=None, duration=None))
+                        input("\nPress Enter to return...")
                     elif val == 'status':
                         print(f"{BOLD}{BLUE}--- Session Status Details ---{RESET}")
                         cmd_status(None)
@@ -832,12 +1388,17 @@ def cmd_interactive(args):
         sys.stdout.write("\033[?1049l\033[?25h")
         sys.stdout.flush()
 
+
 def main():
     enable_windows_ansi()
     parser = argparse.ArgumentParser(description="Multi-Account Switcher for Google Antigravity CLI (agy)")
-    parser.add_argument("--add", action="store_true", help="Add current account to managed accounts")
+    parser.add_argument("--add", action="store_true", help="Log in & add a Google account to managed accounts")
     parser.add_argument("--token", metavar="BLOB|-", help="Import a go-keyring token blob instead of reading the active session ('-' = stdin). Use with --add.")
     parser.add_argument("--list", action="store_true", help="List all saved accounts")
+    parser.add_argument("--sort", choices=["active", "limit", "name", "email", "default"], default="active", help="Sort order for accounts list (active, limit, name, email, default)")
+    parser.add_argument("--limits", action="store_true", help="Display limit reset & token expiry status for all accounts")
+    parser.add_argument("--set-limit", dest="set_limit_account", metavar="ACCOUNT", help="Set rate limit cooldown for an account")
+    parser.add_argument("--duration", metavar="DURATION", help="Cooldown duration (e.g. '4h', '30m', 'reset') for --set-limit")
     parser.add_argument("--switch-to", dest="switch_to", metavar="ACCOUNT", help="Switch to specific account (email or number)")
     parser.add_argument("--switch", action="store_true", help="Rotate/interactive switch")
     parser.add_argument("--remove", dest="remove_account", metavar="ACCOUNT", help="Remove a saved account")
@@ -846,8 +1407,12 @@ def main():
     parser.add_argument("--update", action="store_true", help="Update the switcher script to the latest version")
 
     subparsers = parser.add_subparsers(dest="command", help="Subcommand to run")
-    subparsers.add_parser("add", help="Add current account")
-    subparsers.add_parser("list", help="List all saved accounts")
+    subparsers.add_parser("add", help="Log in & add a Google account")
+
+    list_parser = subparsers.add_parser("list", help="List all saved accounts")
+    list_parser.add_argument("--sort", choices=["active", "limit", "name", "email", "default"], default="active", help="Sort order")
+
+    subparsers.add_parser("limits", help="Display limit reset & token expiry status for all accounts")
     subparsers.add_parser("logout", help="Logout of active session")
     subparsers.add_parser("update", help="Update the switcher script")
     
@@ -859,12 +1424,25 @@ def main():
 
     subparsers.add_parser("status", help="Show active account details")
 
+    limit_parser = subparsers.add_parser("limit", help="Limit management commands")
+    limit_subparsers = limit_parser.add_subparsers(dest="limit_action", help="Limit subcommand")
+    set_parser = limit_subparsers.add_parser("set", help="Set rate limit cooldown for an account")
+    set_parser.add_argument("account", nargs="?", help="Account email or index")
+    set_parser.add_argument("duration", nargs="?", help="Duration e.g. 4h, 30m, reset")
+
     args = parser.parse_args()
 
     if args.add or args.command == "add" or args.token is not None:
         cmd_add(args)
     elif args.list or args.command == "list":
         cmd_list(args)
+    elif args.limits or args.command == "limits":
+        cmd_limits(args)
+    elif args.set_limit_account:
+        args.account = args.set_limit_account
+        cmd_set_limit(args)
+    elif args.command == "limit" and getattr(args, "limit_action", None) == "set":
+        cmd_set_limit(args)
     elif args.logout or args.command == "logout":
         cmd_logout(args)
     elif args.update or args.command == "update":
@@ -886,6 +1464,7 @@ def main():
         cmd_status(args)
     else:
         cmd_interactive(args)
+
 
 if __name__ == "__main__":
     main()
