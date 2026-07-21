@@ -17,7 +17,13 @@ fi
 TARGET_DIR="$HOME/.local/bin"
 mkdir -p "$TARGET_DIR"
 
-cp agy-swap "$TARGET_DIR/agy-swap"
+if [ -f "agy-swap" ]; then
+    cp agy-swap "$TARGET_DIR/agy-swap"
+else
+    echo -e "${BLUE}Downloading agy-swap from GitHub...${NC}"
+    curl -fsSL -o "$TARGET_DIR/agy-swap" https://raw.githubusercontent.com/aklkbqx/agy-swap/main/agy-swap
+fi
+
 chmod +x "$TARGET_DIR/agy-swap"
 
 echo -e "${GREEN}✔ agy-swap successfully installed to $TARGET_DIR/agy-swap${NC}"
