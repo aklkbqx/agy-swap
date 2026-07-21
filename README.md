@@ -2,6 +2,8 @@
 
 A minimal interactive account switcher (TUI) for Google Antigravity CLI (`agy`) on macOS.
 
+*Created and maintained by [@aklkbqx](https://github.com/aklkbqx)*
+
 ## Install
 
 ### Option 1: Via Homebrew (Recommended)

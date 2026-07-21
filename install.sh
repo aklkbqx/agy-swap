@@ -1,4 +1,5 @@
 #!/bin/bash
+# Install script for agy-swap by @aklkbqx (https://github.com/aklkbqx)
 set -e
 
 GREEN='\033[0;32m'

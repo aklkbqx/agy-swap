@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Created by @aklkbqx (https://github.com/aklkbqx)
+
 import os
 import sys
 import json
@@ -151,6 +153,7 @@ def print_header():
         f"{GRAY}┌────────────────────────────────────────────────────────┐{RESET}",
         f"{GRAY}│               {BOLD}{ORANGE}AGY ACCOUNT SWITCHER{RESET}{GRAY}                     │{RESET}",
         f"{GRAY}│        {GRAY}Google Antigravity Session Manager{RESET}{GRAY}              │{RESET}",
+        f"{GRAY}│        {GRAY}Created by @aklkbqx{RESET}{GRAY}                             │{RESET}",
         f"{GRAY}└────────────────────────────────────────────────────────┘{RESET}"
     ]
 
