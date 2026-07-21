@@ -10,6 +10,14 @@ cd agy-swap
 ./install.sh
 ```
 
+## Update
+
+To update to the latest version at any time, simply run:
+```bash
+agy-swap update
+```
+*(Or choose **`[🔄] Update Switcher Script`** inside the TUI dashboard)*
+
 ## Quick Start
 
 Simply run the command to launch the interactive dashboard:
