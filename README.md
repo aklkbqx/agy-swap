@@ -4,6 +4,18 @@ A minimal interactive account switcher (TUI) for Google Antigravity CLI (`agy`) 
 
 ## Install
 
+### Option 1: Via Homebrew (Recommended)
+```bash
+brew tap aklkbqx/tap
+brew install agy-swap
+```
+
+### Option 2: Curl One-liner (No Clone Required)
+```bash
+curl -fsSL https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash
+```
+
+### Option 3: Manual Clone
 ```bash
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
