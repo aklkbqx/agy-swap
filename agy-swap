@@ -14,7 +14,6 @@ import termios
 CONFIG_DIR = os.path.expanduser("~/.gemini/agy-swap")
 ACCOUNTS_FILE = os.path.join(CONFIG_DIR, "accounts.json")
 
-# 256-color ANSI Palettes
 ORANGE = "\033[38;5;208m"
 GREEN = "\033[38;5;78m"
 BLUE = "\033[38;5;75m"
@@ -335,7 +334,6 @@ def cmd_interactive(args):
         cmd_list(args)
         return
 
-    # Enter alternate screen buffer & hide cursor
     sys.stdout.write("\033[?1049h\033[?25l\033[H")
     sys.stdout.flush()
 
@@ -361,7 +359,6 @@ def cmd_interactive(args):
             accounts = load_accounts()
             current_token = get_current_keychain_token()
             
-            # Auto-resolve unsaved session details once
             if current_token and current_token not in resolved_cache:
                 found_in_accounts = False
                 for email, acc in accounts.items():
@@ -369,7 +366,6 @@ def cmd_interactive(args):
                         found_in_accounts = True
                         break
                 if not found_in_accounts:
-                    # Run search in alternate screen cleanly
                     sys.stdout.write("\033[H")
                     sys.stdout.flush()
                     with Spinner("Resolving active profile details..."):
@@ -382,7 +378,6 @@ def cmd_interactive(args):
                                 resolved_cache[current_token] = (email, name)
             
             active_email, active_name, is_saved = get_active_account_details(current_token, accounts)
-
             acc_list = list(accounts.values())
             
             items = []
@@ -435,7 +430,7 @@ def cmd_interactive(args):
                         line = f"{prefix}{marker}{BOLD}{BRIGHT_WHITE}{label}{RESET} {GREEN}(active){RESET}" if is_active else f"{prefix}{marker}{BOLD}{BRIGHT_WHITE}{label}{RESET}"
                     else:
                         line = f"{prefix}{marker}{label} {GREEN}(active){RESET}" if is_active else f"{prefix}{marker}{GRAY}{label}{RESET}"
-                else: # action
+                else:
                     if is_selected:
                         line = f"{prefix}{BOLD}{ORANGE}{label}{RESET}"
                     else:
@@ -453,7 +448,6 @@ def cmd_interactive(args):
             else:
                 buf.append("")
 
-            # Flicker-free draw using Alternate Screen Absolute Home
             sys.stdout.write("\033[H")
             for line in buf:
                 sys.stdout.write(line + "\033[K\n")
@@ -493,7 +487,6 @@ def cmd_interactive(args):
                 acc_to_del = items[selected_idx][2]
                 email_to_remove = acc_to_del["email"]
                 
-                # Render inline confirmation
                 message = f"Delete {email_to_remove}? Press 'y' to confirm, any other key to cancel"
                 message_type = "info"
                 
@@ -518,8 +511,6 @@ def cmd_interactive(args):
                 continue
             elif key in ('\r', '\n'):
                 itype, label, val = items[selected_idx]
-                
-                # Temporarily exit alternate screen to let commands print outputs or prompt inputs
                 sys.stdout.write("\033[?1049l\033[?25h")
                 sys.stdout.flush()
                 
@@ -603,20 +594,16 @@ def cmd_interactive(args):
                     elif val == 'quit':
                         break
                 
-                # Re-enter alternate screen buffer & hide cursor
                 sys.stdout.write("\033[?1049h\033[?25l\033[H")
                 sys.stdout.flush()
                 continue
             
     finally:
-        # Guarantee restore of normal terminal screen buffer & cursor visibility
         sys.stdout.write("\033[?1049l\033[?25h")
         sys.stdout.flush()
 
 def main():
     parser = argparse.ArgumentParser(description="Multi-Account Switcher for Google Antigravity CLI (agy)")
-    
-    # Flags
     parser.add_argument("--add", action="store_true", help="Add current account to managed accounts")
     parser.add_argument("--token", metavar="BLOB|-", help="Import a go-keyring token blob instead of reading the active session ('-' = stdin). Use with --add.")
     parser.add_argument("--list", action="store_true", help="List all saved accounts")
@@ -626,7 +613,6 @@ def main():
     parser.add_argument("--status", action="store_true", help="Show active account details")
     parser.add_argument("--logout", action="store_true", help="Logout of the active session")
 
-    # Subcommands
     subparsers = parser.add_subparsers(dest="command", help="Subcommand to run")
     subparsers.add_parser("add", help="Add current account")
     subparsers.add_parser("list", help="List all saved accounts")

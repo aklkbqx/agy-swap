@@ -1,37 +1,31 @@
 #!/bin/bash
 set -e
 
-# Colors for terminal styling
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 echo -e "${BLUE}Installing agy-swap...${NC}"
 
-# Check for python3
 if ! command -v python3 &> /dev/null; then
     echo -e "${RED}Error: python3 is not installed. Please install Python 3 first.${NC}"
     exit 1
 fi
 
-# Create target local bin directory if it doesn't exist
 TARGET_DIR="$HOME/.local/bin"
 mkdir -p "$TARGET_DIR"
 
-# Copy binary to destination and make it executable
 cp agy-swap "$TARGET_DIR/agy-swap"
 chmod +x "$TARGET_DIR/agy-swap"
 
 echo -e "${GREEN}✔ agy-swap successfully installed to $TARGET_DIR/agy-swap${NC}"
 
-# Path check and user guidance
 if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
     echo -e "\n${YELLOW}⚠ Note: $HOME/.local/bin is not in your PATH.${NC}"
     echo -e "To run 'agy-swap' globally from anywhere, add it to your shell configuration:"
     
-    # Detect current shell configuration file
     SHELL_RC=""
     if [[ "$SHELL" == */zsh ]]; then
         SHELL_RC="$HOME/.zshrc"
