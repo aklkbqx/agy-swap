@@ -1,6 +1,6 @@
 # agy-swap
 
-A minimal interactive account switcher (TUI) for Google Antigravity CLI (`agy`) on macOS.
+A minimal interactive account switcher (TUI) for Google Antigravity CLI (`agy`) on macOS, Linux, and Windows.
 
 [![Homebrew Formula](https://img.shields.io/badge/homebrew-agy--swap-brightgreen?style=flat-square&logo=homebrew)](https://github.com/aklkbqx/homebrew-tap)
 [![GitHub Stars](https://img.shields.io/github/stars/aklkbqx/agy-swap?style=flat-square&logo=github&color=orange)](https://github.com/aklkbqx/agy-swap/stargazers)
@@ -10,22 +10,25 @@ A minimal interactive account switcher (TUI) for Google Antigravity CLI (`agy`) 
 
 ## Install
 
-### Option 1: Via Homebrew (Recommended)
+### Option 1: Via Homebrew (Recommended for macOS)
 ```bash
 brew tap aklkbqx/tap
 brew install agy-swap
 ```
 
-### Option 2: Curl One-liner (No Clone Required)
+### Option 2: Curl One-liner (macOS & Linux)
 ```bash
 curl -fsSL https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash
 ```
 
-### Option 3: Manual Clone
+### Option 3: Manual Clone (macOS, Linux & Windows)
 ```bash
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
+# On macOS/Linux:
 ./install.sh
+# On Windows:
+# Just copy 'agy-swap' script to any directory in your PATH (as agy-swap or agy-swap.py)
 ```
 
 ## Update
