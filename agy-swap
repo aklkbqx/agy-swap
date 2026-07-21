@@ -329,6 +329,27 @@ def cmd_logout(args):
     )
     print(f"{GREEN}Successfully logged out of active session.{RESET}")
 
+def cmd_update(args):
+    url = "https://raw.githubusercontent.com/aklkbqx/agy-swap/main/agy-swap"
+    target = os.path.expanduser("~/.local/bin/agy-swap")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            content = response.read()
+        if not content:
+            print(f"{RED}Error: Empty update content received.{RESET}")
+            return False
+        temp_target = target + ".tmp"
+        with open(temp_target, "wb") as f:
+            f.write(content)
+        os.chmod(temp_target, 0o755)
+        os.replace(temp_target, target)
+        print(f"{GREEN}✔ agy-swap updated successfully!{RESET}")
+        return True
+    except Exception as e:
+        print(f"{RED}Failed to update: {e}{RESET}")
+        return False
+
 def cmd_interactive(args):
     if not sys.stdin.isatty():
         cmd_list(args)
@@ -388,6 +409,7 @@ def cmd_interactive(args):
             items.append(('action', "[+] Add Current Session", 'add'))
             items.append(('action', "[-] Remove Account (Highlight + Delete)", 'remove'))
             items.append(('action', "[ℹ] Check Session Status", 'status'))
+            items.append(('action', "[🔄] Update Switcher Script", 'update'))
             items.append(('action', "[🔓] Logout Active Session", 'logout'))
             items.append(('action', "[❌] Quit", 'quit'))
 
@@ -479,8 +501,10 @@ def cmd_interactive(args):
                 selected_idx = len(acc_list) + 2
             elif key == 's':
                 selected_idx = len(acc_list) + 3
-            elif key == 'l':
+            elif key == 'u':
                 selected_idx = len(acc_list) + 4
+            elif key == 'l':
+                selected_idx = len(acc_list) + 5
             elif key in ('q', 'esc', '\x03', '\x04'):
                 break
             elif key in ('d', 'x', 'delete', 'backspace') and items[selected_idx][0] == 'account':
@@ -576,6 +600,17 @@ def cmd_interactive(args):
                         print(f"{BOLD}{BLUE}--- Session Status Details ---{RESET}")
                         cmd_status(None)
                         input("\nPress Enter to return...")
+                    elif val == 'update':
+                        print(f"{BOLD}{ORANGE}--- Update Switcher Script ---{RESET}")
+                        with Spinner("Downloading latest version..."):
+                            success = cmd_update(None)
+                            time.sleep(0.5)
+                        if success:
+                            print(f"{GREEN}✔ Updated successfully! Please restart agy-swap.{RESET}")
+                            time.sleep(1.5)
+                            break
+                        else:
+                            input("\nPress Enter to return...")
                     elif val == 'logout':
                         print(f"{BOLD}{YELLOW}--- Logout Active Session ---{RESET}")
                         confirm = input("Confirm delete active password from Keychain? [y/N]: ").strip().lower()
@@ -612,11 +647,13 @@ def main():
     parser.add_argument("--remove", dest="remove_account", metavar="ACCOUNT", help="Remove a saved account")
     parser.add_argument("--status", action="store_true", help="Show active account details")
     parser.add_argument("--logout", action="store_true", help="Logout of the active session")
+    parser.add_argument("--update", action="store_true", help="Update the switcher script to the latest version")
 
     subparsers = parser.add_subparsers(dest="command", help="Subcommand to run")
     subparsers.add_parser("add", help="Add current account")
     subparsers.add_parser("list", help="List all saved accounts")
     subparsers.add_parser("logout", help="Logout of active session")
+    subparsers.add_parser("update", help="Update the switcher script")
     
     switch_parser = subparsers.add_parser("switch", help="Switch to an account")
     switch_parser.add_argument("account", nargs="?", help="Account email or index")
@@ -634,6 +671,8 @@ def main():
         cmd_list(args)
     elif args.logout or args.command == "logout":
         cmd_logout(args)
+    elif args.update or args.command == "update":
+        cmd_update(args)
     elif args.switch_to:
         args.account = args.switch_to
         cmd_switch(args)
