@@ -2,6 +2,10 @@
 
 A minimal interactive account switcher (TUI) for Google Antigravity CLI (`agy`) on macOS.
 
+[![Homebrew Formula](https://img.shields.io/badge/homebrew-agy--swap-brightgreen?style=flat-square&logo=homebrew)](https://github.com/aklkbqx/homebrew-tap)
+[![GitHub Stars](https://img.shields.io/github/stars/aklkbqx/agy-swap?style=flat-square&logo=github&color=orange)](https://github.com/aklkbqx/agy-swap/stargazers)
+[![GitHub License](https://img.shields.io/github/license/aklkbqx/agy-swap?style=flat-square&color=blue)](https://github.com/aklkbqx/agy-swap/blob/main/LICENSE)
+
 *Created and maintained by [@aklkbqx](https://github.com/aklkbqx)*
 
 ## Install
