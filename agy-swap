@@ -10,8 +10,7 @@ import base64
 import argparse
 import threading
 import time
-import tty
-import termios
+import platform
 
 CONFIG_DIR = os.path.expanduser("~/.gemini/agy-swap")
 ACCOUNTS_FILE = os.path.join(CONFIG_DIR, "accounts.json")
@@ -57,33 +56,204 @@ class Spinner:
         sys.stdout.write("\r\033[K")
         sys.stdout.flush()
 
-def get_current_keychain_token():
+def enable_windows_ansi():
+    if platform.system() == "Windows":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.GetStdHandle(-11)
+            mode = ctypes.c_ulong()
+            kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+            kernel32.SetConsoleMode(handle, mode.value | 0x0004)
+        except Exception:
+            pass
+
+def get_windows_credential():
+    try:
+        import ctypes
+        from ctypes import wintypes
+        Advapi32 = ctypes.windll.advapi32
+        target_name = "gemini:antigravity"
+        
+        class CREDENTIAL(ctypes.Structure):
+            _fields_ = [
+                ('Flags', wintypes.DWORD),
+                ('Type', wintypes.DWORD),
+                ('TargetName', wintypes.LPWSTR),
+                ('Comment', wintypes.LPWSTR),
+                ('LastWritten', ctypes.c_void_p),
+                ('CredentialBlobSize', wintypes.DWORD),
+                ('CredentialBlob', ctypes.c_char_p),
+                ('Persist', wintypes.DWORD),
+                ('AttributeCount', wintypes.DWORD),
+                ('Attributes', ctypes.c_void_p),
+                ('TargetAlias', wintypes.LPWSTR),
+                ('UserName', wintypes.LPWSTR)
+            ]
+        
+        pcred = ctypes.POINTER(CREDENTIAL)()
+        res = Advapi32.CredReadW(
+            ctypes.c_wchar_p(target_name),
+            wintypes.DWORD(1),
+            wintypes.DWORD(0),
+            ctypes.byref(pcred)
+        )
+        if res:
+            blob = pcred.contents.CredentialBlob[:pcred.contents.CredentialBlobSize]
+            Advapi32.CredFree(pcred)
+            return blob.decode('utf-8').strip()
+    except Exception:
+        pass
+    return None
+
+def set_windows_credential(value):
+    try:
+        import ctypes
+        from ctypes import wintypes
+        Advapi32 = ctypes.windll.advapi32
+        target_name = "gemini:antigravity"
+        
+        class CREDENTIAL(ctypes.Structure):
+            _fields_ = [
+                ('Flags', wintypes.DWORD),
+                ('Type', wintypes.DWORD),
+                ('TargetName', wintypes.LPWSTR),
+                ('Comment', wintypes.LPWSTR),
+                ('LastWritten', ctypes.c_void_p),
+                ('CredentialBlobSize', wintypes.DWORD),
+                ('CredentialBlob', ctypes.c_char_p),
+                ('Persist', wintypes.DWORD),
+                ('AttributeCount', wintypes.DWORD),
+                ('Attributes', ctypes.c_void_p),
+                ('TargetAlias', wintypes.LPWSTR),
+                ('UserName', wintypes.LPWSTR)
+            ]
+            
+        blob = value.encode('utf-8')
+        cred = CREDENTIAL(
+            Flags=0,
+            Type=1,
+            TargetName=target_name,
+            Comment=None,
+            LastWritten=None,
+            CredentialBlobSize=len(blob),
+            CredentialBlob=blob,
+            Persist=3,
+            AttributeCount=0,
+            Attributes=None,
+            TargetAlias=None,
+            UserName="antigravity"
+        )
+        res = Advapi32.CredWriteW(ctypes.byref(cred), wintypes.DWORD(0))
+        return bool(res)
+    except Exception:
+        return False
+
+def delete_windows_credential():
+    try:
+        import ctypes
+        from ctypes import wintypes
+        Advapi32 = ctypes.windll.advapi32
+        target_name = "gemini:antigravity"
+        res = Advapi32.CredDeleteW(
+            ctypes.c_wchar_p(target_name),
+            wintypes.DWORD(1),
+            wintypes.DWORD(0)
+        )
+        return bool(res)
+    except Exception:
+        return False
+
+def get_linux_credential():
     try:
         val = subprocess.check_output(
-            ["security", "find-generic-password", "-a", "antigravity", "-s", "gemini", "-w"],
+            ["secret-tool", "lookup", "service", "gemini", "username", "antigravity"],
             stderr=subprocess.DEVNULL
         ).decode("utf-8").strip()
         return val
-    except subprocess.CalledProcessError:
+    except Exception:
         return None
 
-def set_keychain_token(token_data_str):
+def set_linux_credential(token_data_str):
     try:
-        subprocess.run(
-            ["security", "delete-generic-password", "-a", "antigravity", "-s", "gemini"],
+        proc = subprocess.Popen(
+            ["secret-tool", "store", "--label=gemini", "service", "gemini", "username", "antigravity"],
+            stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
+        proc.communicate(input=token_data_str.encode('utf-8'))
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+def delete_linux_credential():
+    try:
         subprocess.run(
-            ["security", "add-generic-password", "-a", "antigravity", "-s", "gemini", "-w", token_data_str],
-            check=True,
+            ["secret-tool", "clear", "service", "gemini", "username", "antigravity"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
         return True
-    except subprocess.CalledProcessError as e:
-        print(f"{RED}Error updating Keychain: {e}{RESET}", file=sys.stderr)
+    except Exception:
         return False
+
+def get_current_keychain_token():
+    plat = platform.system()
+    if plat == "Darwin":
+        try:
+            val = subprocess.check_output(
+                ["security", "find-generic-password", "-a", "antigravity", "-s", "gemini", "-w"],
+                stderr=subprocess.DEVNULL
+            ).decode("utf-8").strip()
+            return val
+        except subprocess.CalledProcessError:
+            return None
+    elif plat == "Windows":
+        return get_windows_credential()
+    elif plat == "Linux":
+        return get_linux_credential()
+    return None
+
+def set_keychain_token(token_data_str):
+    plat = platform.system()
+    if plat == "Darwin":
+        try:
+            subprocess.run(
+                ["security", "delete-generic-password", "-a", "antigravity", "-s", "gemini"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            subprocess.run(
+                ["security", "add-generic-password", "-a", "antigravity", "-s", "gemini", "-w", token_data_str],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"{RED}Error updating Keychain: {e}{RESET}", file=sys.stderr)
+            return False
+    elif plat == "Windows":
+        return set_windows_credential(token_data_str)
+    elif plat == "Linux":
+        return set_linux_credential(token_data_str)
+    return False
+
+def delete_keychain_token():
+    plat = platform.system()
+    if plat == "Darwin":
+        res = subprocess.run(
+            ["security", "delete-generic-password", "-a", "antigravity", "-s", "gemini"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        return res.returncode == 0
+    elif plat == "Windows":
+        return delete_windows_credential()
+    elif plat == "Linux":
+        return delete_linux_credential()
+    return False
 
 def get_google_userinfo(access_token):
     try:
@@ -120,33 +290,61 @@ def decode_token(keychain_val):
         return None
 
 def get_key():
-    fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        ch = sys.stdin.read(1)
-        if ch == '\x1b':
-            ch2 = sys.stdin.read(1)
-            if ch2 == '[':
-                ch3 = sys.stdin.read(1)
-                if ch3 == 'A':
-                    return 'up'
-                elif ch3 == 'B':
-                    return 'down'
-                elif ch3 == 'C':
-                    return 'right'
-                elif ch3 == 'D':
-                    return 'left'
-                elif ch3 == '3':
-                    ch4 = sys.stdin.read(1)
-                    if ch4 == '~':
-                        return 'delete'
-            return 'esc'
-        elif ch in ('\x7f', '\x08'):
-            return 'backspace'
-        return ch
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    if platform.system() == "Windows":
+        import msvcrt
+        ch = msvcrt.getch()
+        if ch in (b'\x00', b'\xe0'):
+            ch2 = msvcrt.getch()
+            if ch2 == b'H':
+                return 'up'
+            elif ch2 == b'P':
+                return 'down'
+            elif ch2 == b'M':
+                return 'right'
+            elif ch2 == b'K':
+                return 'left'
+        else:
+            try:
+                char = ch.decode('utf-8')
+                if char in ('\r', '\n'):
+                    return '\r'
+                elif char in ('\x08', '\x7f'):
+                    return 'backspace'
+                elif char == '\x1b':
+                    return 'esc'
+                return char
+            except Exception:
+                return ''
+    else:
+        import tty
+        import termios
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+            if ch == '\x1b':
+                ch2 = sys.stdin.read(1)
+                if ch2 == '[':
+                    ch3 = sys.stdin.read(1)
+                    if ch3 == 'A':
+                        return 'up'
+                    elif ch3 == 'B':
+                        return 'down'
+                    elif ch3 == 'C':
+                        return 'right'
+                    elif ch3 == 'D':
+                        return 'left'
+                    elif ch3 == '3':
+                        ch4 = sys.stdin.read(1)
+                        if ch4 == '~':
+                            return 'delete'
+                return 'esc'
+            elif ch in ('\x7f', '\x08'):
+                return 'backspace'
+            return ch
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 def print_header():
     return [
@@ -325,16 +523,14 @@ def cmd_logout(args):
     if not current_token:
         print("You are already logged out.")
         return
-    subprocess.run(
-        ["security", "delete-generic-password", "-a", "antigravity", "-s", "gemini"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
-    )
+    delete_keychain_token()
     print(f"{GREEN}Successfully logged out of active session.{RESET}")
 
 def cmd_update(args):
     url = "https://raw.githubusercontent.com/aklkbqx/agy-swap/main/agy-swap"
-    target = os.path.expanduser("~/.local/bin/agy-swap")
+    target = os.path.abspath(sys.argv[0])
+    if not os.path.exists(target) or not os.access(target, os.W_OK):
+        target = os.path.expanduser("~/.local/bin/agy-swap")
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as response:
@@ -619,11 +815,7 @@ def cmd_interactive(args):
                         confirm = input("Confirm delete active password from Keychain? [y/N]: ").strip().lower()
                         if confirm == 'y':
                             with Spinner("Logging out..."):
-                                subprocess.run(
-                                    ["security", "delete-generic-password", "-a", "antigravity", "-s", "gemini"],
-                                    stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL
-                                )
+                                delete_keychain_token()
                                 time.sleep(0.5)
                             print(f"{GREEN}Logged out successfully.{RESET}")
                             time.sleep(1.0)
@@ -641,6 +833,7 @@ def cmd_interactive(args):
         sys.stdout.flush()
 
 def main():
+    enable_windows_ansi()
     parser = argparse.ArgumentParser(description="Multi-Account Switcher for Google Antigravity CLI (agy)")
     parser.add_argument("--add", action="store_true", help="Add current account to managed accounts")
     parser.add_argument("--token", metavar="BLOB|-", help="Import a go-keyring token blob instead of reading the active session ('-' = stdin). Use with --add.")
