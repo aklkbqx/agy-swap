@@ -360,6 +360,8 @@ def auto_scan_logs_for_limits():
                             existing = detected_limits[current_email].get(group)
                             if not existing or reset_dt > existing:
                                 detected_limits[current_email][group] = reset_dt
+                                # When 0% limit is hit, set percent to 0
+                                detected_limits[current_email][f"{group}_pct"] = 0
         except Exception:
             pass
             
@@ -396,11 +398,14 @@ def load_accounts(sync_logs=True):
             for acc_email, acc in accounts.items():
                 if acc_email.lower() == email:
                     for group_name, reset_dt in groups.items():
-                        target_key = f"limit_reset_{group_name}"
-                        new_iso = reset_dt.isoformat()
-                        if acc.get(target_key) != new_iso:
-                            acc[target_key] = new_iso
-                            changed = True
+                        if group_name.endswith("_pct"):
+                            acc[group_name] = reset_dt
+                        else:
+                            target_key = f"limit_reset_{group_name}"
+                            new_iso = reset_dt.isoformat()
+                            if acc.get(target_key) != new_iso:
+                                acc[target_key] = new_iso
+                                changed = True
 
         if changed:
             save_accounts(accounts)
@@ -460,7 +465,8 @@ def get_account_limit_display(acc, is_active=False, current_token_str=None):
         reset_val = acc.get(f"limit_reset_{group}")
         if not reset_val and group == "claude":
             reset_val = acc.get("limit_reset")
-        if reset_val:
+        pct = acc.get(f"{group}_pct", 0 if reset_val else 100)
+        if reset_val and pct == 0:
             try:
                 dt = datetime.fromisoformat(reset_val)
                 diff = (dt - now).total_seconds()
@@ -488,7 +494,7 @@ def get_avatar_badge(name, email):
     return f"\033[48;5;{bg_code}m\033[38;5;255m\033[1m {initials} \033[0m"
 
 def render_progress_bar(percent, width=12, is_limited=False):
-    percent = max(0, min(100, percent))
+    percent = max(0, min(100, int(percent)))
     filled_len = int(width * percent / 100)
     empty_len = width - filled_len
     
@@ -800,6 +806,21 @@ def cmd_set_limit(args):
         print(f"{RED}Account '{target}' not found.{RESET}")
         return
 
+    pct_input = input(f"Enter remaining Quota % for {model_group.title()} (0 for limit, 46 for 46%, default 0): ").strip()
+    pct = 0
+    if pct_input.isdigit():
+        pct = max(0, min(100, int(pct_input)))
+
+    if pct > 0:
+        accounts[selected_email][f"{model_group}_pct"] = pct
+        dur_input = input("Enter refresh reset time (e.g. '4h8m', default '4h8m'): ").strip() or "4h8m"
+        seconds = parse_duration_seconds(dur_input) or (4*3600 + 8*60)
+        reset_time = datetime.now(timezone.utc) + timedelta(seconds=seconds)
+        accounts[selected_email][f"limit_reset_{model_group}"] = reset_time.isoformat()
+        save_accounts(accounts)
+        print(f"{GREEN}✓ Updated {model_group.title()} remaining quota to {pct}% (Refreshes in {dur_input}).{RESET}")
+        return
+
     if not duration_str:
         print(f"\n{BOLD}Preset Cooldown Options for {model_group.title()}:{RESET}")
         print("  [1] 4 Hours 10 Mins (Standard Antigravity 5-Hour Cooldown)")
@@ -823,6 +844,7 @@ def cmd_set_limit(args):
     key = f"limit_reset_{model_group}"
     if seconds == 0:
         accounts[selected_email].pop(key, None)
+        accounts[selected_email].pop(f"{model_group}_pct", None)
         accounts[selected_email].pop("limit_reset", None)
         save_accounts(accounts)
         print(f"{GREEN}✓ Cleared rate limit cooldown for '{selected_email}'.{RESET}")
@@ -830,6 +852,7 @@ def cmd_set_limit(args):
 
     reset_time = datetime.now(timezone.utc) + timedelta(seconds=seconds)
     accounts[selected_email][key] = reset_time.isoformat()
+    accounts[selected_email][f"{model_group}_pct"] = 0
     save_accounts(accounts)
     
     h = seconds // 3600
@@ -936,8 +959,8 @@ def cmd_interactive(args):
                 items.append(("account", f"{acc['name']} <{acc['email']}>", acc))
 
             items.append(("action", "[a] Add Account", "add"))
-            items.append(("action", "[c] Set Cooldown (Claude/GPT)", "set_cooldown_claude"))
-            items.append(("action", "[g] Clear/Set Cooldown (Gemini)", "set_cooldown_gemini"))
+            items.append(("action", "[c] Set/Sync Quota (Claude/GPT)", "set_cooldown_claude"))
+            items.append(("action", "[g] Set/Sync Quota (Gemini)", "set_cooldown_gemini"))
             items.append(("action", "[d] Remove Account", "remove"))
             items.append(("action", "[i] Session Status", "status"))
             items.append(("action", "[q] Quit", "quit"))
@@ -986,7 +1009,7 @@ def cmd_interactive(args):
                     else:
                         buf.append(f" {cursor} {idx_num} {avatar} {dot} {acc['name']} {GRAY}<{acc['email']}>{RESET}  {limit_display}")
 
-            # --- COMPACT & NON-OVERFLOWING QUOTA TRACKER ---
+            # --- DYNAMIC EXACT QUOTA TRACKER ---
             if highlighted_acc:
                 buf.append("")
                 h_name = highlighted_acc.get("name", "Google User")
@@ -996,6 +1019,7 @@ def cmd_interactive(args):
 
                 # 1. Claude / GPT 5-Hour Limit
                 claude_reset = highlighted_acc.get("limit_reset_claude") or highlighted_acc.get("limit_reset")
+                claude_pct = highlighted_acc.get("claude_pct", 100)
                 claude_rem = 0
                 if claude_reset:
                     try:
@@ -1004,17 +1028,23 @@ def cmd_interactive(args):
                     except Exception:
                         pass
 
-                if claude_rem > 0:
+                if claude_rem > 0 and claude_pct == 0:
                     mins = int(claude_rem // 60)
                     dur = f"{mins // 60}h {mins % 60}m" if mins >= 60 else f"{mins}m"
                     bar = render_progress_bar(0, width=12, is_limited=True)
                     buf.append(f"   Claude/GPT 5h  {bar}  {RED}🔴 Limited ({dur}){RESET}")
+                elif claude_pct < 100 and claude_rem > 0:
+                    mins = int(claude_rem // 60)
+                    dur = f"{mins // 60}h {mins % 60}m" if mins >= 60 else f"{mins}m"
+                    bar = render_progress_bar(claude_pct, width=12)
+                    buf.append(f"   Claude/GPT 5h  {bar}  {YELLOW}Ready ({dur}){RESET}")
                 else:
                     bar = render_progress_bar(100, width=12)
                     buf.append(f"   Claude/GPT 5h  {bar}  {GREEN}Ready{RESET}")
 
                 # 2. Gemini 5-Hour Limit
                 gemini_reset = highlighted_acc.get("limit_reset_gemini")
+                gemini_pct = highlighted_acc.get("gemini_pct", 100)
                 gemini_rem = 0
                 if gemini_reset:
                     try:
@@ -1023,11 +1053,16 @@ def cmd_interactive(args):
                     except Exception:
                         pass
 
-                if gemini_rem > 0:
+                if gemini_rem > 0 and gemini_pct == 0:
                     mins = int(gemini_rem // 60)
                     dur = f"{mins // 60}h {mins % 60}m" if mins >= 60 else f"{mins}m"
                     bar = render_progress_bar(0, width=12, is_limited=True)
                     buf.append(f"   Gemini 5h      {bar}  {RED}🔴 Limited ({dur}){RESET}")
+                elif gemini_pct < 100 and gemini_rem > 0:
+                    mins = int(gemini_rem // 60)
+                    dur = f"{mins // 60}h {mins % 60}m" if mins >= 60 else f"{mins}m"
+                    bar = render_progress_bar(gemini_pct, width=12)
+                    buf.append(f"   Gemini 5h      {bar}  {YELLOW}Ready ({dur}){RESET}")
                 else:
                     bar = render_progress_bar(100, width=12)
                     buf.append(f"   Gemini 5h      {bar}  {GREEN}Ready{RESET}")
@@ -1153,7 +1188,7 @@ def cmd_interactive(args):
                     elif val == "set_cooldown_gemini":
                         if selected_idx < len(acc_list):
                             acc = items[selected_idx][2]
-                            cmd_set_limit(argparse.Namespace(account=acc["email"], duration="4h10m", group="gemini"))
+                            cmd_set_limit(argparse.Namespace(account=acc["email"], duration="4h8m", group="gemini"))
                         else:
                             cmd_set_limit(argparse.Namespace(account=None, duration=None, group="gemini"))
                         input("\nPress Enter to return...")
