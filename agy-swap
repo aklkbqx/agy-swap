@@ -962,7 +962,6 @@ def cmd_interactive(args):
             items.append(("action", "[c] Set/Sync Quota (Claude/GPT)", "set_cooldown_claude"))
             items.append(("action", "[g] Set/Sync Quota (Gemini)", "set_cooldown_gemini"))
             items.append(("action", "[d] Remove Account", "remove"))
-            items.append(("action", "[i] Session Status", "status"))
             items.append(("action", "[q] Quit", "quit"))
 
             if selected_idx >= len(items):
@@ -1094,7 +1093,7 @@ def cmd_interactive(args):
                 else:
                     buf.append(f" {CYAN}› {message}{RESET}")
             else:
-                buf.append(f" {GRAY}Navigate: [↑/↓] │ Select: [Enter] │ Shortcuts: [a, c, g, d, i, q]{RESET}")
+                buf.append(f" {GRAY}Navigate: [↑/↓] │ Select: [Enter] │ Shortcuts: [a, c, g, d, q]{RESET}")
 
             sys.stdout.write("\033[H")
             for line in buf:
@@ -1128,8 +1127,6 @@ def cmd_interactive(args):
                     pass
                 else:
                     selected_idx = len(acc_list) + 3
-            elif key == "i":
-                selected_idx = len(acc_list) + 4
             elif key in ("q", "esc", "\x03", "\x04"):
                 break
             elif key in ("backspace", "delete") and selected_idx < len(acc_list):
