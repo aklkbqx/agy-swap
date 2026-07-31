@@ -1,6 +1,7 @@
 # agy-swap
 
 [![Homebrew Formula](https://img.shields.io/badge/homebrew-agy--swap-brightgreen?style=flat-square&logo=homebrew)](https://github.com/aklkbqx/homebrew-tap)
+[[![Live Showcase](https://img.shields.io/badge/Live_Showcase-aklkbqx.github.io%2Fagy--swap-orange?style=flat-square&logo=googlechrome)](https://aklkbqx.github.io/agy-swap)
 [![GitHub Stars](https://img.shields.io/github/stars/aklkbqx/agy-swap?style=flat-square&logo=github&color=orange)](https://github.com/aklkbqx/agy-swap/stargazers)
 [![GitHub License](https://img.shields.io/github/license/aklkbqx/agy-swap?style=flat-square&color=blue)](https://github.com/aklkbqx/agy-swap/blob/main/LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-informational?style=flat-square)](https://github.com/aklkbqx/agy-swap)
