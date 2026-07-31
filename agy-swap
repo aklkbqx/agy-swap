@@ -15,6 +15,7 @@ import threading
 import time
 import platform
 import glob
+import shutil
 
 CONFIG_DIR = os.path.expanduser("~/.gemini/agy-swap")
 ACCOUNTS_FILE = os.path.join(CONFIG_DIR, "accounts.json")
@@ -28,6 +29,7 @@ CYAN = "\033[38;5;86m"
 GRAY = "\033[38;5;244m"
 DARK_GRAY = "\033[38;5;238m"
 BRIGHT_WHITE = "\033[38;5;255m"
+BG_DARK = "\033[48;5;236m"
 BOLD = "\033[1m"
 RESET = "\033[0m"
 
@@ -458,12 +460,43 @@ def get_account_limit_display(acc, is_active=False, current_token_str=None):
 
     return f"{GREEN}Ready{RESET}" if is_active else f"{GRAY}Ready{RESET}"
 
-import shutil
+def get_avatar_badge(name, email):
+    name_str = name.strip() if name else ""
+    parts = name_str.split()
+    if len(parts) >= 2 and parts[0] and parts[1]:
+        initials = (parts[0][0] + parts[1][0]).upper()
+    elif len(parts) == 1 and parts[0]:
+        initials = parts[0][:2].upper()
+    else:
+        initials = email[:2].upper() if email else "GU"
+
+    bg_colors = [166, 172, 64, 71, 133, 167, 31, 68]
+    bg_code = bg_colors[abs(hash(email)) % len(bg_colors)]
+    return f"\033[48;5;{bg_code}m\033[38;5;255m\033[1m {initials} \033[0m"
+
+def render_progress_bar(percent, width=16):
+    percent = max(0, min(100, percent))
+    filled_len = int(width * percent / 100)
+    empty_len = width - filled_len
+    
+    if percent > 50:
+        bar_color = GREEN
+    elif percent > 20:
+        bar_color = YELLOW
+    else:
+        bar_color = RED
+        
+    bar = f"{bar_color}{'█' * filled_len}{DARK_GRAY}{'░' * empty_len}{RESET}"
+    return f"[{bar}] {percent}%"
+
+def visible_len(text):
+    ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+    return len(ANSI_ESCAPE.sub("", text))
 
 def get_responsive_width():
     try:
         cols, _ = shutil.get_terminal_size((80, 24))
-        return max(50, min(cols - 2, 100))
+        return max(50, min(cols - 2, 110))
     except Exception:
         return 76
 
@@ -546,16 +579,18 @@ def cmd_add_flow():
         
     access_token = token_json["token"]["access_token"]
     new_userinfo = None
-    with Spinner("Fetching Google profile..."):
+    with Spinner("Fetching Google profile & avatar..."):
         new_userinfo = get_google_userinfo(access_token)
         
     accounts = load_accounts(sync_logs=False)
     if new_userinfo and new_userinfo.get("email"):
         email = new_userinfo.get("email")
         name = new_userinfo.get("name", "Google User")
+        picture = new_userinfo.get("picture", "")
         accounts[email] = {
             "email": email,
             "name": name,
+            "picture": picture,
             "token_data": new_token
         }
         save_accounts(accounts)
@@ -567,6 +602,7 @@ def cmd_add_flow():
             accounts[email] = {
                 "email": email,
                 "name": "Google User",
+                "picture": "",
                 "token_data": new_token
             }
             save_accounts(accounts)
@@ -591,15 +627,17 @@ def cmd_add(args):
             
         access_token = token_json["token"]["access_token"]
         userinfo = None
-        with Spinner("Fetching Google profile..."):
+        with Spinner("Fetching Google profile & avatar..."):
             userinfo = get_google_userinfo(access_token)
         
         if not userinfo:
             email = input("Enter email address manually: ").strip()
             name = "Google User"
+            picture = ""
         else:
             email = userinfo.get("email")
             name = userinfo.get("name", "Google User")
+            picture = userinfo.get("picture", "")
 
         if not email:
             print(f"{RED}Email address is required.{RESET}")
@@ -609,6 +647,7 @@ def cmd_add(args):
         accounts[email] = {
             "email": email,
             "name": name,
+            "picture": picture,
             "token_data": token_str
         }
         save_accounts(accounts)
@@ -708,12 +747,14 @@ def cmd_list(args):
     print(f"{GRAY}{'─'*65}{RESET}")
     for i, acc in enumerate(acc_list, 1):
         email = acc["email"]
+        name = acc.get("name", "Google User")
+        avatar = get_avatar_badge(name, email)
         is_active = bool(active_email and email.lower() == active_email.lower())
         marker = f"{GREEN}●{RESET}" if is_active else f"{GRAY}○{RESET}"
         active_str = f" {GREEN}(Active){RESET}" if is_active else ""
         limit_info = get_account_limit_display(acc, is_active=is_active, current_token_str=current_token)
-        print(f" {marker} [{i}] {BOLD}{acc['name']}{RESET} {GRAY}<{email}>{RESET}{active_str}")
-        print(f"     ↳ Status: {limit_info}")
+        print(f" {marker} [{i}] {avatar} {BOLD}{name}{RESET} {GRAY}<{email}>{RESET}{active_str}")
+        print(f"       ↳ Status: {limit_info}")
     print(f"{GRAY}{'─'*65}{RESET}\n")
 
 def cmd_limits(args):
@@ -728,11 +769,12 @@ def cmd_limits(args):
     for i, (email, acc) in enumerate(accounts.items(), 1):
         is_active = (acc.get("token_data") == current_token)
         active_str = f" {GREEN}(Active){RESET}" if is_active else ""
+        avatar = get_avatar_badge(acc.get("name", ""), email)
         
         token_info = get_token_reset_info(acc.get("token_data", ""))
         limit_reset = acc.get("limit_reset")
         
-        print(f"[{i}] {BOLD}{acc['name']}{RESET} {GRAY}<{acc['email']}>{RESET}{active_str}")
+        print(f"[{i}] {avatar} {BOLD}{acc.get('name', 'Google User')}{RESET} {GRAY}<{acc['email']}>{RESET}{active_str}")
         
         if limit_reset:
             try:
@@ -913,7 +955,8 @@ def cmd_status(args):
     if active_email and active_email in accounts:
         acc = accounts[active_email]
         limit_info = get_account_limit_display(acc, is_active=True, current_token_str=current_token)
-        print(f"Active Account: {GREEN}● {acc['name']}{RESET} {GRAY}<{acc['email']}>{RESET}")
+        avatar = get_avatar_badge(acc.get("name", ""), active_email)
+        print(f"Active Account: {avatar} {GREEN}● {acc['name']}{RESET} {GRAY}<{acc['email']}>{RESET}")
         print(f"Status: {limit_info}")
     else:
         email = active_email or "Unknown Session"
@@ -975,6 +1018,7 @@ def cmd_interactive(args):
             if userinfo:
                 e = userinfo.get("email")
                 n = userinfo.get("name", "Google User")
+                picture = userinfo.get("picture", "")
                 resolved_cache[token_str] = (e, n)
                 return e, n, False
         return None, None, False
@@ -1014,7 +1058,7 @@ def cmd_interactive(args):
                 selected_idx = 0
 
             w = get_responsive_width()
-            sep_line = f"{GRAY}{'─' * min(w, 76)}{RESET}"
+            sep_line = f"{GRAY}{'─' * min(w, 80)}{RESET}"
             buf = []
 
             buf.append(f"{BOLD}{ORANGE}AGY SWAP{RESET} {GRAY}· Google Antigravity Session Manager{RESET}")
@@ -1022,11 +1066,16 @@ def cmd_interactive(args):
 
             if active_email:
                 tag = f"{GREEN}(Saved){RESET}" if is_saved else f"{YELLOW}(Unsaved, press 'a' to save){RESET}"
-                buf.append(f" {BOLD}Active:{RESET} {GREEN}●{RESET} {active_name} {GRAY}<{active_email}>{RESET} {tag}")
+                avatar_active = get_avatar_badge(active_name, active_email)
+                buf.append(f" {BOLD}Active:{RESET} {GREEN}●{RESET} {avatar_active} {BOLD}{active_name}{RESET} {GRAY}<{active_email}>{RESET} {tag}")
             else:
                 buf.append(f" {BOLD}Active:{RESET} {GRAY}○ Not logged in{RESET}")
 
             buf.append("")
+            
+            # --- TWO PANEL LAYOUT (ACCOUNTS + QUOTA TRACKER) ---
+            highlighted_acc = acc_list[selected_idx] if selected_idx < len(acc_list) else (acc_list[0] if acc_list else None)
+
             buf.append(f" {BOLD}ACCOUNTS{RESET} {GRAY}({len(acc_list)} total · Sort: {sort_name}){RESET}")
 
             if not acc_list:
@@ -1038,14 +1087,47 @@ def cmd_interactive(args):
 
                     cursor = f"{ORANGE}❯{RESET}" if is_selected else " "
                     dot = f"{GREEN}●{RESET}" if is_active else f"{GRAY}○{RESET}"
+                    avatar = get_avatar_badge(acc.get("name", "Google User"), acc["email"])
 
                     limit_display = get_account_limit_display(acc, is_active=is_active, current_token_str=current_token)
-
                     idx_num = f"[{idx_acc + 1}]"
+
                     if is_selected:
-                        buf.append(f" {cursor} {idx_num} {dot} {BOLD}{BRIGHT_WHITE}{acc['name']}{RESET} {GRAY}<{acc['email']}>{RESET}  {limit_display}")
+                        buf.append(f" {cursor} {idx_num} {avatar} {dot} {BOLD}{BRIGHT_WHITE}{acc['name']}{RESET} {GRAY}<{acc['email']}>{RESET}  {limit_display}")
                     else:
-                        buf.append(f" {cursor} {idx_num} {dot} {acc['name']} {GRAY}<{acc['email']}>{RESET}  {limit_display}")
+                        buf.append(f" {cursor} {idx_num} {avatar} {dot} {acc['name']} {GRAY}<{acc['email']}>{RESET}  {limit_display}")
+
+            # --- QUOTA TRACKER PANEL FOR HIGHLIGHTED ACCOUNT ---
+            if highlighted_acc:
+                buf.append("")
+                h_name = highlighted_acc.get("name", "Google User")
+                h_email = highlighted_acc.get("email", "")
+                h_avatar = get_avatar_badge(h_name, h_email)
+                buf.append(f" {BOLD}QUOTA TRACKER{RESET} {GRAY}(Highlighted: {h_name}){RESET}")
+
+                limit_reset = highlighted_acc.get("limit_reset")
+                rem_secs = 0
+                if limit_reset:
+                    try:
+                        dt = datetime.fromisoformat(limit_reset)
+                        rem_secs = max(0, (dt - datetime.now(timezone.utc)).total_seconds())
+                    except Exception:
+                        rem_secs = 0
+
+                if rem_secs > 0:
+                    pct = max(0, min(100, int((rem_secs / (5 * 3600)) * 100)))
+                    mins = int(rem_secs // 60)
+                    dur = f"{mins // 60}h {mins % 60}m" if mins >= 60 else f"{mins}m"
+                    bar = render_progress_bar(100 - pct, width=18)
+                    buf.append(f"   5-Hour Quota  {bar}  {YELLOW}Cooldown ({dur}){RESET}")
+                else:
+                    bar = render_progress_bar(100, width=18)
+                    buf.append(f"   5-Hour Quota  {bar}  {GREEN}Ready (100% available){RESET}")
+
+                tok_info = get_token_reset_info(highlighted_acc.get("token_data", ""))
+                if tok_info:
+                    rem_str = tok_info.get("remaining_str", "Unknown")
+                    buf.append(f"   Token Expiry  {CYAN}{rem_str}{RESET}")
 
             buf.append("")
             buf.append(f" {BOLD}ACTIONS{RESET}")
