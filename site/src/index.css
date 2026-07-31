@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-mono: 'JetBrains Mono', monospace;
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  
+  body {
+    background-color: #09090B;
+    color: #FAFAFA;
+    font-family: var(--font-sans);
+    overflow-x: hidden;
+    selection-background-color: #FF6B00;
+    selection-color: #FFFFFF;
+  }
+}
+
+/* Glassmorphic utilities */
+.glass-panel {
+  background: rgba(18, 18, 23, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.glass-panel-hover {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-panel-hover:hover {
+  background: rgba(24, 24, 30, 0.85);
+  border-color: rgba(255, 107, 0, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 40px -10px rgba(0, 0, 0, 0.7), 0 0 20px -5px rgba(255, 107, 0, 0.15);
+}
+
+.glow-orange {
+  box-shadow: 0 0 30px -5px rgba(255, 107, 0, 0.25);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #09090B;
+}
+::-webkit-scrollbar-thumb {
+  background: #27272A;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3F3F46;
+}
