@@ -959,8 +959,6 @@ def cmd_interactive(args):
                 items.append(("account", f"{acc['name']} <{acc['email']}>", acc))
 
             items.append(("action", "[a] Add Account", "add"))
-            items.append(("action", "[c] Set/Sync Quota (Claude/GPT)", "set_cooldown_claude"))
-            items.append(("action", "[g] Set/Sync Quota (Gemini)", "set_cooldown_gemini"))
             items.append(("action", "[d] Remove Account", "remove"))
             items.append(("action", "[q] Quit", "quit"))
 
@@ -1093,7 +1091,7 @@ def cmd_interactive(args):
                 else:
                     buf.append(f" {CYAN}› {message}{RESET}")
             else:
-                buf.append(f" {GRAY}Navigate: [↑/↓] │ Select: [Enter] │ Shortcuts: [a, c, g, d, q]{RESET}")
+                buf.append(f" {GRAY}Navigate: [↑/↓] │ Select: [Enter] │ Shortcuts: [a, d, q]{RESET}")
 
             sys.stdout.write("\033[H")
             for line in buf:
@@ -1118,15 +1116,11 @@ def cmd_interactive(args):
                     selected_idx = num - 1
             elif key == "a":
                 selected_idx = len(acc_list)
-            elif key == "c":
-                selected_idx = len(acc_list) + 1
-            elif key == "g":
-                selected_idx = len(acc_list) + 2
             elif key == "d":
                 if selected_idx < len(acc_list):
                     pass
                 else:
-                    selected_idx = len(acc_list) + 3
+                    selected_idx = len(acc_list) + 1
             elif key in ("q", "esc", "\x03", "\x04"):
                 break
             elif key in ("backspace", "delete") and selected_idx < len(acc_list):
@@ -1175,20 +1169,7 @@ def cmd_interactive(args):
                         input("\nPress Enter to return...")
                         message = msg
                         message_type = "success" if success else "error"
-                    elif val == "set_cooldown_claude":
-                        if selected_idx < len(acc_list):
-                            acc = items[selected_idx][2]
-                            cmd_set_limit(argparse.Namespace(account=acc["email"], duration="4h10m", group="claude"))
-                        else:
-                            cmd_set_limit(argparse.Namespace(account=None, duration=None, group="claude"))
-                        input("\nPress Enter to return...")
-                    elif val == "set_cooldown_gemini":
-                        if selected_idx < len(acc_list):
-                            acc = items[selected_idx][2]
-                            cmd_set_limit(argparse.Namespace(account=acc["email"], duration="4h8m", group="gemini"))
-                        else:
-                            cmd_set_limit(argparse.Namespace(account=None, duration=None, group="gemini"))
-                        input("\nPress Enter to return...")
+
                     elif val == "remove":
                         if selected_idx < len(acc_list):
                             acc_to_del = items[selected_idx][2]
