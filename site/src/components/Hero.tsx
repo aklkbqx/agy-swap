@@ -36,7 +36,7 @@ export const Hero = () => {
             className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-zinc-900/90 border border-zinc-800 text-xs text-zinc-300 mb-8 backdrop-blur-md shadow-inner"
           >
             <span className="flex h-2 w-2 rounded-full bg-orange-500 animate-pulse" />
-            <span className="font-semibold text-zinc-200">v1.4.0 Released</span>
+            <span className="font-semibold text-zinc-200">v1.5.0 Released</span>
             <span className="text-zinc-600">|</span>
             <span className="text-zinc-400 font-mono">Smart Auto-Rotation Engine</span>
             <ChevronRight className="w-3.5 h-3.5 text-zinc-500" />

@@ -94,7 +94,7 @@ export const TuiSimulator = () => {
           <div className="p-6 text-zinc-300 leading-relaxed min-h-[380px] bg-[#0A0A0C]">
             <div className="flex items-center gap-2 mb-2">
               <span className="font-bold text-orange-400">AGY SWAP</span>
-              <span className="text-zinc-500">v1.4.0 · Google Antigravity Session Manager</span>
+              <span className="text-zinc-500">v1.5.0 · Google Antigravity Session Manager</span>
             </div>
             <div className="text-zinc-800 select-none mb-3">─────────────────────────────────────────────────────────────────────────────</div>
 
