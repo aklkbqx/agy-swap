@@ -19,7 +19,10 @@ import shutil
 
 CONFIG_DIR = os.path.expanduser("~/.gemini/agy-swap")
 ACCOUNTS_FILE = os.path.join(CONFIG_DIR, "accounts.json")
-VERSION = "1.4.0"
+OAUTH_FILE = os.path.expanduser("~/.gemini/antigravity-cli/antigravity-oauth-token")
+OAUTH_CREDS_FILE = os.path.expanduser("~/.gemini/oauth_creds.json")
+GOOGLE_ACCOUNTS_FILE = os.path.expanduser("~/.gemini/google_accounts.json")
+VERSION = "1.5.0"
 
 ORANGE = "\033[38;5;208m"
 GREEN = "\033[38;5;78m"
@@ -215,7 +218,12 @@ def get_current_keychain_token():
             ).decode("utf-8").strip()
             return val
         except subprocess.CalledProcessError:
-            return None
+            try:
+                raw = open(OAUTH_FILE, "rb").read()
+                json.loads(raw.decode("utf-8"))
+                return "go-keyring-base64:" + base64.b64encode(raw).decode("utf-8")
+            except Exception:
+                return None
     elif plat == "Windows":
         return get_windows_credential()
     elif plat == "Linux":
@@ -232,7 +240,7 @@ def set_keychain_token(token_data_str):
                 stderr=subprocess.DEVNULL
             )
             subprocess.run(
-                ["security", "add-generic-password", "-a", "antigravity", "-s", "gemini", "-w", token_data_str],
+                ["security", "add-generic-password", "-a", "antigravity", "-s", "gemini", "-w", token_data_str, "-A"],
                 check=True,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
@@ -246,6 +254,80 @@ def set_keychain_token(token_data_str):
     elif plat == "Linux":
         return set_linux_credential(token_data_str)
     return False
+
+
+def apply_account_token(token_data_str, email=None):
+    if not token_data_str:
+        return False
+
+    if not set_keychain_token(token_data_str):
+        if not write_oauth_file(token_data_str, email=email):
+            return False
+        return True
+
+    return write_oauth_file(token_data_str, email=email)
+
+
+def write_oauth_file(token_data_str, email=None):
+    token_json = decode_token(token_data_str)
+    if not token_json:
+        return False
+
+    try:
+        import tempfile
+
+        def atomic_write(path, data):
+            d = os.path.dirname(path)
+            os.makedirs(d, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(prefix=".tmp.", suffix=".json", dir=d)
+            try:
+                os.fchmod(fd, 0o600)
+                with os.fdopen(fd, "w") as f:
+                    json.dump(data, f)
+                os.replace(tmp, path)
+            except Exception:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
+
+        # 1) antigravity-oauth-token (raw JSON)
+        atomic_write(OAUTH_FILE, token_json)
+
+        # 2) oauth_creds.json (flat token format used directly by agy)
+        inner = token_json.get("token", {})
+        creds = {
+            "access_token": inner.get("access_token", ""),
+            "refresh_token": inner.get("refresh_token", ""),
+            "scope": inner.get("scope", "https://www.googleapis.com/auth/cloud-platform openid https://www.googleapis.com/auth/userinfo.email"),
+            "token_type": inner.get("token_type", "Bearer"),
+            "id_token": inner.get("id_token", ""),
+            "expiry_date": inner.get("expiry_date", 0),
+        }
+        atomic_write(OAUTH_CREDS_FILE, creds)
+
+        # 3) google_accounts.json (active account label shown by CLI)
+        if email:
+            ga = {"active": email, "old": []}
+            try:
+                if os.path.exists(GOOGLE_ACCOUNTS_FILE):
+                    with open(GOOGLE_ACCOUNTS_FILE) as f:
+                        existing = json.load(f)
+                    old_active = existing.get("active", "")
+                    old_list = existing.get("old", [])
+                    if not isinstance(old_list, list):
+                        old_list = []
+                    if old_active and old_active != email and old_active not in old_list:
+                        old_list = [old_active] + [x for x in old_list if x != email]
+                    ga = {"active": email, "old": old_list}
+            except Exception:
+                pass
+            atomic_write(GOOGLE_ACCOUNTS_FILE, ga)
+
+        return True
+    except Exception:
+        return False
 
 def delete_keychain_token():
     plat = platform.system()
@@ -458,6 +540,11 @@ def get_token_reset_info(token_data_str):
     except Exception:
         return None
 
+def get_tier_badge(acc):
+    if acc.get("is_pro"):
+        return f"{ORANGE}Pro{RESET}"
+    return f"{GRAY}Free{RESET}"
+
 def get_account_limit_display(acc, is_active=False, current_token_str=None):
     now = datetime.now(timezone.utc)
     parts = []
@@ -474,11 +561,14 @@ def get_account_limit_display(acc, is_active=False, current_token_str=None):
                 if diff > 0:
                     mins = int(diff // 60)
                     dur = f"{mins // 60}h{mins % 60}m" if mins >= 60 else f"{mins}m"
-                    parts.append(f"{RED}🔴 {label} ({dur}){RESET}")
+                    parts.append(f"{RED}! {label} ({dur}){RESET}")
             except Exception:
                 pass
 
-    return " ".join(parts) if parts else (f"{GREEN}Ready{RESET}" if is_active else f"{GRAY}Ready{RESET}")
+    tier = get_tier_badge(acc)
+    if parts:
+        return f"[{tier}] " + " ".join(parts)
+    return f"[{tier}] " + (f"{GREEN}Ready{RESET}" if is_active else f"{GRAY}Ready{RESET}")
 
 def get_avatar_badge(name, email):
     name_str = name.strip() if name else ""
@@ -609,30 +699,37 @@ def cmd_add_flow():
         email = new_userinfo.get("email")
         name = new_userinfo.get("name", "Google User")
         picture = new_userinfo.get("picture", "")
+        tier_input = input(f"\n{CYAN}Is this a Pro account? [y/N]: {RESET}").strip().lower()
+        is_pro = tier_input == "y"
         accounts[email] = {
             "email": email,
             "name": name,
             "picture": picture,
-            "token_data": new_token
+            "token_data": new_token,
+            "is_pro": is_pro,
         }
         save_accounts(accounts)
-        print(f"\n{GREEN}✓ Successfully saved account: {name} <{email}>{RESET}")
+        tier_label = f"{ORANGE}Pro{RESET}" if is_pro else f"{GRAY}Free{RESET}"
+        print(f"\n{GREEN}✓ Successfully saved account: {name} <{email}>{RESET} [{tier_label}]")
         return True, f"Added {email}"
     else:
         email = input("Enter account email manually: ").strip()
         if email:
+            tier_input = input(f"{CYAN}Is this a Pro account? [y/N]: {RESET}").strip().lower()
+            is_pro = tier_input == "y"
             accounts[email] = {
                 "email": email,
                 "name": "Google User",
                 "picture": "",
-                "token_data": new_token
+                "token_data": new_token,
+                "is_pro": is_pro,
             }
             save_accounts(accounts)
             print(f"\n{GREEN}✓ Saved account: {email}{RESET}")
             return True, f"Added {email}"
         else:
             if backup_token:
-                set_keychain_token(backup_token)
+                apply_account_token(backup_token)
             return False, "No email provided"
 
 def cmd_add(args):
@@ -666,11 +763,14 @@ def cmd_add(args):
             sys.exit(1)
 
         accounts = load_accounts(sync_logs=False)
+        tier_input = input(f"{CYAN}Is this a Pro account? [y/N]: {RESET}").strip().lower()
+        is_pro = tier_input == "y"
         accounts[email] = {
             "email": email,
             "name": name,
             "picture": picture,
-            "token_data": token_str
+            "token_data": token_str,
+            "is_pro": is_pro,
         }
         save_accounts(accounts)
         print(f"{GREEN}✓ Saved account '{email}'.{RESET}")
@@ -771,8 +871,8 @@ def cmd_next(args):
         next_acc = acc_list[(active_idx + 1) % n]
 
     print(f"Auto-rotating to ready account: {BOLD}{next_acc['name']}{RESET} {GRAY}<{next_acc['email']}>{RESET}...")
-    with Spinner("Updating Keychain token..."):
-        success = set_keychain_token(next_acc["token_data"])
+    with Spinner("Updating credentials..."):
+        success = apply_account_token(next_acc["token_data"], next_acc.get("email"))
         
     if success:
         print(f"{GREEN}✓ Successfully auto-rotated to {next_acc['email']}.{RESET}")
@@ -802,8 +902,8 @@ def cmd_switch(args):
 
     acc = accounts[selected_email]
     print(f"Switching to {BOLD}{acc['name']}{RESET} {GRAY}<{acc['email']}>{RESET}...")
-    with Spinner("Updating Keychain credentials..."):
-        success = set_keychain_token(acc["token_data"])
+    with Spinner("Updating credentials..."):
+        success = apply_account_token(acc["token_data"], acc.get("email"))
     if success:
         print(f"{GREEN}✓ Successfully switched to {acc['email']}.{RESET}")
     else:
@@ -1200,8 +1300,8 @@ def cmd_interactive(args):
                     sys.stdout.flush()
                     acc = val
                     print(f"Switching account to {BOLD}{acc['name']}{RESET} {GRAY}<{acc['email']}>{RESET}...")
-                    with Spinner("Updating Keychain token..."):
-                        success = set_keychain_token(acc["token_data"])
+                    with Spinner("Updating credentials..."):
+                        success = apply_account_token(acc["token_data"], acc.get("email"))
                         time.sleep(0.4)
                     if success:
                         message = f"Switched to {acc['email']}"
