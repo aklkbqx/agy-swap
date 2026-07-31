@@ -458,7 +458,9 @@ def get_account_limit_display(acc, is_active=False, current_token_str=None):
     parts = []
     
     for group, label in [("claude", "Claude/GPT"), ("gemini", "Gemini")]:
-        reset_val = acc.get(f"limit_reset_{group}") or acc.get("limit_reset")
+        reset_val = acc.get(f"limit_reset_{group}")
+        if not reset_val and group == "claude":
+            reset_val = acc.get("limit_reset")
         if reset_val:
             try:
                 dt = datetime.fromisoformat(reset_val)
