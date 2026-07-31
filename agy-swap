@@ -349,7 +349,6 @@ def auto_scan_logs_for_limits():
                         reset_dt = log_dt + timedelta(seconds=total_secs)
                         
                         if reset_dt > now:
-                            # Detect group: claude vs gemini
                             group = "claude"
                             line_lower = line.lower()
                             if "gemini" in line_lower or "flash" in line_lower or "pro" in line_lower:
@@ -457,7 +456,7 @@ def get_account_limit_display(acc, is_active=False, current_token_str=None):
     now = datetime.now(timezone.utc)
     parts = []
     
-    for group, label in [("claude", "Claude/GPT"), ("gemini", "Gemini")]:
+    for group, label in [("claude", "Claude"), ("gemini", "Gemini")]:
         reset_val = acc.get(f"limit_reset_{group}")
         if not reset_val and group == "claude":
             reset_val = acc.get("limit_reset")
@@ -467,12 +466,12 @@ def get_account_limit_display(acc, is_active=False, current_token_str=None):
                 diff = (dt - now).total_seconds()
                 if diff > 0:
                     mins = int(diff // 60)
-                    dur = f"{mins // 60}h {mins % 60}m" if mins >= 60 else f"{mins}m"
-                    parts.append(f"{RED}🔴 {label} Limit ({dur}){RESET}")
+                    dur = f"{mins // 60}h{mins % 60}m" if mins >= 60 else f"{mins}m"
+                    parts.append(f"{RED}🔴 {label} ({dur}){RESET}")
             except Exception:
                 pass
 
-    return " │ ".join(parts) if parts else (f"{GREEN}Ready{RESET}" if is_active else f"{GRAY}Ready{RESET}")
+    return " ".join(parts) if parts else (f"{GREEN}Ready{RESET}" if is_active else f"{GRAY}Ready{RESET}")
 
 def get_avatar_badge(name, email):
     name_str = name.strip() if name else ""
@@ -803,22 +802,22 @@ def cmd_set_limit(args):
 
     if not duration_str:
         print(f"\n{BOLD}Preset Cooldown Options for {model_group.title()}:{RESET}")
-        print("  [1] 4 Hours 15 Mins (Standard Antigravity 5-Hour Cooldown)")
-        print("  [2] Custom (e.g. '4h15m', '30m')")
+        print("  [1] 4 Hours 10 Mins (Standard Antigravity 5-Hour Cooldown)")
+        print("  [2] Custom (e.g. '4h10m', '30m')")
         print("  [3] Clear Cooldown")
-        choice = input("\nSelect option or enter duration (default 4h15m): ").strip()
+        choice = input("\nSelect option or enter duration (default 4h10m): ").strip()
         if choice == "1" or not choice:
-            duration_str = "4h15m"
+            duration_str = "4h10m"
         elif choice == "3":
             duration_str = "reset"
         elif choice == "2":
-            duration_str = input("Enter duration (e.g. '4h15m'): ").strip()
+            duration_str = input("Enter duration (e.g. '4h10m'): ").strip()
         else:
             duration_str = choice
 
     seconds = parse_duration_seconds(duration_str)
     if seconds is None:
-        print(f"{RED}Invalid duration format. Use e.g. '4h15m', '30m', 'reset'.{RESET}")
+        print(f"{RED}Invalid duration format. Use e.g. '4h10m', '30m', 'reset'.{RESET}")
         return
 
     key = f"limit_reset_{model_group}"
@@ -938,7 +937,7 @@ def cmd_interactive(args):
 
             items.append(("action", "[a] Add Account", "add"))
             items.append(("action", "[c] Set Cooldown (Claude/GPT)", "set_cooldown_claude"))
-            items.append(("action", "[g] Set Cooldown (Gemini)", "set_cooldown_gemini"))
+            items.append(("action", "[g] Clear/Set Cooldown (Gemini)", "set_cooldown_gemini"))
             items.append(("action", "[d] Remove Account", "remove"))
             items.append(("action", "[i] Session Status", "status"))
             items.append(("action", "[q] Quit", "quit"))
@@ -1011,10 +1010,10 @@ def cmd_interactive(args):
                     mins = int(claude_rem // 60)
                     dur = f"{mins // 60}h {mins % 60}m" if mins >= 60 else f"{mins}m"
                     bar = render_progress_bar(0, width=16, is_limited=True)
-                    buf.append(f"   Claude/GPT 5-Hour   {bar}   {RED}0.00% (Resets in {dur}){RESET}")
+                    buf.append(f"   Claude/GPT 5-Hour   {bar}   {RED}0.00% 🔴 Limited (Resets in {dur}){RESET}")
                 else:
                     bar = render_progress_bar(100, width=16)
-                    buf.append(f"   Claude/GPT 5-Hour   {bar} 100.00% (Ready){RESET}")
+                    buf.append(f"   Claude/GPT 5-Hour   {bar} 100.00% {GREEN}Ready{RESET}")
 
                 # 2. Gemini 5-Hour Limit
                 gemini_reset = highlighted_acc.get("limit_reset_gemini")
@@ -1030,11 +1029,11 @@ def cmd_interactive(args):
                     pct = max(0, min(100, int((gemini_rem / (5 * 3600)) * 100)))
                     mins = int(gemini_rem // 60)
                     dur = f"{mins // 60}h {mins % 60}m" if mins >= 60 else f"{mins}m"
-                    bar = render_progress_bar(100 - pct, width=16)
-                    buf.append(f"   Gemini 5-Hour       {bar}  {YELLOW}Cooldown ({dur}){RESET}")
+                    bar = render_progress_bar(0, width=16, is_limited=True)
+                    buf.append(f"   Gemini 5-Hour       {bar}   {RED}0.00% 🔴 Limited (Resets in {dur}){RESET}")
                 else:
                     bar = render_progress_bar(100, width=16)
-                    buf.append(f"   Gemini 5-Hour       {bar} 100.00% (Ready){RESET}")
+                    buf.append(f"   Gemini 5-Hour       {bar} 100.00% {GREEN}Ready{RESET}")
 
                 tok_info = get_token_reset_info(highlighted_acc.get("token_data", ""))
                 if tok_info:
@@ -1150,14 +1149,14 @@ def cmd_interactive(args):
                     elif val == "set_cooldown_claude":
                         if selected_idx < len(acc_list):
                             acc = items[selected_idx][2]
-                            cmd_set_limit(argparse.Namespace(account=acc["email"], duration="4h15m", group="claude"))
+                            cmd_set_limit(argparse.Namespace(account=acc["email"], duration="4h10m", group="claude"))
                         else:
                             cmd_set_limit(argparse.Namespace(account=None, duration=None, group="claude"))
                         input("\nPress Enter to return...")
                     elif val == "set_cooldown_gemini":
                         if selected_idx < len(acc_list):
                             acc = items[selected_idx][2]
-                            cmd_set_limit(argparse.Namespace(account=acc["email"], duration="4h15m", group="gemini"))
+                            cmd_set_limit(argparse.Namespace(account=acc["email"], duration="4h10m", group="gemini"))
                         else:
                             cmd_set_limit(argparse.Namespace(account=None, duration=None, group="gemini"))
                         input("\nPress Enter to return...")
