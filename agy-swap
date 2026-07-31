@@ -19,7 +19,7 @@ import shutil
 
 CONFIG_DIR = os.path.expanduser("~/.gemini/agy-swap")
 ACCOUNTS_FILE = os.path.join(CONFIG_DIR, "accounts.json")
-VERSION = "1.3.1"
+VERSION = "1.4.0"
 
 ORANGE = "\033[38;5;208m"
 GREEN = "\033[38;5;78m"
@@ -731,6 +731,54 @@ def cmd_list(args):
         print(f"       ↳ Status: {limit_info}")
     print(f"{GRAY}{'─'*65}{RESET}\n")
 
+def cmd_next(args):
+    accounts = load_accounts()
+    if not accounts:
+        print(f"{GRAY}No accounts found. Add one with 'agy-swap add' first.{RESET}")
+        sys.exit(1)
+
+    current_token = get_current_keychain_token()
+    active_email = get_active_account_email(accounts, current_token)
+    acc_list = list(accounts.values())
+    
+    if not acc_list:
+        print(f"{GRAY}No accounts available.{RESET}")
+        sys.exit(1)
+
+    # Find current active index
+    active_idx = -1
+    if active_email:
+        for idx, acc in enumerate(acc_list):
+            if acc.get("email", "").lower() == active_email.lower():
+                active_idx = idx
+                break
+
+    # Look for next ready account starting from active_idx + 1
+    n = len(acc_list)
+    next_acc = None
+    
+    for offset in range(1, n + 1):
+        candidate_idx = (active_idx + offset) % n
+        candidate = acc_list[candidate_idx]
+        limit_str = get_account_limit_display(candidate, is_active=False)
+        if "🔴" not in limit_str:
+            next_acc = candidate
+            break
+
+    if not next_acc:
+        # Fallback: Pick candidate with shortest cooldown
+        print(f"{YELLOW}All accounts are currently in Cooldown. Searching for shortest wait...{RESET}")
+        next_acc = acc_list[(active_idx + 1) % n]
+
+    print(f"Auto-rotating to ready account: {BOLD}{next_acc['name']}{RESET} {GRAY}<{next_acc['email']}>{RESET}...")
+    with Spinner("Updating Keychain token..."):
+        success = set_keychain_token(next_acc["token_data"])
+        
+    if success:
+        print(f"{GREEN}✓ Successfully auto-rotated to {next_acc['email']}.{RESET}")
+    else:
+        print(f"{RED}✕ Failed to rotate account.{RESET}")
+
 def cmd_switch(args):
     accounts = load_accounts()
     if not accounts:
@@ -1204,6 +1252,7 @@ def main():
     parser.add_argument("--add", action="store_true", help="Log in & add a Google account to managed accounts")
     parser.add_argument("--token", metavar="BLOB|-", help="Import a go-keyring token blob instead of reading active session ('-' = stdin). Use with --add.")
     parser.add_argument("--list", action="store_true", help="List all saved accounts")
+    parser.add_argument("--next", "--auto-rotate", action="store_true", help="Auto-rotate to next available ready account")
     parser.add_argument("--switch-to", dest="switch_to", metavar="ACCOUNT", help="Switch to specific account (email or number)")
     parser.add_argument("--switch", action="store_true", help="Rotate/interactive switch")
     parser.add_argument("--remove", dest="remove_account", metavar="ACCOUNT", help="Remove a saved account")
@@ -1214,6 +1263,7 @@ def main():
     subparsers.add_parser("add", help="Log in & add a Google account")
     subparsers.add_parser("list", help="List all saved accounts")
     subparsers.add_parser("logout", help="Logout of active session")
+    subparsers.add_parser("next", help="Auto-rotate to next ready account")
     
     switch_parser = subparsers.add_parser("switch", help="Switch to an account")
     switch_parser.add_argument("account", nargs="?", help="Account email or index")
@@ -1231,6 +1281,8 @@ def main():
         cmd_list(args)
     elif args.logout or args.command == "logout":
         cmd_logout(args)
+    elif args.next or args.command == "next":
+        cmd_next(args)
     elif args.switch_to:
         args.account = args.switch_to
         cmd_switch(args)
