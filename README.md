@@ -1,115 +1,109 @@
 # agy-swap
 
 [![Homebrew Formula](https://img.shields.io/badge/homebrew-agy--swap-brightgreen?style=flat-square&logo=homebrew)](https://github.com/aklkbqx/homebrew-tap)
-[[![Live Showcase](https://img.shields.io/badge/Live_Showcase-aklkbqx.github.io%2Fagy--swap-orange?style=flat-square&logo=googlechrome)](https://aklkbqx.github.io/agy-swap)
+[![Live Showcase](https://img.shields.io/badge/Live_Showcase-aklkbqx.github.io%2Fagy--swap-orange?style=flat-square&logo=googlechrome)](https://aklkbqx.github.io/agy-swap)
 [![GitHub Stars](https://img.shields.io/github/stars/aklkbqx/agy-swap?style=flat-square&logo=github&color=orange)](https://github.com/aklkbqx/agy-swap/stargazers)
 [![GitHub License](https://img.shields.io/github/license/aklkbqx/agy-swap?style=flat-square&color=blue)](https://github.com/aklkbqx/agy-swap/blob/main/LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-informational?style=flat-square)](https://github.com/aklkbqx/agy-swap)
 
-> **A minimal, lightning-fast multi-account switcher & quota tracker (TUI) for Google Antigravity CLI (`agy`) on macOS, Linux, and Windows.**
+A small, dependency-free Python account switcher and quota monitor for Google Antigravity CLI (`agy`).
 
-*Created & maintained by [@aklkbqx](https://github.com/aklkbqx)*
+## What it does
 
----
+- Switches saved Google Antigravity OAuth sessions without repeating browser login.
+- Provides a keyboard-driven terminal interface and scriptable subcommands.
+- Fetches the same Google Code Assist quota summary used by `agy`, including real remaining percentages, reset times and subscription tier.
+- Keeps model-specific cooldowns from recent local Antigravity logs as a fallback when Google usage cannot be refreshed.
+- Stores saved profiles in an owner-only local file (`0700` directory, `0600` file) and mirrors the active session to the native OS credential store when available.
+- Uses only the Python standard library; Linux native credential integration additionally requires `secret-tool`.
 
-## 🌟 Key Features
+Google quota is grouped into Gemini and Claude/GPT model families. Paid accounts currently expose weekly and 5-hour buckets; Free accounts expose weekly buckets only. `agy-swap` renders only buckets returned by Google, so it never invents a 5-hour Free limit or a synthetic `100% Ready` state.
 
-- ⚡ **Instant Account Switching**: Switch active Google Antigravity (`agy`) profiles in seconds without re-authenticating in your browser.
-- 🎨 **Minimalist TUI**: Ultra-clean terminal interface with zero clutter, clean hotkeys, and smooth micro-animations.
-- ⏱️ **Rate Limit & Quota Tracker**: Automatically parses local Antigravity logs to track 5-hour rolling limits, weekly quotas, and exact cooldown resets.
-- 🔐 **Secure Keychain Integration**: Works directly with macOS Keychain, Linux Secret Service, and Windows Credential Manager.
-- 🚀 **Zero Dependencies**: Pure Python standard library implementation. No `pip install` required.
+Quota snapshots are cached for five minutes. If refresh fails, the previous snapshot is preserved and local cooldown evidence remains available as a clearly labelled fallback.
 
----
+## Installation
 
-## 📦 Installation
+### Homebrew (recommended on macOS)
 
-### Option 1: Via Homebrew (Recommended for macOS)
 ```bash
 brew tap aklkbqx/tap
 brew install agy-swap
 ```
 
-### Option 2: Curl One-liner (macOS & Linux)
+### Verified installer (macOS and Linux)
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash
+curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash
 ```
 
-### Option 3: Manual Clone (macOS, Linux & Windows)
+The installer downloads the version-pinned script, verifies its SHA-256 checksum and installs it atomically to `~/.local/bin/agy-swap`. Re-run the same command to update to the version published by the latest release.
+
+### Clone
+
 ```bash
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-# On macOS / Linux:
 ./install.sh
-# On Windows:
-# Copy 'agy-swap' to any folder in your PATH (e.g., C:\Windows\System32 or custom bin)
 ```
 
----
+Windows users can copy `agy-swap` to a directory in `PATH`; Python 3 is required on every platform.
 
-## 🚀 Quick Start
+## Interactive controls
 
-Launch the interactive dashboard:
-```bash
-agy-swap
-```
-
-### ⌨️ Interactive TUI Navigation & Hotkeys:
+Run `agy-swap` to open the TUI.
 
 | Key | Action |
 | :--- | :--- |
-| `↑` / `↓` | Navigate accounts and actions |
-| `Enter` | Switch active account immediately |
-| `[1-9]` | Jump directly to account number |
-| `a` | Add / Login new Google account |
-| `s` | Cycle sort order (*Active First, Cooldown, A-Z*) |
-| `d` / `Backspace` | Delete highlighted account |
-| `l` | View Quota Limit Resets & Expiry details |
-| `t` | Set custom rate limit cooldown timer |
-| `i` | Show current active session details |
-| `u` | Auto-update `agy-swap` to latest version |
-| `x` | Logout active session |
-| `q` / `Esc` | Quit dashboard |
+| `↑` / `↓` | Move between accounts and actions |
+| `Enter` | Switch to the selected account |
+| `1`–`9` | Select an account by number |
+| `a` | Add or log in to an account |
+| `r` | Refresh quota for every saved account with progress |
+| `t` | Cycle the fallback manual tier label when Google usage is unavailable |
+| `d` / `Backspace` | Delete the selected account after confirmation |
+| `q` / `Esc` | Quit |
 
----
-
-## 🛠️ CLI Command Reference
-
-`agy-swap` can also be used directly from non-interactive terminal scripts or automated workflows:
+## CLI commands
 
 ```bash
-# Switch to account by index number or email substring
+agy-swap list
 agy-swap switch 2
 agy-swap switch user@gmail.com
-
-# List all managed accounts
-agy-swap list
-
-# Display quota limits and token expiry
+agy-swap next
+agy-swap next --family claude
 agy-swap limits
-
-# Set manual rate limit cooldown (e.g. 5h, 4h30m, reset)
-agy-swap limit set 1 5h
-
-# Show active session details
+agy-swap limits --refresh
+agy-swap limits --verbose
+agy-swap limit set 1 6d --group claude
+agy-swap limit set user@gmail.com 4h30m --group gemini
+agy-swap limit set user@gmail.com 2h --group gpt
+agy-swap limit set 1 reset --group claude
 agy-swap status
-
-# Update switcher script to latest version
-agy-swap update
+agy-swap logout
 ```
 
----
+Importing a token is stdin-only so it does not appear in shell history or process arguments:
 
-## 🔄 Updating agy-swap
-
-Update to the latest version anytime:
 ```bash
-agy-swap update
+printf '%s' "$TOKEN" | agy-swap add --token -
 ```
-*(Or press **`u`** inside the TUI dashboard)*
 
----
+Failed credential operations return a non-zero exit status, and ambiguous email substrings are rejected.
 
-## 📄 License
+The first v1.6 load preserves legacy v1.5 quota fields under `legacy_quota` but ignores them because those records did not identify their source or exact model. Subscription tier labels are synced from Google with paid tier taking precedence over the accompanying Free tier; a manual label is used only when no Google snapshot exists.
 
-Distributed under the [MIT License](LICENSE).
+`next` uses Google quota first and falls back to observed cooldowns. Use `--family claude`, `--family gemini`, or `--family gpt` to route against the matching Google quota group. `limits --verbose` shows quota sync age and sanitized fallback-log provenance without exposing full local paths.
+
+Log evidence is reconciled by account and canonical model ID. A newer confirmed model response removes an older cooldown, while failed streams remain limited even though Antigravity logs both success and failure as `Stream completed`.
+
+## Security notes
+
+- Saved account data contains reusable OAuth credentials. `agy-swap` protects the directory and files with owner-only permissions and writes them atomically with a protected backup.
+- Quota refresh sends the saved refresh token only to Google's OAuth endpoint, verifies the returned account identity, then requests quota from Google's Code Assist API.
+- `logout` removes the active OS credential and all active OAuth files, but intentionally keeps saved profiles so they can be selected later.
+- Session-changing commands use a cross-process lock so simultaneous `switch`, `next`, `logout`, and login operations cannot overwrite one another.
+- Do not share `~/.gemini/agy-swap/accounts.json` or its `.bak` file.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

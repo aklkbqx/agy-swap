@@ -1,28 +1,39 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
 import { Copy, Check } from 'lucide-react';
 
 const commandsList = [
   { cmd: "agy-swap", desc: "Launch interactive TUI session manager", detail: "Opens terminal interface with arrow key navigation" },
-  { cmd: "agy-swap next", desc: "Auto-rotate to next ready account", detail: "Skips rate-limited accounts automatically (1-Click)" },
-  { cmd: "agy-swap list", desc: "List all saved accounts & active status", detail: "Shows avatar badges and dual-model quota limits" },
+  { cmd: "agy-swap next", desc: "Rotate to an account without an observed cooldown", detail: "Falls back to the shortest known wait when all are limited" },
+  { cmd: "agy-swap next --family claude", desc: "Rotate for one model family", detail: "Also accepts gemini or gpt without treating other-family cooldowns as account-wide" },
+  { cmd: "agy-swap list", desc: "List all saved accounts & active status", detail: "Shows time-based cooldown bars without inventing remaining quota" },
   { cmd: "agy-swap switch <target>", desc: "Switch directly to an account by email or index", detail: "Fast 1-liner credential rotation" },
   { cmd: "agy-swap add", desc: "Log in & save a new Google account", detail: "OAuth browser flow + profile avatar fetching" },
-  { cmd: "agy-swap update", desc: "Update agy-swap script to latest release", detail: "Checks remote GitHub version and self-upgrades" },
+  { cmd: "agy-swap limits --verbose", desc: "Show cooldown evidence", detail: "Includes observation time and sanitized source filename without exposing local paths" },
+  { cmd: "agy-swap limit set 1 6d --group claude", desc: "Set a manual cooldown", detail: "Supports Claude, Gemini and GPT with durations up to seven days" },
+  { cmd: "agy-swap logout", desc: "Remove the active session", detail: "Clears the OS credential and active OAuth files" },
   { cmd: "agy-swap --version", desc: "Display current agy-swap version", detail: "Prints current semantic version string" }
 ];
 
 export const CommandsTable = () => {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [failedIndex, setFailedIndex] = useState<number | null>(null);
 
-  const handleCopy = (cmdText: string, index: number) => {
-    navigator.clipboard.writeText(cmdText);
-    setCopiedIndex(index);
-    setTimeout(() => setCopiedIndex(null), 2000);
+  const handleCopy = async (cmdText: string, index: number) => {
+    try {
+      await navigator.clipboard.writeText(cmdText);
+      setCopiedIndex(index);
+      setFailedIndex(null);
+    } catch {
+      setFailedIndex(index);
+    }
+    window.setTimeout(() => {
+      setCopiedIndex(null);
+      setFailedIndex(null);
+    }, 2000);
   };
 
   return (
-    <section id="commands" className="py-20 relative z-10">
+    <section id="commands" className="scroll-mt-24 py-20 relative z-10">
       <div className="max-w-5xl mx-auto px-6">
         <div className="text-center mb-12">
           <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight mb-3">
@@ -33,13 +44,7 @@ export const CommandsTable = () => {
           </p>
         </div>
 
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5 }}
-          className="glass-panel rounded-2xl border border-white/10 overflow-hidden shadow-2xl"
-        >
+        <div className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/60 shadow-xl">
           <div className="divide-y divide-zinc-800/80">
             {commandsList.map((item, idx) => (
               <div 
@@ -53,29 +58,31 @@ export const CommandsTable = () => {
                     </span>
                   </div>
                   <div className="text-sm font-medium text-white">{item.desc}</div>
-                  <div className="text-xs text-zinc-500">{item.detail}</div>
+                  <div className="text-xs text-zinc-400">{item.detail}</div>
                 </div>
 
                 <button 
+                  type="button"
                   onClick={() => handleCopy(item.cmd, idx)}
+                  aria-label={`Copy command: ${item.cmd}`}
                   className="self-start sm:self-center flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white text-xs font-mono transition-all"
                 >
                   {copiedIndex === idx ? (
                     <>
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <Check aria-hidden="true" className="w-3.5 h-3.5 text-emerald-400" />
                       <span className="text-emerald-400">Copied</span>
                     </>
                   ) : (
                     <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Copy</span>
+                      <Copy aria-hidden="true" className="w-3.5 h-3.5" />
+                      <span>{failedIndex === idx ? 'Copy failed' : 'Copy'}</span>
                     </>
                   )}
                 </button>
               </div>
             ))}
           </div>
-        </motion.div>
+        </div>
       </div>
     </section>
   );

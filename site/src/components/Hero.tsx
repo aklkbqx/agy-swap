@@ -1,144 +1,61 @@
 import { useState } from 'react';
-import { motion, useScroll, useTransform } from 'framer-motion';
-import { Copy, Check, Terminal, Zap, Shield, ChevronRight, Activity } from 'lucide-react';
+import { Check, Copy, Terminal, X } from 'lucide-react';
+import { APP_VERSION } from '../version';
+
+type CopyState = 'idle' | 'copied' | 'error';
 
 export const Hero = () => {
-  const [copied, setCopied] = useState(false);
-  const { scrollY } = useScroll();
-  
-  const yBackground = useTransform(scrollY, [0, 500], [0, 150]);
-  const yHeroText = useTransform(scrollY, [0, 500], [0, -50]);
-  const opacityHero = useTransform(scrollY, [0, 300], [1, 0.4]);
+  const [copyState, setCopyState] = useState<CopyState>('idle');
+  const command = "curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash";
 
-  const command = "curl -fsSL https://raw.githubusercontent.com/aklkbqx/agy-swap/main/agy-swap -o ~/.local/libexec/agy-swap && chmod +x ~/.local/libexec/agy-swap";
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(command);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopyState('copied');
+    } catch {
+      setCopyState('error');
+    }
+    window.setTimeout(() => setCopyState('idle'), 2000);
   };
 
   return (
-    <section className="relative pt-36 pb-20 overflow-hidden min-h-[90vh] flex flex-col justify-center">
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,#1f1f2e0f_1px,transparent_1px),linear-gradient(to_bottom,#1f1f2e0f_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] pointer-events-none" />
+    <section className="relative flex min-h-[78vh] flex-col justify-center overflow-hidden border-b border-zinc-800 pt-32 pb-20">
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,#27272a33_1px,transparent_1px),linear-gradient(to_bottom,#27272a33_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:linear-gradient(to_bottom,#000,transparent_80%)]" />
 
-      <motion.div 
-        style={{ y: yBackground }}
-        className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-gradient-to-tr from-amber-600/15 to-orange-500/20 blur-[130px] rounded-full pointer-events-none"
-      />
+      <div className="relative z-10 mx-auto w-full max-w-5xl px-6 text-center">
+        <div className="mb-7 inline-flex items-center gap-2 rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 font-mono text-xs text-zinc-300">
+          <Terminal aria-hidden="true" className="h-3.5 w-3.5 text-orange-400" />
+          <span>agy-swap v{APP_VERSION}</span>
+        </div>
 
-      <div className="max-w-5xl mx-auto px-6 relative z-10 text-center">
-        <motion.div style={{ y: yHeroText, opacity: opacityHero }}>
-          <motion.div 
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-zinc-900/90 border border-zinc-800 text-xs text-zinc-300 mb-8 backdrop-blur-md shadow-inner"
-          >
-            <span className="flex h-2 w-2 rounded-full bg-orange-500 animate-pulse" />
-            <span className="font-semibold text-zinc-200">v1.5.0 Released</span>
-            <span className="text-zinc-600">|</span>
-            <span className="text-zinc-400 font-mono">Smart Auto-Rotation Engine</span>
-            <ChevronRight className="w-3.5 h-3.5 text-zinc-500" />
-          </motion.div>
+        <h1 className="mx-auto mb-6 max-w-4xl text-4xl leading-tight font-extrabold tracking-tight text-white sm:text-6xl">
+          Switch Google Antigravity accounts without repeating browser login
+        </h1>
 
-          <motion.h1 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.1 }}
-            className="text-4xl sm:text-6xl font-extrabold tracking-tight text-white mb-6 leading-[1.12]"
-          >
-            Multi-Account Switcher & Quota Intelligence for{' '}
-            <span className="bg-gradient-to-r from-orange-400 via-amber-300 to-orange-500 bg-clip-text text-transparent">
-              Google Antigravity CLI
-            </span>
-          </motion.h1>
+        <p className="mx-auto mb-10 max-w-2xl text-base leading-relaxed text-zinc-300 sm:text-lg">
+          A dependency-free Python TUI for saved sessions, real Google quota usage and model-aware account rotation.
+        </p>
 
-          <motion.p 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-            className="text-lg sm:text-xl text-zinc-400 max-w-2xl mx-auto mb-10 leading-relaxed font-normal"
-          >
-            Bypass rate limits effortlessly. Monitor Claude vs Gemini limits in real time and auto-rotate Google credentials with zero distortion in a minimal terminal UI.
-          </motion.p>
-
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5, delay: 0.3 }}
-            className="max-w-2xl mx-auto mb-14"
-          >
-            <div 
+        <div className="mx-auto max-w-3xl rounded-lg border border-zinc-700 bg-zinc-900 text-left shadow-xl shadow-black/30">
+          <div className="flex items-center justify-between border-b border-zinc-700 px-4 py-2 font-mono text-xs text-zinc-400">
+            <span>Verified installer</span>
+            <span>SHA-256 checked</span>
+          </div>
+          <div className="flex items-center gap-3 p-3 sm:p-4">
+            <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs text-zinc-200 sm:text-sm">
+              <span aria-hidden="true" className="mr-2 text-orange-400">$</span>{command}
+            </code>
+            <button
+              type="button"
               onClick={handleCopy}
-              className="group relative flex items-center justify-between gap-4 p-3.5 sm:px-5 sm:py-4 rounded-xl bg-zinc-950/80 border border-zinc-800/90 hover:border-orange-500/40 transition-all duration-300 cursor-pointer shadow-2xl backdrop-blur-xl"
+              className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-md border border-zinc-600 bg-zinc-800 px-3 py-2 text-xs font-semibold text-zinc-100 hover:border-orange-400"
+              aria-live="polite"
             >
-              <div className="flex items-center gap-3 font-mono text-xs sm:text-sm text-zinc-300 overflow-x-auto whitespace-nowrap scrollbar-none">
-                <span className="text-orange-500 font-bold select-none">$</span>
-                <span className="select-all">{command}</span>
-              </div>
-
-              <button 
-                className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  copied 
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' 
-                    : 'bg-zinc-900 border border-zinc-800 text-zinc-300 group-hover:border-zinc-700 group-hover:text-white'
-                }`}
-              >
-                {copied ? (
-                  <>
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Copied</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>Copy</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </motion.div>
-        </motion.div>
-
-        <motion.div 
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.4 }}
-          className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto"
-        >
-          <div className="glass-panel p-4 rounded-xl text-left border border-white/5">
-            <div className="flex items-center gap-2 text-xs font-mono text-zinc-400 mb-1">
-              <Zap className="w-3.5 h-3.5 text-orange-400" />
-              <span>Switch Time</span>
-            </div>
-            <div className="text-xl font-bold text-white font-mono">&lt; 0.4s</div>
+              {copyState === 'copied' ? <Check aria-hidden="true" className="h-4 w-4 text-emerald-400" /> : copyState === 'error' ? <X aria-hidden="true" className="h-4 w-4 text-red-400" /> : <Copy aria-hidden="true" className="h-4 w-4" />}
+              {copyState === 'copied' ? 'Copied' : copyState === 'error' ? 'Copy failed' : 'Copy'}
+            </button>
           </div>
-
-          <div className="glass-panel p-4 rounded-xl text-left border border-white/5">
-            <div className="flex items-center gap-2 text-xs font-mono text-zinc-400 mb-1">
-              <Activity className="w-3.5 h-3.5 text-amber-400" />
-              <span>Quota Precision</span>
-            </div>
-            <div className="text-xl font-bold text-white font-mono">100% Real-Time</div>
-          </div>
-
-          <div className="glass-panel p-4 rounded-xl text-left border border-white/5">
-            <div className="flex items-center gap-2 text-xs font-mono text-zinc-400 mb-1">
-              <Shield className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Security</span>
-            </div>
-            <div className="text-xl font-bold text-white font-mono">Native Keychain</div>
-          </div>
-
-          <div className="glass-panel p-4 rounded-xl text-left border border-white/5">
-            <div className="flex items-center gap-2 text-xs font-mono text-zinc-400 mb-1">
-              <Terminal className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Dependencies</span>
-            </div>
-            <div className="text-xl font-bold text-white font-mono">0 External</div>
-          </div>
-        </motion.div>
+        </div>
       </div>
     </section>
   );

@@ -1,40 +1,35 @@
-import { motion } from 'framer-motion';
 import { Users, Activity, Zap, ShieldCheck } from 'lucide-react';
 
 const features = [
   {
     icon: Users,
-    title: "Google Profile Avatars",
-    description: "Automatically fetches user profile photos & renders color-coded initial badges for instant account recognition.",
-    accent: "from-orange-500/20 to-amber-500/20",
+    title: "Recognizable account labels",
+    description: "Fetches the account name when available and renders deterministic initial badges for quick recognition.",
     iconColor: "text-orange-400"
   },
   {
     icon: Activity,
-    title: "Dual Model Quota Intelligence",
-    description: "Tracks Claude/GPT models (0% rate limits) and Gemini models (100% capacity) independently in real time.",
-    accent: "from-amber-500/20 to-yellow-500/20",
+    title: "Real Google quota",
+    description: "Shows the weekly and optional 5-hour buckets returned by Google, including remaining percentage and reset time.",
     iconColor: "text-amber-400"
   },
   {
     icon: Zap,
-    title: "Smart Auto-Rotation Engine",
-    description: "Single command `agy-swap next` skips rate-limited accounts automatically and switches to the next ready session.",
-    accent: "from-emerald-500/20 to-teal-500/20",
+    title: "Deterministic rotation",
+    description: "`agy-swap next` selects by the matching Gemini or Claude/GPT quota group, with local cooldowns as a fallback.",
     iconColor: "text-emerald-400"
   },
   {
     icon: ShieldCheck,
-    title: "Native OS Keyring Security",
-    description: "Direct integration with macOS Keychain, Windows Credential Manager, and Linux Secret Service.",
-    accent: "from-cyan-500/20 to-blue-500/20",
+    title: "Protected credential storage",
+    description: "Uses owner-only local profile files and mirrors the active session to macOS Keychain, Windows Credential Manager or Linux Secret Service.",
     iconColor: "text-cyan-400"
   }
 ];
 
 export const Features = () => {
   return (
-    <section id="features" className="py-24 relative z-10">
+    <section id="features" className="scroll-mt-24 py-24 relative z-10">
       <div className="max-w-6xl mx-auto px-6">
         <div className="text-center mb-16">
           <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight mb-3">
@@ -46,20 +41,16 @@ export const Features = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {features.map((feat, index) => {
+          {features.map((feat) => {
             const Icon = feat.icon;
             return (
-              <motion.div
+              <div
                 key={feat.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: index * 0.1 }}
-                className="glass-panel glass-panel-hover p-6 rounded-2xl flex flex-col justify-between"
+                className="flex flex-col justify-between rounded-lg border border-zinc-800 bg-zinc-900/70 p-6 transition-colors hover:border-zinc-700"
               >
                 <div>
-                  <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${feat.accent} border border-white/10 flex items-center justify-center mb-6`}>
-                    <Icon className={`w-6 h-6 ${feat.iconColor}`} />
+                  <div className="mb-6 flex h-12 w-12 items-center justify-center rounded border border-zinc-700 bg-zinc-950">
+                    <Icon aria-hidden="true" className={`w-6 h-6 ${feat.iconColor}`} />
                   </div>
 
                   <h3 className="text-lg font-bold text-white mb-2 font-sans tracking-tight">
@@ -70,7 +61,7 @@ export const Features = () => {
                     {feat.description}
                   </p>
                 </div>
-              </motion.div>
+              </div>
             );
           })}
         </div>

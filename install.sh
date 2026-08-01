@@ -1,51 +1,69 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Install script for agy-swap by @aklkbqx (https://github.com/aklkbqx)
-set -e
+set -euo pipefail
+
+VERSION="1.6.4"
+EXPECTED_SHA256="799e75f71b87fecc1c27ff3872192144d27082b4f658573a7abecf8759dc1896"
+TARGET_DIR="${AGY_SWAP_TARGET_DIR:-${HOME}/.local/bin}"
+TARGET_FILE="${TARGET_DIR}/agy-swap"
 
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
+if [[ ! -t 1 || -n "${NO_COLOR:-}" ]]; then
+    GREEN=''
+    BLUE=''
+    YELLOW=''
+    RED=''
+    NC=''
+fi
 
-echo -e "${BLUE}Installing agy-swap...${NC}"
-
-if ! command -v python3 &> /dev/null; then
-    echo -e "${RED}Error: python3 is not installed. Please install Python 3 first.${NC}"
+if ! command -v python3 >/dev/null 2>&1; then
+    printf "%bError: python3 is not installed.%b\n" "$RED" "$NC" >&2
     exit 1
 fi
 
-TARGET_DIR="$HOME/.local/bin"
 mkdir -p "$TARGET_DIR"
+tmp_file="$(mktemp "${TARGET_DIR}/.agy-swap.XXXXXX")"
+trap 'rm -f "$tmp_file"' EXIT
 
-if [ -f "agy-swap" ]; then
-    cp agy-swap "$TARGET_DIR/agy-swap"
-else
-    echo -e "${BLUE}Downloading agy-swap from GitHub...${NC}"
-    curl -fsSL -o "$TARGET_DIR/agy-swap" https://raw.githubusercontent.com/aklkbqx/agy-swap/main/agy-swap
+source_file=""
+script_path="${BASH_SOURCE[0]:-}"
+if [[ -n "$script_path" && -f "$script_path" ]]; then
+    script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd)"
+    if [[ -f "${script_dir}/agy-swap" ]]; then
+        source_file="${script_dir}/agy-swap"
+    fi
 fi
 
-chmod +x "$TARGET_DIR/agy-swap"
-
-echo -e "${GREEN}✔ agy-swap successfully installed to $TARGET_DIR/agy-swap${NC}"
-
-if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-    echo -e "\n${YELLOW}⚠ Note: $HOME/.local/bin is not in your PATH.${NC}"
-    echo -e "To run 'agy-swap' globally from anywhere, add it to your shell configuration:"
-    
-    SHELL_RC=""
-    if [[ "$SHELL" == */zsh ]]; then
-        SHELL_RC="$HOME/.zshrc"
-    elif [[ "$SHELL" == */bash ]]; then
-        SHELL_RC="$HOME/.bashrc"
-    fi
-    
-    if [ -n "$SHELL_RC" ]; then
-        echo -e "Run the following command to add it automatically:"
-        echo -e "  ${BLUE}echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> $SHELL_RC && source $SHELL_RC${NC}"
-    else
-        echo -e "  ${BLUE}export PATH=\"\$HOME/.local/bin:\$PATH\"${NC}"
-    fi
+printf "%bInstalling agy-swap v%s...%b\n" "$BLUE" "$VERSION" "$NC"
+if [[ -n "$source_file" ]]; then
+    cp "$source_file" "$tmp_file"
 else
-    echo -e "\n${GREEN}🎉 Installation complete! You can now run 'agy-swap' from anywhere.${NC}"
+    if ! command -v curl >/dev/null 2>&1; then
+        printf "%bError: curl is required for remote installation.%b\n" "$RED" "$NC" >&2
+        exit 1
+    fi
+    curl -fsSL --proto '=https' --tlsv1.2 \
+        "https://raw.githubusercontent.com/aklkbqx/agy-swap/v${VERSION}/agy-swap" \
+        -o "$tmp_file"
+fi
+
+actual_sha="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$tmp_file")"
+if [[ "$actual_sha" != "$EXPECTED_SHA256" ]]; then
+    printf "%bError: checksum verification failed; installation aborted.%b\n" "$RED" "$NC" >&2
+    exit 1
+fi
+
+python3 -c 'import sys; compile(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1], "exec")' "$tmp_file"
+chmod 0755 "$tmp_file"
+mv -f "$tmp_file" "$TARGET_FILE"
+trap - EXIT
+
+printf "%bInstalled agy-swap to %s%b\n" "$GREEN" "$TARGET_FILE" "$NC"
+if [[ ":${PATH}:" != *":${TARGET_DIR}:"* ]]; then
+    printf "%b%s is not in PATH. Add this line to your shell profile:%b\n" "$YELLOW" "$TARGET_DIR" "$NC"
+    printf '  export PATH="%s:$PATH"\n' "$TARGET_DIR"
 fi
