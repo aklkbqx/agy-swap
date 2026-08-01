@@ -1,24 +1,35 @@
-name: Release Pipeline
+name: Release
 
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
-    name: Create GitHub Release
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
+    timeout-minutes: 20
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
         with:
-          generate_release_notes: true
+          python-version: "3.13"
+      - run: python -m unittest discover -s tests -v
+      - run: python scripts/verify_release.py "$GITHUB_REF_NAME"
+      - working-directory: site
+        run: npm ci
+      - working-directory: site
+        run: npm run lint
+      - working-directory: site
+        run: npm run build
+      - run: git diff --exit-code -- docs
+      - run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
