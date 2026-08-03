@@ -2152,6 +2152,7 @@ def cmd_interactive(args):
 
     try:
         selected_idx = 0
+        last_highlighted_idx = 0
         message = ""
         message_type = "info"
 
@@ -2166,6 +2167,7 @@ def cmd_interactive(args):
                 items.append(("account", f"{acc['name']} <{acc['email']}>", acc))
 
             items.append(("action", "[a] Add Account", "add"))
+            items.append(("action", "[d] Delete Account", "delete"))
             items.append(("action", "[q] Quit", "quit"))
 
             if selected_idx >= len(items):
@@ -2283,6 +2285,12 @@ def cmd_interactive(args):
                 selected_idx += 1
                 if selected_idx >= len(items):
                     selected_idx = 0
+
+            if selected_idx < len(acc_list):
+                last_highlighted_idx = selected_idx
+
+            if key == "up" or key == "down":
+                pass
             elif key.isdigit():
                 num = int(key)
                 if 1 <= num <= len(acc_list):
@@ -2381,6 +2389,27 @@ def cmd_interactive(args):
                             success, msg = False, "Login cancelled"
                         message = msg
                         message_type = "success" if success else "error"
+
+                    elif val == "delete":
+                        if acc_list:
+                            acc_to_del = acc_list[min(last_highlighted_idx, len(acc_list) - 1)]
+                            email_del = acc_to_del["email"]
+                            buf[-1] = f" {RED}Confirm delete {email_del}? Press [y] to confirm, any key to cancel.{RESET}"
+                            sys.stdout.write("\033[H")
+                            for line in buf:
+                                sys.stdout.write(truncate_visible(line, w) + "\033[K\n")
+                            sys.stdout.write("\033[J")
+                            sys.stdout.flush()
+                            if get_key().lower() == "y":
+                                accs = load_accounts()
+                                if email_del in accs:
+                                    del accs[email_del]
+                                    save_accounts(accs)
+                                    message = f"Removed account {email_del}"
+                                    message_type = "success"
+                            else:
+                                message = "Canceled"
+                                message_type = "info"
 
                     elif val == "quit":
                         break
