@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 .DS_Store
 .serena/
+src/agy_swap/__pycache__/
+*.egg-info/
