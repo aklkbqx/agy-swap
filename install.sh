@@ -2,8 +2,8 @@
 # Install script for agy-swap by @aklkbqx (https://github.com/aklkbqx)
 set -euo pipefail
 
-VERSION="1.7.0"
-EXPECTED_SHA256="82436b05c0a0e9e10f479fb4f408781c887a72de8505bcc7653592fba5c2277b"
+VERSION="1.8.0"
+EXPECTED_SHA256="d6972184cd1a7c56a000db9fd7c639e78e190bc409b31563d2d8d63715ddcc11"
 TARGET_DIR="${AGY_SWAP_TARGET_DIR:-${HOME}/.local/bin}"
 TARGET_FILE="${TARGET_DIR}/agy-swap"
 
