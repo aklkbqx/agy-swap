@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # Created by @aklkbqx (https://github.com/aklkbqx)
 
+# ── Configuration & Imports ──────────────────────────────────────────────────
+
 import os
 import sys
 import json
@@ -71,6 +73,8 @@ RESET = "\033[0m"
 ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
+# ── Exception Classes & Types ────────────────────────────────────────────────
+
 class AccountStoreError(RuntimeError):
     pass
 
@@ -86,6 +90,8 @@ class QuotaFetchError(RuntimeError):
 class Accounts(dict):
     revision = None
 
+
+# ── Output Formatting & Console Utilities ────────────────────────────────────
 
 def configure_output():
     if sys.stdout.isatty() and "NO_COLOR" not in os.environ:
@@ -151,6 +157,8 @@ def enable_windows_ansi():
             kernel32.SetConsoleMode(handle, mode.value | 0x0004)
         except Exception:
             pass
+
+# ── Platform Keychain & OS Credentials ───────────────────────────────────────
 
 def _windows_credential_api():
     import ctypes
@@ -345,6 +353,8 @@ def apply_account_token(token_data_str, email=None):
         return _apply_account_token_unlocked(token_data_str, email)
 
 
+# ── File I/O & Atomic Storage Operations ─────────────────────────────────────
+
 def _atomic_write_bytes(path, data):
     directory = os.path.dirname(path)
     os.makedirs(directory, mode=0o700, exist_ok=True)
@@ -483,6 +493,8 @@ def clear_active_session():
     with _session_lock():
         return _clear_active_session_unlocked()
 
+# ── Google OAuth & Cloud Code API ────────────────────────────────────────────
+
 def get_google_userinfo(access_token):
     url = "https://www.googleapis.com/oauth2/v1/userinfo"
     try:
@@ -496,6 +508,8 @@ def get_google_userinfo(access_token):
     except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
         pass
     return None
+
+# ── Log Scanning & Rate Limit Cooldowns ──────────────────────────────────────
 
 def find_antigravity_logs():
     log_dirs = [
@@ -748,6 +762,8 @@ def auto_scan_logs_for_limits(include_evidence=False):
     evidence_copy = json.loads(json.dumps(evidence))
     return (limits_copy, evidence_copy) if include_evidence else limits_copy
 
+
+# ── Account Store & Data Model ───────────────────────────────────────────────
 
 @contextmanager
 def _file_lock(path):
@@ -1003,6 +1019,8 @@ def save_accounts(accounts):
                 _atomic_write_bytes(ACCOUNTS_FILE + ".bak", f.read())
         _atomic_write_bytes(ACCOUNTS_FILE, payload)
         accounts.revision = os.stat(ACCOUNTS_FILE).st_mtime_ns
+
+# ── OAuth Token Parsing & Quota Fetching ─────────────────────────────────────
 
 def decode_token(keychain_val):
     if not keychain_val or not keychain_val.startswith("go-keyring-base64:"):
@@ -1270,6 +1288,8 @@ def get_tier_badge(acc):
     return f"{color}{plan} (manual){RESET}"
 
 
+# ── Display Formatting & Terminal Utilities ──────────────────────────────────
+
 def format_duration(seconds):
     mins = max(0, int(seconds // 60))
     days, mins = divmod(mins, 24 * 60)
@@ -1425,6 +1445,8 @@ def get_responsive_width():
         return 76
 
 
+# ── Raw Keyboard Input Readers ───────────────────────────────────────────────
+
 def _read_unix_key(fd):
     ch = os.read(fd, 1)
     if ch == b"\x1b":
@@ -1500,6 +1522,8 @@ def get_key_with_timeout(timeout=None):
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
+# ── Account Creation Helpers ─────────────────────────────────────────────────
+
 def _new_account(email, name, token_str):
     return {
         "email": email,
@@ -1546,6 +1570,8 @@ def _save_token_as_account(token_str):
     except KeyboardInterrupt:
         print(f"\n{YELLOW}Cancelled. Token is still active in Keychain.{RESET}")
         return False, "Save cancelled"
+
+# ── CLI Commands & Workflows ─────────────────────────────────────────────────
 
 def cmd_add_flow():
     with _session_lock():
@@ -2138,6 +2164,8 @@ def cmd_update(args):
         print(f"  {GRAY}Release notes: {notes_url}{RESET}")
 
 
+# ── Interactive TUI Mode ─────────────────────────────────────────────────────
+
 def cmd_interactive(args):
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         cmd_list(args)
@@ -2467,6 +2495,8 @@ def cmd_interactive(args):
     finally:
         sys.stdout.write("\033[?1049l\033[?25h")
         sys.stdout.flush()
+
+# ── CLI Entry Point ──────────────────────────────────────────────────────────
 
 def main():
     configure_output()
