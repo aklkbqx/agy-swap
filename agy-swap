@@ -1,36 +1,44 @@
 #!/usr/bin/env python3
 # Created by @aklkbqx (https://github.com/aklkbqx)
+# AUTO-GENERATED from src/agy_swap/ by scripts/build.py — DO NOT EDIT DIRECTLY
 
-# ── Configuration & Imports ──────────────────────────────────────────────────
-
-import os
-import sys
-import json
-import subprocess
-import urllib.request
-import urllib.parse
-import urllib.error
-import base64
-import argparse
-from datetime import datetime, timezone, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
+from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+import argparse
+import base64
+import glob
+import hashlib
+import json
+import os
+import platform
 import re
+import select
+import shutil
+import subprocess
+import sys
+import tempfile
 import threading
 import time
-import platform
-import glob
-import shutil
-import select
-import tempfile
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import urllib.error
+import urllib.parse
+import urllib.request
 
+# ── Module: __init__ ──────────────────────────────────────────────────
+VERSION = "1.8.0"
+
+# ── Paths ──
 CONFIG_DIR = os.path.expanduser("~/.gemini/agy-swap")
 ACCOUNTS_FILE = os.path.join(CONFIG_DIR, "accounts.json")
 OAUTH_FILE = os.path.expanduser("~/.gemini/antigravity-cli/antigravity-oauth-token")
 OAUTH_CREDS_FILE = os.path.expanduser("~/.gemini/oauth_creds.json")
 GOOGLE_ACCOUNTS_FILE = os.path.expanduser("~/.gemini/google_accounts.json")
-VERSION = "1.8.0"
+ACCOUNTS_LOCK_FILE = os.path.join(CONFIG_DIR, ".accounts.lock")
+SESSION_LOCK_FILE = os.path.join(CONFIG_DIR, ".session.lock")
+
+# ── Limits & Timeouts ──
 MAX_LIMIT_SECS = 7 * 24 * 3600
 MAX_TOKEN_BYTES = 1024 * 1024
 LOG_SCAN_BYTES = 8 * 1024 * 1024
@@ -38,27 +46,30 @@ LOG_TOTAL_SCAN_BYTES = 64 * 1024 * 1024
 QUOTA_SCHEMA = 2
 QUOTA_CACHE_SECS = 60
 TUI_AUTO_REFRESH_SECS = 60
+
+# ── API URLs & Repos ──
 CLOUD_CODE_API = "https://daily-cloudcode-pa.googleapis.com/v1internal:"
 OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GITHUB_REPO = "aklkbqx/agy-swap"
 GITHUB_API_RELEASE = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_RAW = f"https://raw.githubusercontent.com/{GITHUB_REPO}"
+
+# ── OAuth Client Secrets ──
 DEFAULT_OAUTH_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
-# Native-app OAuth credentials are public identifiers embedded in the official agy client.
 OAUTH_CLIENT_SECRETS = {
     DEFAULT_OAUTH_CLIENT_ID: "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",
     "884354919052-36trc1jjb3tguiac32ov6cod268c5blh.apps.googleusercontent.com": "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",
 }
+
+# ── Tier Name Display Map ──
 TIER_NAMES = {
     "free-tier": "Free",
     "g1-pro-tier": "Google AI Pro",
     "g1-ultra-tier": "Google AI Ultra",
     "g1-ultra-lite-tier": "Google AI Ultra Lite",
 }
-ACCOUNTS_LOCK_FILE = os.path.join(CONFIG_DIR, ".accounts.lock")
-SESSION_LOCK_FILE = os.path.join(CONFIG_DIR, ".session.lock")
-_LOG_SCAN_CACHE = None
 
+# ── ANSI Color Codes ──
 ORANGE = "\033[38;5;208m"
 GREEN = "\033[38;5;78m"
 BLUE = "\033[38;5;75m"
@@ -72,289 +83,24 @@ BOLD = "\033[1m"
 RESET = "\033[0m"
 ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
-
-# ── Exception Classes & Types ────────────────────────────────────────────────
-
+# ── Exceptions ──
 class AccountStoreError(RuntimeError):
     pass
-
 
 class AmbiguousAccountError(ValueError):
     pass
 
-
 class QuotaFetchError(RuntimeError):
     pass
 
-
+# ── Custom Data Types ──
 class Accounts(dict):
     revision = None
 
+# ── Global State Caches ──
+_LOG_SCAN_CACHE = None
 
-# ── Output Formatting & Console Utilities ────────────────────────────────────
-
-def configure_output():
-    if sys.stdout.isatty() and "NO_COLOR" not in os.environ:
-        return
-    for name in ("ORANGE", "GREEN", "BLUE", "RED", "YELLOW", "CYAN", "GRAY", "DARK_GRAY", "BRIGHT_WHITE", "BOLD", "RESET"):
-        globals()[name] = ""
-
-
-def clean_display_text(value, fallback=""):
-    text = str(value or fallback)
-    return "".join(ch for ch in text if ch in "\t " or unicodedata.category(ch)[0] != "C").strip()
-
-
-def normalize_email(value):
-    email = clean_display_text(value).lower()
-    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
-        return None
-    return email
-
-class Spinner:
-    def __init__(self, message="Loading...", delay=0.12):
-        self.message = message
-        self.delay = delay
-        self.spinner_chars = ["·  ", "•  ", "●  ", "•  "]
-        self.running = False
-        self.thread = None
-        self.enabled = sys.stdout.isatty()
-
-    def spin(self):
-        idx = 0
-        while self.running:
-            frame = self.spinner_chars[idx % len(self.spinner_chars)]
-            sys.stdout.write(f"\r{ORANGE}{frame}{RESET} {self.message}")
-            sys.stdout.flush()
-            idx += 1
-            time.sleep(self.delay)
-
-    def __enter__(self):
-        if not self.enabled:
-            return self
-        self.running = True
-        self.thread = threading.Thread(target=self.spin, daemon=True)
-        self.thread.start()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if not self.enabled:
-            return
-        self.running = False
-        if self.thread:
-            self.thread.join()
-        sys.stdout.write("\r\033[K")
-        sys.stdout.flush()
-
-def enable_windows_ansi():
-    if platform.system() == "Windows":
-        try:
-            import ctypes
-            kernel32 = ctypes.windll.kernel32
-            handle = kernel32.GetStdHandle(-11)
-            mode = ctypes.c_ulong()
-            kernel32.GetConsoleMode(handle, ctypes.byref(mode))
-            kernel32.SetConsoleMode(handle, mode.value | 0x0004)
-        except Exception:
-            pass
-
-# ── Platform Keychain & OS Credentials ───────────────────────────────────────
-
-def _windows_credential_api():
-    import ctypes
-    from ctypes import wintypes
-
-    class Credential(ctypes.Structure):
-        _fields_ = [
-            ("Flags", wintypes.DWORD),
-            ("Type", wintypes.DWORD),
-            ("TargetName", wintypes.LPWSTR),
-            ("Comment", wintypes.LPWSTR),
-            ("LastWritten", wintypes.FILETIME),
-            ("CredentialBlobSize", wintypes.DWORD),
-            ("CredentialBlob", ctypes.POINTER(ctypes.c_ubyte)),
-            ("Persist", wintypes.DWORD),
-            ("AttributeCount", wintypes.DWORD),
-            ("Attributes", ctypes.c_void_p),
-            ("TargetAlias", wintypes.LPWSTR),
-            ("UserName", wintypes.LPWSTR),
-        ]
-
-    return ctypes, wintypes, ctypes.windll.advapi32, Credential
-
-
-def get_windows_credential():
-    try:
-        ctypes, wintypes, advapi32, credential_type = _windows_credential_api()
-        pointer = ctypes.POINTER(credential_type)()
-        if not advapi32.CredReadW(ctypes.c_wchar_p("gemini:antigravity"), wintypes.DWORD(1), wintypes.DWORD(0), ctypes.byref(pointer)):
-            return None
-        try:
-            blob = ctypes.string_at(pointer.contents.CredentialBlob, pointer.contents.CredentialBlobSize)
-            return blob.decode("utf-8").strip()
-        finally:
-            advapi32.CredFree(pointer)
-    except (OSError, ValueError, UnicodeDecodeError):
-        return None
-
-
-def set_windows_credential(value):
-    try:
-        ctypes, wintypes, advapi32, credential_type = _windows_credential_api()
-        encoded = value.encode("utf-8")
-        blob = (ctypes.c_ubyte * len(encoded)).from_buffer_copy(encoded)
-        credential = credential_type(
-            Flags=0,
-            Type=1,
-            TargetName="gemini:antigravity",
-            Comment=None,
-            LastWritten=wintypes.FILETIME(),
-            CredentialBlobSize=len(encoded),
-            CredentialBlob=ctypes.cast(blob, ctypes.POINTER(ctypes.c_ubyte)),
-            Persist=3,
-            AttributeCount=0,
-            Attributes=None,
-            TargetAlias=None,
-            UserName="antigravity",
-        )
-        return bool(advapi32.CredWriteW(ctypes.byref(credential), 0))
-    except (OSError, ValueError):
-        return False
-
-
-def delete_windows_credential():
-    try:
-        ctypes, wintypes, advapi32, _ = _windows_credential_api()
-        return bool(advapi32.CredDeleteW(ctypes.c_wchar_p("gemini:antigravity"), wintypes.DWORD(1), wintypes.DWORD(0)))
-    except (OSError, ValueError):
-        return False
-
-def get_linux_credential():
-    try:
-        val = subprocess.check_output(
-            ["secret-tool", "lookup", "service", "gemini", "username", "antigravity"],
-            stderr=subprocess.DEVNULL,
-            timeout=5,
-        ).decode("utf-8").strip()
-        return val
-    except Exception:
-        return None
-
-def set_linux_credential(token_data_str):
-    try:
-        proc = subprocess.run(
-            ["secret-tool", "store", "--label=gemini", "service", "gemini", "username", "antigravity"],
-            input=token_data_str.encode("utf-8"),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=10,
-        )
-        return proc.returncode == 0
-    except Exception:
-        return False
-
-def delete_linux_credential():
-    try:
-        proc = subprocess.run(
-            ["secret-tool", "clear", "service", "gemini", "username", "antigravity"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=5,
-        )
-        return proc.returncode == 0
-    except Exception:
-        return False
-
-
-def _get_secure_token():
-    plat = platform.system()
-    if plat == "Darwin":
-        try:
-            val = subprocess.check_output(
-                ["security", "find-generic-password", "-a", "antigravity", "-s", "gemini", "-w"],
-                stderr=subprocess.DEVNULL,
-                timeout=5,
-            ).decode("utf-8").strip()
-            return val
-        except Exception:
-            return None
-    elif plat == "Windows":
-        return get_windows_credential()
-    elif plat == "Linux":
-        return get_linux_credential()
-    return None
-
-
-def _read_oauth_file_token():
-    try:
-        with open(OAUTH_FILE, "rb") as f:
-            raw = f.read()
-        json.loads(raw.decode("utf-8"))
-        return "go-keyring-base64:" + base64.b64encode(raw).decode("utf-8")
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
-
-
-def get_current_keychain_token():
-    return _get_secure_token() or _read_oauth_file_token()
-
-
-def set_keychain_token(token_data_str):
-    plat = platform.system()
-    if plat == "Darwin":
-        try:
-            subprocess.run(
-                ["security", "add-generic-password", "-U", "-a", "antigravity", "-s", "gemini", "-w", token_data_str],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=10,
-            )
-            return True
-        except (OSError, subprocess.SubprocessError):
-            return False
-    elif plat == "Windows":
-        return set_windows_credential(token_data_str)
-    elif plat == "Linux":
-        return set_linux_credential(token_data_str)
-    return False
-
-
-def _apply_account_token_unlocked(token_data_str, email=None):
-    if not decode_token(token_data_str):
-        return False
-
-    previous_secure = _get_secure_token()
-    secure_updated = set_keychain_token(token_data_str)
-    if not secure_updated:
-        current_secure = _get_secure_token()
-        if current_secure == token_data_str:
-            secure_updated = True
-        elif previous_secure:
-            if current_secure != previous_secure:
-                set_keychain_token(previous_secure)
-            return False
-        elif current_secure:
-            return False
-
-    if write_oauth_file(token_data_str, email=email):
-        return True
-
-    if secure_updated:
-        if previous_secure:
-            set_keychain_token(previous_secure)
-        else:
-            delete_keychain_token()
-    return False
-
-
-def apply_account_token(token_data_str, email=None):
-    with _session_lock():
-        return _apply_account_token_unlocked(token_data_str, email)
-
-
-# ── File I/O & Atomic Storage Operations ─────────────────────────────────────
-
+# ── Module: storage ──────────────────────────────────────────────────
 def _atomic_write_bytes(path, data):
     directory = os.path.dirname(path)
     os.makedirs(directory, mode=0o700, exist_ok=True)
@@ -406,94 +152,464 @@ def _restore_files(snapshot):
     return ok
 
 
-def write_oauth_file(token_data_str, email=None):
-    token_json = decode_token(token_data_str)
-    inner = token_json.get("token") if isinstance(token_json, dict) else None
-    if not isinstance(inner, dict) or not inner.get("access_token"):
-        return False
+@contextmanager
+def _file_lock(path):
+    os.makedirs(CONFIG_DIR, mode=0o700, exist_ok=True)
+    os.chmod(CONFIG_DIR, 0o700)
+    with open(path, "a+b") as lock:
+        os.chmod(path, 0o600)
+        if platform.system() == "Windows":
+            import msvcrt
+            if os.fstat(lock.fileno()).st_size == 0:
+                lock.write(b"\0")
+                lock.flush()
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if platform.system() == "Windows":
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
-    paths = [OAUTH_FILE, OAUTH_CREDS_FILE]
-    if email:
-        paths.append(GOOGLE_ACCOUNTS_FILE)
-    snapshot = _snapshot_files(paths)
+
+def _accounts_lock():
+    return _file_lock(ACCOUNTS_LOCK_FILE)
+
+
+def _session_lock():
+    return _file_lock(SESSION_LOCK_FILE)
+
+# ── Module: display ──────────────────────────────────────────────────
+def configure_output():
+    if sys.stdout.isatty() and "NO_COLOR" not in os.environ:
+        return
+    for name in ("ORANGE", "GREEN", "BLUE", "RED", "YELLOW", "CYAN", "GRAY", "DARK_GRAY", "BRIGHT_WHITE", "BOLD", "RESET"):
+        globals()[name] = ""
+
+
+def clean_display_text(value, fallback=""):
+    text = str(value or fallback)
+    return "".join(ch for ch in text if ch in "\t " or unicodedata.category(ch)[0] != "C").strip()
+
+
+def normalize_email(value):
+    email = clean_display_text(value).lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        return None
+    return email
+
+
+def _parse_utc_datetime(value):
+    dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def format_duration(seconds):
+    mins = max(0, int(seconds // 60))
+    days, mins = divmod(mins, 24 * 60)
+    hours, mins = divmod(mins, 60)
+    if days:
+        return f"{days}d {hours}h {mins}m"
+    return f"{hours}h {mins}m" if hours else f"{mins}m"
+
+
+def parse_duration_seconds(duration_str):
+    if not duration_str:
+        return None
+    duration_str = duration_str.strip().lower()
+    if duration_str in ("reset", "clear", "0", "none"):
+        return 0
+    if duration_str.isdigit():
+        total = int(duration_str) * 60
+    else:
+        match = re.fullmatch(r"\s*(?:(\d+)\s*d)?\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?\s*", duration_str)
+        if not match or not any(match.groups()):
+            return None
+        days, hours, mins, secs = (int(value or 0) for value in match.groups())
+        total = days * 86400 + hours * 3600 + mins * 60 + secs
+    return total if 0 <= total <= MAX_LIMIT_SECS else None
+
+
+def quota_groups(acc):
+    snapshot = acc.get("quota_snapshot")
+    groups = snapshot.get("groups") if isinstance(snapshot, dict) else None
+    return groups if isinstance(groups, list) else []
+
+
+def format_quota_bar(bucket, now=None, width=12):
+    fraction = min(1.0, max(0.0, float(bucket["remaining_fraction"])))
+    filled = round(fraction * width)
+    color = RED if fraction <= 0.1 else YELLOW if fraction <= 0.3 else GREEN
+    bar = f"{color}{'█' * filled}{DARK_GRAY}{'░' * (width - filled)}{RESET}"
     try:
-        creds = {
-            "access_token": inner.get("access_token", ""),
-            "refresh_token": inner.get("refresh_token", ""),
-            "scope": inner.get("scope", "https://www.googleapis.com/auth/cloud-platform openid https://www.googleapis.com/auth/userinfo.email"),
-            "token_type": inner.get("token_type", "Bearer"),
-            "id_token": inner.get("id_token", ""),
-            "expiry_date": inner.get("expiry_date", 0),
-        }
-        _atomic_write_json(OAUTH_FILE, token_json)
-        _atomic_write_json(OAUTH_CREDS_FILE, creds)
+        remaining = (_parse_utc_datetime(bucket["reset_at"]) - (now or datetime.now(timezone.utc))).total_seconds()
+        reset = f" · resets in {format_duration(remaining)}" if remaining > 0 else " · refresh due"
+    except (KeyError, AttributeError, TypeError, ValueError):
+        reset = ""
+    return f"[{bar}] {fraction * 100:.2f}% remaining{reset}"
 
-        if email:
-            ga = {"active": email, "old": []}
+
+def quota_wait_seconds(acc, now=None, family=None):
+    groups = quota_groups(acc)
+    if not groups:
+        return None
+    now = now or datetime.now(timezone.utc)
+    group_id = "gemini" if family == "gemini" else "third_party" if family in ("claude", "gpt") else None
+    matched = False
+    waits = []
+    for group in groups:
+        if group_id and group.get("id") != group_id:
+            continue
+        matched = True
+        for bucket in group.get("buckets", []):
+            if bucket.get("remaining_fraction", 1) > 0:
+                continue
             try:
-                if os.path.exists(GOOGLE_ACCOUNTS_FILE):
-                    with open(GOOGLE_ACCOUNTS_FILE) as f:
-                        existing = json.load(f)
-                    old_active = existing.get("active", "")
-                    old_list = existing.get("old", [])
-                    if not isinstance(old_list, list):
-                        old_list = []
-                    if old_active and old_active != email and old_active not in old_list:
-                        old_list = [old_active] + [x for x in old_list if x != email]
-                    ga = {"active": email, "old": [x for x in old_list if x != email]}
-            except (OSError, json.JSONDecodeError, AttributeError):
+                waits.append(max(0, (_parse_utc_datetime(bucket["reset_at"]) - now).total_seconds()))
+            except (KeyError, AttributeError, TypeError, ValueError):
                 pass
-            _atomic_write_json(GOOGLE_ACCOUNTS_FILE, ga)
+    return max(waits, default=0) if matched else None
 
-        return True
-    except (OSError, TypeError, ValueError):
-        _restore_files(snapshot)
-        return False
 
-def delete_keychain_token():
-    plat = platform.system()
-    if plat == "Darwin":
+def format_cooldown_bar(limit, now=None, width=12):
+    if not limit:
+        return f"[{DARK_GRAY}{'░' * width}{RESET}] No active cooldown observed"
+    now = now or datetime.now(timezone.utc)
+    try:
+        observed_at = _parse_utc_datetime(limit["observed_at"])
+        reset_at = _parse_utc_datetime(limit["reset_at"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    total = (reset_at - observed_at).total_seconds()
+    if total <= 0:
+        return None
+    ratio = min(1.0, max(0.0, (reset_at - now).total_seconds() / total))
+    filled = round(ratio * width)
+    bar = f"{RED}{'█' * filled}{DARK_GRAY}{'░' * (width - filled)}{RESET}"
+    return f"[{bar}] {ratio * 100:.1f}% time left"
+
+
+def active_quota_limits(acc, now=None):
+    now = now or datetime.now(timezone.utc)
+    active = []
+    for limit in acc.get("quota_limits", {}).values():
         try:
-            subprocess.run(
-                ["security", "delete-generic-password", "-a", "antigravity", "-s", "gemini"],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=5,
-            )
-            return True
-        except (OSError, subprocess.SubprocessError):
-            return _get_secure_token() is None
-    elif plat == "Windows":
-        return delete_windows_credential()
-    elif plat == "Linux":
-        return delete_linux_credential()
-    return False
+            reset_at = _parse_utc_datetime(limit["reset_at"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        remaining = (reset_at - now).total_seconds()
+        if remaining > 0:
+            active.append((remaining, limit))
+    return sorted(active, key=lambda item: item[0])
 
 
-def delete_oauth_files():
-    ok = True
-    for path in (OAUTH_FILE, OAUTH_CREDS_FILE, GOOGLE_ACCOUNTS_FILE):
+def get_tier_badge(acc):
+    snapshot = acc.get("quota_snapshot")
+    tier = snapshot.get("tier") if isinstance(snapshot, dict) else None
+    if isinstance(tier, dict) and tier.get("name"):
+        plan = clean_display_text(tier["name"])
+        color = GRAY if tier.get("id") == "free-tier" else ORANGE
+        return f"{color}{plan}{RESET}"
+    source = acc.get("tier_source")
+    plan = clean_display_text(acc.get("plan") or acc.get("tier")).title()
+    if plan not in ("Pro", "Starter", "Free") or source != "manual":
+        return f"{GRAY}Unknown{RESET}"
+    color = ORANGE if plan == "Pro" else GRAY
+    return f"{color}{plan} (manual){RESET}"
+
+
+def get_account_limit_display(acc, is_active=False, current_token_str=None):
+    tier = get_tier_badge(acc)
+    buckets = [bucket for group in quota_groups(acc) for bucket in group.get("buckets", [])]
+    if buckets:
+        lowest = min(buckets, key=lambda bucket: bucket["remaining_fraction"])
+        fraction = lowest["remaining_fraction"]
+        if fraction <= 0:
+            try:
+                remaining = (_parse_utc_datetime(lowest["reset_at"]) - datetime.now(timezone.utc)).total_seconds()
+            except (KeyError, AttributeError, TypeError, ValueError):
+                remaining = 0
+            return f"[{tier}] {RED}Limited{RESET} · {lowest['name']} resets in {format_duration(remaining)}"
+        color = RED if fraction <= 0.1 else YELLOW if fraction <= 0.3 else GREEN
+        return f"[{tier}] {color}{fraction * 100:.0f}% lowest remaining{RESET}"
+    active = active_quota_limits(acc)
+    if active:
+        parts = [f"{RED}! {limit['model']} ({format_duration(remaining)}){RESET}" for remaining, limit in active]
+        return f"[{tier}] " + " ".join(parts)
+    return f"[{tier}] {GRAY}Usage unavailable · no recent cooldown error{RESET}"
+
+
+def get_avatar_badge(name, email):
+    name_str = clean_display_text(name)
+    parts = name_str.split()
+    if len(parts) >= 2 and parts[0] and parts[1]:
+        initials = (parts[0][0] + parts[1][0]).upper()
+    elif len(parts) == 1 and parts[0]:
+        initials = parts[0][:2].upper()
+    else:
+        initials = email[:2].upper() if email else "GU"
+
+    if not sys.stdout.isatty() or "NO_COLOR" in os.environ:
+        return initials
+
+    bg_colors = [166, 172, 64, 71, 133, 167, 31, 68]
+    bg_code = bg_colors[sum(email.encode("utf-8")) % len(bg_colors)]
+    return f"\033[48;5;{bg_code}m\033[38;5;255m\033[1m {initials} \033[0m"
+
+
+def visible_len(text):
+    return sum(
+        0 if unicodedata.combining(ch) else 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+        for ch in ANSI_ESCAPE.sub("", text)
+    )
+
+
+def truncate_visible(text, width):
+    if visible_len(text) <= width:
+        return text
+    result = []
+    used = 0
+    index = 0
+    while index < len(text) and used < max(0, width - 1):
+        match = ANSI_ESCAPE.match(text, index)
+        if match:
+            result.append(match.group(0))
+            index = match.end()
+            continue
+        ch = text[index]
+        char_width = 0 if unicodedata.combining(ch) else 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+        if used + char_width > width - 1:
+            break
+        result.append(ch)
+        used += char_width
+        index += 1
+    return "".join(result) + "…" + RESET
+
+
+def get_responsive_width():
+    try:
+        cols, _ = shutil.get_terminal_size((80, 24))
+        return max(28, min(cols - 2, 110))
+    except Exception:
+        return 76
+
+# ── Module: tty ──────────────────────────────────────────────────
+class Spinner:
+    def __init__(self, message="Loading...", delay=0.12):
+        self.message = message
+        self.delay = delay
+        self.spinner_chars = ["·  ", "•  ", "●  ", "•  "]
+        self.running = False
+        self.thread = None
+        self.enabled = sys.stdout.isatty()
+
+    def spin(self):
+        idx = 0
+        while self.running:
+            frame = self.spinner_chars[idx % len(self.spinner_chars)]
+            sys.stdout.write(f"\r{ORANGE}{frame}{RESET} {self.message}")
+            sys.stdout.flush()
+            idx += 1
+            time.sleep(self.delay)
+
+    def __enter__(self):
+        if not self.enabled:
+            return self
+        self.running = True
+        self.thread = threading.Thread(target=self.spin, daemon=True)
+        self.thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if not self.enabled:
+            return
+        self.running = False
+        if self.thread:
+            self.thread.join()
+        sys.stdout.write("\r\033[K")
+        sys.stdout.flush()
+
+
+def _read_unix_key(fd):
+    ch = os.read(fd, 1)
+    if ch == b"\x1b":
+        if not select.select([fd], [], [], 0.1)[0]:
+            return "esc"
+        ch2 = os.read(fd, 1)
+        if ch2 not in (b"[", b"O") or not select.select([fd], [], [], 0.1)[0]:
+            return ""
+        ch3 = os.read(fd, 1)
+        if ch3 == b"A":
+            return "up"
+        if ch3 == b"B":
+            return "down"
+        if ch3 == b"3" and select.select([fd], [], [], 0.1)[0] and os.read(fd, 1) == b"~":
+            return "delete"
+        return ""
+    if ch in (b"\r", b"\n"):
+        return "\n"
+    if ch in (b"\x7f", b"\x08"):
+        return "backspace"
+    return ch.decode("utf-8", errors="ignore")
+
+
+def _read_windows_key(getch):
+    ch = getch()
+    if ch in (b"\x00", b"\xe0"):
+        return {b"H": "up", b"P": "down", b"S": "delete"}.get(getch(), "")
+    if ch == b"\x1b":
+        return "esc"
+    if ch in (b"\r", b"\n"):
+        return "\n"
+    if ch in (b"\x08", b"\x7f"):
+        return "backspace"
+    return ch.decode("utf-8", errors="ignore")
+
+
+def get_key():
+    if platform.system() == "Windows":
+        import msvcrt
+        return _read_windows_key(msvcrt.getch)
+    else:
+        import tty, termios
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
         try:
-            os.unlink(path)
-        except FileNotFoundError:
-            pass
-        except OSError:
-            ok = False
-    return ok
+            tty.setraw(fd)
+            return _read_unix_key(fd)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 
-def _clear_active_session_unlocked():
-    delete_keychain_token()
-    delete_oauth_files()
-    return _get_secure_token() is None and _read_oauth_file_token() is None
+def get_key_with_timeout(timeout=None):
+    if timeout is None:
+        return get_key()
+    if platform.system() == "Windows":
+        import msvcrt
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if msvcrt.kbhit():
+                return _read_windows_key(msvcrt.getch)
+            time.sleep(0.05)
+        return None
+    else:
+        import tty, termios
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ready, _, _ = select.select([fd], [], [], timeout)
+            if not ready:
+                return None
+            return _read_unix_key(fd)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+# ── Module: oauth ──────────────────────────────────────────────────
+def decode_token(keychain_val):
+    if not keychain_val or not keychain_val.startswith("go-keyring-base64:"):
+        return None
+    try:
+        encoded = keychain_val.split(":", 1)[1]
+        data = json.loads(base64.b64decode(encoded, validate=True).decode("utf-8"))
+        return data if isinstance(data, dict) else None
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
 
 
-def clear_active_session():
-    with _session_lock():
-        return _clear_active_session_unlocked()
+def extract_verified_google_email_claim(token_str):
+    token_json = decode_token(token_str)
+    token_obj = token_json.get("token") if token_json else None
+    if not isinstance(token_obj, dict):
+        return None
+    id_token = token_obj.get("id_token") or token_json.get("id_token")
+    if not id_token:
+        return None
+    try:
+        parts = id_token.split(".")
+        if len(parts) != 3:
+            return None
+        payload = parts[1] + "=" * (-len(parts[1]) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if claims.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
+        return None
+    if claims.get("email_verified") is not True:
+        return None
+    return normalize_email(claims.get("email"))
 
-# ── Google OAuth & Cloud Code API ────────────────────────────────────────────
+
+def _oauth_client_id(token_json):
+    token = token_json.get("token", {})
+    id_token = token.get("id_token") or token_json.get("id_token")
+    try:
+        payload = id_token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        audience = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8")).get("aud")
+    except (AttributeError, IndexError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        audience = None
+    return audience if audience in OAUTH_CLIENT_SECRETS else DEFAULT_OAUTH_CLIENT_ID
+
+
+def _refresh_access_token(token_data):
+    token_json = decode_token(token_data)
+    token = token_json.get("token") if token_json else None
+    refresh_token = token.get("refresh_token") if isinstance(token, dict) else None
+    if not refresh_token:
+        raise QuotaFetchError("refresh token is unavailable")
+    client_id = _oauth_client_id(token_json)
+    body = urllib.parse.urlencode({
+        "client_id": client_id,
+        "client_secret": OAUTH_CLIENT_SECRETS[client_id],
+        "refresh_token": refresh_token,
+        "grant_type": "refresh_token",
+    }).encode("ascii")
+    request = urllib.request.Request(OAUTH_TOKEN_URL, data=body, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            access_token = json.loads(response.read().decode("utf-8")).get("access_token")
+    except urllib.error.HTTPError as exc:
+        exc.close()
+        raise QuotaFetchError(f"OAuth refresh failed (HTTP {exc.code})") from None
+    except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise QuotaFetchError(f"OAuth refresh failed: {exc}") from None
+    if not access_token:
+        raise QuotaFetchError("OAuth refresh returned no access token")
+    return access_token
+
+
+def _cloud_code_post(access_token, method, body):
+    request = urllib.request.Request(
+        CLOUD_CODE_API + method,
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        exc.close()
+        raise QuotaFetchError(f"{method} failed (HTTP {exc.code})") from None
+    except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise QuotaFetchError(f"{method} failed: {exc}") from None
+    if not isinstance(result, dict):
+        raise QuotaFetchError(f"{method} returned invalid data")
+    return result
+
 
 def get_google_userinfo(access_token):
     url = "https://www.googleapis.com/oauth2/v1/userinfo"
@@ -509,8 +625,7 @@ def get_google_userinfo(access_token):
         pass
     return None
 
-# ── Log Scanning & Rate Limit Cooldowns ──────────────────────────────────────
-
+# ── Module: logs ──────────────────────────────────────────────────
 def find_antigravity_logs():
     log_dirs = [
         os.path.expanduser("~/Library/Logs/Google Antigravity"),
@@ -643,6 +758,7 @@ def _parse_log_timestamp(line, log_file):
     except (OSError, ValueError):
         return None
 
+
 def auto_scan_logs_for_limits(include_evidence=False):
     global _LOG_SCAN_CACHE
     log_files = _recent_log_files(find_antigravity_logs())
@@ -762,43 +878,7 @@ def auto_scan_logs_for_limits(include_evidence=False):
     evidence_copy = json.loads(json.dumps(evidence))
     return (limits_copy, evidence_copy) if include_evidence else limits_copy
 
-
-# ── Account Store & Data Model ───────────────────────────────────────────────
-
-@contextmanager
-def _file_lock(path):
-    os.makedirs(CONFIG_DIR, mode=0o700, exist_ok=True)
-    os.chmod(CONFIG_DIR, 0o700)
-    with open(path, "a+b") as lock:
-        os.chmod(path, 0o600)
-        if platform.system() == "Windows":
-            import msvcrt
-            if os.fstat(lock.fileno()).st_size == 0:
-                lock.write(b"\0")
-                lock.flush()
-            lock.seek(0)
-            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            if platform.system() == "Windows":
-                lock.seek(0)
-                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-
-
-def _accounts_lock():
-    return _file_lock(ACCOUNTS_LOCK_FILE)
-
-
-def _session_lock():
-    return _file_lock(SESSION_LOCK_FILE)
-
-
+# ── Module: store ──────────────────────────────────────────────────
 def _normalize_quota_snapshot(snapshot, email):
     if not isinstance(snapshot, dict):
         raise AccountStoreError(f"Invalid quota snapshot for {email}")
@@ -915,13 +995,6 @@ def _validate_accounts(data):
     return accounts
 
 
-def _parse_utc_datetime(value):
-    dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
-
-
 def migrate_legacy_quota(account):
     if account.get("quota_schema") == QUOTA_SCHEMA:
         return False
@@ -966,6 +1039,7 @@ def reconcile_log_limits(account, detected, evidence):
         account.pop("quota_limits", None)
     return changed
 
+
 def load_accounts(sync_logs=True):
     try:
         revision = os.stat(ACCOUNTS_FILE).st_mtime_ns
@@ -1003,6 +1077,7 @@ def load_accounts(sync_logs=True):
 
     return accounts
 
+
 def save_accounts(accounts):
     validated = _validate_accounts(accounts)
     payload = (json.dumps(validated, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
@@ -1020,105 +1095,308 @@ def save_accounts(accounts):
         _atomic_write_bytes(ACCOUNTS_FILE, payload)
         accounts.revision = os.stat(ACCOUNTS_FILE).st_mtime_ns
 
-# ── OAuth Token Parsing & Quota Fetching ─────────────────────────────────────
+# ── Module: credentials ──────────────────────────────────────────────────
+def _windows_credential_api():
+    import ctypes
+    from ctypes import wintypes
 
-def decode_token(keychain_val):
-    if not keychain_val or not keychain_val.startswith("go-keyring-base64:"):
-        return None
+    class Credential(ctypes.Structure):
+        _fields_ = [
+            ("Flags", wintypes.DWORD),
+            ("Type", wintypes.DWORD),
+            ("TargetName", wintypes.LPWSTR),
+            ("Comment", wintypes.LPWSTR),
+            ("LastWritten", wintypes.FILETIME),
+            ("CredentialBlobSize", wintypes.DWORD),
+            ("CredentialBlob", ctypes.POINTER(ctypes.c_ubyte)),
+            ("Persist", wintypes.DWORD),
+            ("AttributeCount", wintypes.DWORD),
+            ("Attributes", ctypes.c_void_p),
+            ("TargetAlias", wintypes.LPWSTR),
+            ("UserName", wintypes.LPWSTR),
+        ]
+
+    return ctypes, wintypes, ctypes.windll.advapi32, Credential
+
+
+def get_windows_credential():
     try:
-        encoded = keychain_val.split(":", 1)[1]
-        data = json.loads(base64.b64decode(encoded, validate=True).decode("utf-8"))
-        return data if isinstance(data, dict) else None
-    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
-
-
-def extract_verified_google_email_claim(token_str):
-    token_json = decode_token(token_str)
-    token_obj = token_json.get("token") if token_json else None
-    if not isinstance(token_obj, dict):
-        return None
-    id_token = token_obj.get("id_token") or token_json.get("id_token")
-    if not id_token:
-        return None
-    try:
-        parts = id_token.split(".")
-        if len(parts) != 3:
+        ctypes, wintypes, advapi32, credential_type = _windows_credential_api()
+        pointer = ctypes.POINTER(credential_type)()
+        if not advapi32.CredReadW(ctypes.c_wchar_p("gemini:antigravity"), wintypes.DWORD(1), wintypes.DWORD(0), ctypes.byref(pointer)):
             return None
-        payload = parts[1] + "=" * (-len(parts[1]) % 4)
-        claims = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8"))
-    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        try:
+            blob = ctypes.string_at(pointer.contents.CredentialBlob, pointer.contents.CredentialBlobSize)
+            return blob.decode("utf-8").strip()
+        finally:
+            advapi32.CredFree(pointer)
+    except (OSError, ValueError, UnicodeDecodeError):
         return None
-    if claims.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
+
+
+def set_windows_credential(value):
+    try:
+        ctypes, wintypes, advapi32, credential_type = _windows_credential_api()
+        encoded = value.encode("utf-8")
+        blob = (ctypes.c_ubyte * len(encoded)).from_buffer_copy(encoded)
+        credential = credential_type(
+            Flags=0,
+            Type=1,
+            TargetName="gemini:antigravity",
+            Comment=None,
+            LastWritten=wintypes.FILETIME(),
+            CredentialBlobSize=len(encoded),
+            CredentialBlob=ctypes.cast(blob, ctypes.POINTER(ctypes.c_ubyte)),
+            Persist=3,
+            AttributeCount=0,
+            Attributes=None,
+            TargetAlias=None,
+            UserName="antigravity",
+        )
+        return bool(advapi32.CredWriteW(ctypes.byref(credential), 0))
+    except (OSError, ValueError):
+        return False
+
+
+def delete_windows_credential():
+    try:
+        ctypes, wintypes, advapi32, _ = _windows_credential_api()
+        return bool(advapi32.CredDeleteW(ctypes.c_wchar_p("gemini:antigravity"), wintypes.DWORD(1), wintypes.DWORD(0)))
+    except (OSError, ValueError):
+        return False
+
+
+def get_linux_credential():
+    try:
+        val = subprocess.check_output(
+            ["secret-tool", "lookup", "service", "gemini", "username", "antigravity"],
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        ).decode("utf-8").strip()
+        return val
+    except Exception:
         return None
-    if claims.get("email_verified") is not True:
+
+
+def set_linux_credential(token_data_str):
+    try:
+        proc = subprocess.run(
+            ["secret-tool", "store", "--label=gemini", "service", "gemini", "username", "antigravity"],
+            input=token_data_str.encode("utf-8"),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+        )
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+
+def delete_linux_credential():
+    try:
+        proc = subprocess.run(
+            ["secret-tool", "clear", "service", "gemini", "username", "antigravity"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+
+def _get_secure_token():
+    plat = platform.system()
+    if plat == "Darwin":
+        try:
+            val = subprocess.check_output(
+                ["security", "find-generic-password", "-a", "antigravity", "-s", "gemini", "-w"],
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            ).decode("utf-8").strip()
+            return val
+        except Exception:
+            return None
+    elif plat == "Windows":
+        return get_windows_credential()
+    elif plat == "Linux":
+        return get_linux_credential()
+    return None
+
+
+def _read_oauth_file_token():
+    import json, base64
+    try:
+        with open(OAUTH_FILE, "rb") as f:
+            raw = f.read()
+        json.loads(raw.decode("utf-8"))
+        return "go-keyring-base64:" + base64.b64encode(raw).decode("utf-8")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
-    return normalize_email(claims.get("email"))
 
 
-def _oauth_client_id(token_json):
-    token = token_json.get("token", {})
-    id_token = token.get("id_token") or token_json.get("id_token")
+def get_current_keychain_token():
+    return _get_secure_token() or _read_oauth_file_token()
+
+
+def set_keychain_token(token_data_str):
+    plat = platform.system()
+    if plat == "Darwin":
+        try:
+            subprocess.run(
+                ["security", "add-generic-password", "-U", "-a", "antigravity", "-s", "gemini", "-w", token_data_str],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+            )
+            return True
+        except (OSError, subprocess.SubprocessError):
+            return False
+    elif plat == "Windows":
+        return set_windows_credential(token_data_str)
+    elif plat == "Linux":
+        return set_linux_credential(token_data_str)
+    return False
+
+
+def write_oauth_file(token_data_str, email=None):
+    token_json = decode_token(token_data_str)
+    inner = token_json.get("token") if isinstance(token_json, dict) else None
+    if not isinstance(inner, dict) or not inner.get("access_token"):
+        return False
+
+    paths = [OAUTH_FILE, OAUTH_CREDS_FILE]
+    if email:
+        paths.append(GOOGLE_ACCOUNTS_FILE)
+    snapshot = _snapshot_files(paths)
     try:
-        payload = id_token.split(".")[1]
-        payload += "=" * (-len(payload) % 4)
-        audience = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8")).get("aud")
-    except (AttributeError, IndexError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
-        audience = None
-    return audience if audience in OAUTH_CLIENT_SECRETS else DEFAULT_OAUTH_CLIENT_ID
+        creds = {
+            "access_token": inner.get("access_token", ""),
+            "refresh_token": inner.get("refresh_token", ""),
+            "scope": inner.get("scope", "https://www.googleapis.com/auth/cloud-platform openid https://www.googleapis.com/auth/userinfo.email"),
+            "token_type": inner.get("token_type", "Bearer"),
+            "id_token": inner.get("id_token", ""),
+            "expiry_date": inner.get("expiry_date", 0),
+        }
+        _atomic_write_json(OAUTH_FILE, token_json)
+        _atomic_write_json(OAUTH_CREDS_FILE, creds)
+
+        if email:
+            import os, json
+            ga = {"active": email, "old": []}
+            try:
+                if os.path.exists(GOOGLE_ACCOUNTS_FILE):
+                    with open(GOOGLE_ACCOUNTS_FILE) as f:
+                        existing = json.load(f)
+                    old_active = existing.get("active", "")
+                    old_list = existing.get("old", [])
+                    if not isinstance(old_list, list):
+                        old_list = []
+                    if old_active and old_active != email and old_active not in old_list:
+                        old_list = [old_active] + [x for x in old_list if x != email]
+                    ga = {"active": email, "old": [x for x in old_list if x != email]}
+            except (OSError, json.JSONDecodeError, AttributeError):
+                pass
+            _atomic_write_json(GOOGLE_ACCOUNTS_FILE, ga)
+
+        return True
+    except (OSError, TypeError, ValueError):
+        _restore_files(snapshot)
+        return False
 
 
-def _refresh_access_token(token_data):
-    token_json = decode_token(token_data)
-    token = token_json.get("token") if token_json else None
-    refresh_token = token.get("refresh_token") if isinstance(token, dict) else None
-    if not refresh_token:
-        raise QuotaFetchError("refresh token is unavailable")
-    client_id = _oauth_client_id(token_json)
-    body = urllib.parse.urlencode({
-        "client_id": client_id,
-        "client_secret": OAUTH_CLIENT_SECRETS[client_id],
-        "refresh_token": refresh_token,
-        "grant_type": "refresh_token",
-    }).encode("ascii")
-    request = urllib.request.Request(OAUTH_TOKEN_URL, data=body, method="POST")
-    try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            access_token = json.loads(response.read().decode("utf-8")).get("access_token")
-    except urllib.error.HTTPError as exc:
-        exc.close()
-        raise QuotaFetchError(f"OAuth refresh failed (HTTP {exc.code})") from None
-    except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise QuotaFetchError(f"OAuth refresh failed: {exc}") from None
-    if not access_token:
-        raise QuotaFetchError("OAuth refresh returned no access token")
-    return access_token
+def delete_keychain_token():
+    plat = platform.system()
+    if plat == "Darwin":
+        try:
+            subprocess.run(
+                ["security", "delete-generic-password", "-a", "antigravity", "-s", "gemini"],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+            return True
+        except (OSError, subprocess.SubprocessError):
+            return _get_secure_token() is None
+    elif plat == "Windows":
+        return delete_windows_credential()
+    elif plat == "Linux":
+        return delete_linux_credential()
+    return False
 
 
-def _cloud_code_post(access_token, method, body):
-    request = urllib.request.Request(
-        CLOUD_CODE_API + method,
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-            "User-Agent": "antigravity",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            result = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        exc.close()
-        raise QuotaFetchError(f"{method} failed (HTTP {exc.code})") from None
-    except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise QuotaFetchError(f"{method} failed: {exc}") from None
-    if not isinstance(result, dict):
-        raise QuotaFetchError(f"{method} returned invalid data")
-    return result
+def delete_oauth_files():
+    import os
+    ok = True
+    for path in (OAUTH_FILE, OAUTH_CREDS_FILE, GOOGLE_ACCOUNTS_FILE):
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            ok = False
+    return ok
 
 
+def _apply_account_token_unlocked(token_data_str, email=None):
+    if not decode_token(token_data_str):
+        return False
+
+    previous_secure = _get_secure_token()
+    secure_updated = set_keychain_token(token_data_str)
+    if not secure_updated:
+        current_secure = _get_secure_token()
+        if current_secure == token_data_str:
+            secure_updated = True
+        elif previous_secure:
+            if current_secure != previous_secure:
+                set_keychain_token(previous_secure)
+            return False
+        elif current_secure:
+            return False
+
+    if write_oauth_file(token_data_str, email=email):
+        return True
+
+    if secure_updated:
+        if previous_secure:
+            set_keychain_token(previous_secure)
+        else:
+            delete_keychain_token()
+    return False
+
+
+def apply_account_token(token_data_str, email=None):
+    with _session_lock():
+        return _apply_account_token_unlocked(token_data_str, email)
+
+
+def _clear_active_session_unlocked():
+    delete_keychain_token()
+    delete_oauth_files()
+    return _get_secure_token() is None and _read_oauth_file_token() is None
+
+
+def clear_active_session():
+    with _session_lock():
+        return _clear_active_session_unlocked()
+
+
+def enable_windows_ansi():
+    if platform.system() == "Windows":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.GetStdHandle(-11)
+            mode = ctypes.c_ulong()
+            kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+            kernel32.SetConsoleMode(handle, mode.value | 0x0004)
+        except Exception:
+            pass
+
+# ── Module: quota ──────────────────────────────────────────────────
 def fetch_account_quota(account):
     access_token = _refresh_access_token(account.get("token_data"))
     claimed_email = extract_verified_google_email_claim(account.get("token_data"))
@@ -1240,6 +1518,7 @@ def refresh_quota_snapshots(accounts, force=False, progress=None):
 
 
 def get_token_reset_info(token_data_str):
+    from agy_swap.oauth import decode_token
     token_json = decode_token(token_data_str)
     if not token_json or "token" not in token_json:
         return None
@@ -1273,257 +1552,7 @@ def get_token_reset_info(token_data_str):
     except (TypeError, ValueError, OverflowError):
         return None
 
-def get_tier_badge(acc):
-    snapshot = acc.get("quota_snapshot")
-    tier = snapshot.get("tier") if isinstance(snapshot, dict) else None
-    if isinstance(tier, dict) and tier.get("name"):
-        plan = clean_display_text(tier["name"])
-        color = GRAY if tier.get("id") == "free-tier" else ORANGE
-        return f"{color}{plan}{RESET}"
-    source = acc.get("tier_source")
-    plan = clean_display_text(acc.get("plan") or acc.get("tier")).title()
-    if plan not in ("Pro", "Starter", "Free") or source != "manual":
-        return f"{GRAY}Unknown{RESET}"
-    color = ORANGE if plan == "Pro" else GRAY
-    return f"{color}{plan} (manual){RESET}"
-
-
-# ── Display Formatting & Terminal Utilities ──────────────────────────────────
-
-def format_duration(seconds):
-    mins = max(0, int(seconds // 60))
-    days, mins = divmod(mins, 24 * 60)
-    hours, mins = divmod(mins, 60)
-    if days:
-        return f"{days}d {hours}h {mins}m"
-    return f"{hours}h {mins}m" if hours else f"{mins}m"
-
-
-def quota_groups(acc):
-    snapshot = acc.get("quota_snapshot")
-    groups = snapshot.get("groups") if isinstance(snapshot, dict) else None
-    return groups if isinstance(groups, list) else []
-
-
-def format_quota_bar(bucket, now=None, width=12):
-    fraction = min(1.0, max(0.0, float(bucket["remaining_fraction"])))
-    filled = round(fraction * width)
-    color = RED if fraction <= 0.1 else YELLOW if fraction <= 0.3 else GREEN
-    bar = f"{color}{'█' * filled}{DARK_GRAY}{'░' * (width - filled)}{RESET}"
-    try:
-        remaining = (_parse_utc_datetime(bucket["reset_at"]) - (now or datetime.now(timezone.utc))).total_seconds()
-        reset = f" · resets in {format_duration(remaining)}" if remaining > 0 else " · refresh due"
-    except (KeyError, AttributeError, TypeError, ValueError):
-        reset = ""
-    return f"[{bar}] {fraction * 100:.2f}% remaining{reset}"
-
-
-def quota_wait_seconds(acc, now=None, family=None):
-    groups = quota_groups(acc)
-    if not groups:
-        return None
-    now = now or datetime.now(timezone.utc)
-    group_id = "gemini" if family == "gemini" else "third_party" if family in ("claude", "gpt") else None
-    matched = False
-    waits = []
-    for group in groups:
-        if group_id and group.get("id") != group_id:
-            continue
-        matched = True
-        for bucket in group.get("buckets", []):
-            if bucket.get("remaining_fraction", 1) > 0:
-                continue
-            try:
-                waits.append(max(0, (_parse_utc_datetime(bucket["reset_at"]) - now).total_seconds()))
-            except (KeyError, AttributeError, TypeError, ValueError):
-                pass
-    return max(waits, default=0) if matched else None
-
-
-def format_cooldown_bar(limit, now=None, width=12):
-    if not limit:
-        return f"[{DARK_GRAY}{'░' * width}{RESET}] No active cooldown observed"
-    now = now or datetime.now(timezone.utc)
-    try:
-        observed_at = _parse_utc_datetime(limit["observed_at"])
-        reset_at = _parse_utc_datetime(limit["reset_at"])
-    except (KeyError, TypeError, ValueError):
-        return None
-    total = (reset_at - observed_at).total_seconds()
-    if total <= 0:
-        return None
-    ratio = min(1.0, max(0.0, (reset_at - now).total_seconds() / total))
-    filled = round(ratio * width)
-    bar = f"{RED}{'█' * filled}{DARK_GRAY}{'░' * (width - filled)}{RESET}"
-    return f"[{bar}] {ratio * 100:.1f}% time left"
-
-
-def active_quota_limits(acc, now=None):
-    now = now or datetime.now(timezone.utc)
-    active = []
-    for limit in acc.get("quota_limits", {}).values():
-        try:
-            reset_at = _parse_utc_datetime(limit["reset_at"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        remaining = (reset_at - now).total_seconds()
-        if remaining > 0:
-            active.append((remaining, limit))
-    return sorted(active, key=lambda item: item[0])
-
-
-def get_account_limit_display(acc, is_active=False, current_token_str=None):
-    tier = get_tier_badge(acc)
-    buckets = [bucket for group in quota_groups(acc) for bucket in group.get("buckets", [])]
-    if buckets:
-        lowest = min(buckets, key=lambda bucket: bucket["remaining_fraction"])
-        fraction = lowest["remaining_fraction"]
-        if fraction <= 0:
-            try:
-                remaining = (_parse_utc_datetime(lowest["reset_at"]) - datetime.now(timezone.utc)).total_seconds()
-            except (KeyError, AttributeError, TypeError, ValueError):
-                remaining = 0
-            return f"[{tier}] {RED}Limited{RESET} · {lowest['name']} resets in {format_duration(remaining)}"
-        color = RED if fraction <= 0.1 else YELLOW if fraction <= 0.3 else GREEN
-        return f"[{tier}] {color}{fraction * 100:.0f}% lowest remaining{RESET}"
-    active = active_quota_limits(acc)
-    if active:
-        parts = [f"{RED}! {limit['model']} ({format_duration(remaining)}){RESET}" for remaining, limit in active]
-        return f"[{tier}] " + " ".join(parts)
-    return f"[{tier}] {GRAY}Usage unavailable · no recent cooldown error{RESET}"
-
-def get_avatar_badge(name, email):
-    name_str = clean_display_text(name)
-    parts = name_str.split()
-    if len(parts) >= 2 and parts[0] and parts[1]:
-        initials = (parts[0][0] + parts[1][0]).upper()
-    elif len(parts) == 1 and parts[0]:
-        initials = parts[0][:2].upper()
-    else:
-        initials = email[:2].upper() if email else "GU"
-
-    if not sys.stdout.isatty() or "NO_COLOR" in os.environ:
-        return initials
-
-    bg_colors = [166, 172, 64, 71, 133, 167, 31, 68]
-    bg_code = bg_colors[sum(email.encode("utf-8")) % len(bg_colors)]
-    return f"\033[48;5;{bg_code}m\033[38;5;255m\033[1m {initials} \033[0m"
-
-def visible_len(text):
-    return sum(
-        0 if unicodedata.combining(ch) else 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
-        for ch in ANSI_ESCAPE.sub("", text)
-    )
-
-
-def truncate_visible(text, width):
-    if visible_len(text) <= width:
-        return text
-    result = []
-    used = 0
-    index = 0
-    while index < len(text) and used < max(0, width - 1):
-        match = ANSI_ESCAPE.match(text, index)
-        if match:
-            result.append(match.group(0))
-            index = match.end()
-            continue
-        ch = text[index]
-        char_width = 0 if unicodedata.combining(ch) else 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
-        if used + char_width > width - 1:
-            break
-        result.append(ch)
-        used += char_width
-        index += 1
-    return "".join(result) + "…" + RESET
-
-def get_responsive_width():
-    try:
-        cols, _ = shutil.get_terminal_size((80, 24))
-        return max(28, min(cols - 2, 110))
-    except Exception:
-        return 76
-
-
-# ── Raw Keyboard Input Readers ───────────────────────────────────────────────
-
-def _read_unix_key(fd):
-    ch = os.read(fd, 1)
-    if ch == b"\x1b":
-        if not select.select([fd], [], [], 0.1)[0]:
-            return "esc"
-        ch2 = os.read(fd, 1)
-        if ch2 not in (b"[", b"O") or not select.select([fd], [], [], 0.1)[0]:
-            return ""
-        ch3 = os.read(fd, 1)
-        if ch3 == b"A":
-            return "up"
-        if ch3 == b"B":
-            return "down"
-        if ch3 == b"3" and select.select([fd], [], [], 0.1)[0] and os.read(fd, 1) == b"~":
-            return "delete"
-        return ""
-    if ch in (b"\r", b"\n"):
-        return "\n"
-    if ch in (b"\x7f", b"\x08"):
-        return "backspace"
-    return ch.decode("utf-8", errors="ignore")
-
-
-def _read_windows_key(getch):
-    ch = getch()
-    if ch in (b"\x00", b"\xe0"):
-        return {b"H": "up", b"P": "down", b"S": "delete"}.get(getch(), "")
-    if ch == b"\x1b":
-        return "esc"
-    if ch in (b"\r", b"\n"):
-        return "\n"
-    if ch in (b"\x08", b"\x7f"):
-        return "backspace"
-    return ch.decode("utf-8", errors="ignore")
-
-
-def get_key():
-    if platform.system() == "Windows":
-        import msvcrt
-        return _read_windows_key(msvcrt.getch)
-    else:
-        import sys, tty, termios
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            return _read_unix_key(fd)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-
-def get_key_with_timeout(timeout=None):
-    if timeout is None:
-        return get_key()
-    if platform.system() == "Windows":
-        import msvcrt
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            if msvcrt.kbhit():
-                return _read_windows_key(msvcrt.getch)
-            time.sleep(0.05)
-        return None
-    else:
-        import tty, termios
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            ready, _, _ = select.select([fd], [], [], timeout)
-            if not ready:
-                return None
-            return _read_unix_key(fd)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-# ── Account Creation Helpers ─────────────────────────────────────────────────
-
+# ── Module: commands ──────────────────────────────────────────────────
 def _new_account(email, name, token_str):
     return {
         "email": email,
@@ -1532,8 +1561,8 @@ def _new_account(email, name, token_str):
         "quota_schema": QUOTA_SCHEMA,
     }
 
+
 def _save_token_as_account(token_str):
-    """Helper: resolve userinfo from a token and save it to accounts. Returns (success, message)."""
     token_json = decode_token(token_str)
     if not token_json or "token" not in token_json or "access_token" not in token_json["token"]:
         print(f"\n{RED}Invalid token structure.{RESET}")
@@ -1571,7 +1600,6 @@ def _save_token_as_account(token_str):
         print(f"\n{YELLOW}Cancelled. Token is still active in Keychain.{RESET}")
         return False, "Save cancelled"
 
-# ── CLI Commands & Workflows ─────────────────────────────────────────────────
 
 def cmd_add_flow():
     with _session_lock():
@@ -1590,13 +1618,11 @@ def _cmd_add_flow_unlocked():
         else:
             delete_keychain_token()
 
-    # Check if there's an unsaved active account already in Keychain
     if current_token:
         accounts = load_accounts(sync_logs=False)
         active_email = get_active_account_email(accounts, current_token)
         is_saved = bool(active_email and active_email.lower() in accounts)
         if not is_saved:
-            # Resolve who this token belongs to
             token_json = decode_token(current_token)
             unsaved_email = None
             unsaved_name = "Google User"
@@ -1621,7 +1647,6 @@ def _cmd_add_flow_unlocked():
     if not _clear_active_session_unlocked():
         return False, "Could not clear the active session before login"
 
-    # Auto-launch agy to trigger OAuth login flow
     agy_process = None
     agy_bin = shutil.which("agy")
     if agy_bin:
@@ -1686,6 +1711,7 @@ def _read_token_stdin():
         raw = raw.decode("utf-8")
     return raw.strip()
 
+
 def cmd_add(args):
     token_arg = getattr(args, "token", None)
     if token_arg is not None:
@@ -1730,8 +1756,8 @@ def cmd_add(args):
         if not success:
             sys.exit(1)
 
+
 def extract_email_from_token(token_str):
-    """Read an email claim for display/matching; never use it to persist credentials."""
     claimed_email = extract_verified_google_email_claim(token_str)
     if claimed_email:
         return claimed_email
@@ -1746,6 +1772,7 @@ def extract_email_from_token(token_str):
         if userinfo and userinfo.get("email"):
             return normalize_email(userinfo.get("email"))
     return None
+
 
 def get_active_account_email(accounts, current_token=None):
     if current_token is None:
@@ -1762,6 +1789,7 @@ def get_active_account_email(accounts, current_token=None):
                 return acc_email
         return token_email
     return None
+
 
 def resolve_account_target(target, accounts):
     if not target or not accounts:
@@ -1863,9 +1891,9 @@ def cmd_list(args):
                     print(f"          {bucket['name']}: {format_quota_bar(bucket)}")
         else:
             for remaining, limit in active_quota_limits(acc):
-                progress = format_cooldown_bar(limit)
-                if progress:
-                    print(f"       ↳ {limit['model']}: {progress} · resets in {format_duration(remaining)}")
+                progress_bar = format_cooldown_bar(limit)
+                if progress_bar:
+                    print(f"       ↳ {limit['model']}: {progress_bar} · resets in {format_duration(remaining)}")
         if getattr(args, "verbose", False):
             age = quota_snapshot_age(acc)
             if age is not None:
@@ -1875,6 +1903,7 @@ def cmd_list(args):
                 source = "manual" if limit["source"] == "manual" else f"local log {limit.get('source_file', '(unknown file)')}"
                 print(f"       ↳ {limit['model']}: observed {observed} · source {source}")
     print(f"{GRAY}{'─'*65}{RESET}\n")
+
 
 def cmd_next(args):
     family = getattr(args, "family", None)
@@ -1908,7 +1937,9 @@ def cmd_next(args):
         print(f"{RED}✕ Failed to rotate account.{RESET}")
         sys.exit(1)
 
+
 def cmd_switch(args):
+    from agy_swap.tui import cmd_interactive
     accounts = load_accounts()
     if not accounts:
         print(f"{GRAY}No accounts found. Add one with 'agy-swap add' first.{RESET}")
@@ -1939,21 +1970,6 @@ def cmd_switch(args):
         print(f"{RED}✕ Failed to switch account.{RESET}")
         sys.exit(1)
 
-def parse_duration_seconds(duration_str):
-    if not duration_str:
-        return None
-    duration_str = duration_str.strip().lower()
-    if duration_str in ("reset", "clear", "0", "none"):
-        return 0
-    if duration_str.isdigit():
-        total = int(duration_str) * 60
-    else:
-        match = re.fullmatch(r"\s*(?:(\d+)\s*d)?\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?\s*", duration_str)
-        if not match or not any(match.groups()):
-            return None
-        days, hours, mins, secs = (int(value or 0) for value in match.groups())
-        total = days * 86400 + hours * 3600 + mins * 60 + secs
-    return total if 0 <= total <= MAX_LIMIT_SECS else None
 
 def cmd_set_limit(args):
     accounts = load_accounts()
@@ -2015,7 +2031,9 @@ def cmd_limits(args):
     if errors:
         print(f"{YELLOW}Usage refresh failed for {len(errors)} account(s); cached data kept.{RESET}", file=sys.stderr)
 
+
 def cmd_remove(args):
+    from agy_swap.tui import cmd_interactive
     accounts = load_accounts()
     if not accounts:
         print(f"{GRAY}No accounts found.{RESET}")
@@ -2042,6 +2060,7 @@ def cmd_remove(args):
         save_accounts(accounts)
         print(f"{GREEN}✓ Removed account '{selected_email}'.{RESET}")
 
+
 def cmd_status(args):
     current_token = get_current_keychain_token()
     if not current_token:
@@ -2061,6 +2080,7 @@ def cmd_status(args):
         email = active_email or "Unknown Session"
         print(f"Active Account: {YELLOW}● {email}{RESET} {GRAY}(Unsaved in agy-swap){RESET}")
 
+
 def cmd_logout(args):
     current_token = get_current_keychain_token()
     if not clear_active_session():
@@ -2071,101 +2091,7 @@ def cmd_logout(args):
     else:
         print(f"{GRAY}Already logged out; removed any stale credential files.{RESET}")
 
-def cmd_update(args):
-    import hashlib
-    force = getattr(args, "force", False)
-
-    with Spinner("Checking for updates..."):
-        try:
-            req = urllib.request.Request(GITHUB_API_RELEASE, headers={"Accept": "application/vnd.github+json"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                release = json.loads(resp.read().decode("utf-8"))
-        except (OSError, ValueError, urllib.error.HTTPError) as exc:
-            print(f"{RED}✕ Could not check for updates: {exc}{RESET}", file=sys.stderr)
-            sys.exit(1)
-
-    latest_tag = release.get("tag_name", "")
-    latest_version = latest_tag.removeprefix("v")
-
-    if not latest_version:
-        print(f"{RED}✕ Could not determine latest version.{RESET}", file=sys.stderr)
-        sys.exit(1)
-
-    if latest_version == VERSION and not force:
-        print(f"{GREEN}✓ Already up to date (v{VERSION}).{RESET}")
-        return
-
-    print(f"  Current: {GRAY}v{VERSION}{RESET}")
-    print(f"  Latest:  {GREEN}v{latest_version}{RESET}")
-
-    # Fetch install.sh from the release tag to get expected SHA256
-    install_url = f"{GITHUB_RAW}/{latest_tag}/install.sh"
-    script_url = f"{GITHUB_RAW}/{latest_tag}/agy-swap"
-
-    with Spinner(f"Downloading v{latest_version}..."):
-        try:
-            with urllib.request.urlopen(install_url, timeout=15) as resp:
-                install_text = resp.read().decode("utf-8")
-            sha_match = re.search(r'^EXPECTED_SHA256="([a-f0-9]+)"$', install_text, re.MULTILINE)
-            if not sha_match:
-                print(f"{RED}✕ Could not extract checksum from release.{RESET}", file=sys.stderr)
-                sys.exit(1)
-            expected_sha = sha_match.group(1)
-
-            with urllib.request.urlopen(script_url, timeout=30) as resp:
-                new_script = resp.read()
-        except (OSError, ValueError, urllib.error.HTTPError) as exc:
-            print(f"{RED}✕ Download failed: {exc}{RESET}", file=sys.stderr)
-            sys.exit(1)
-
-    actual_sha = hashlib.sha256(new_script).hexdigest()
-    if actual_sha != expected_sha:
-        print(f"{RED}✕ Checksum verification failed!{RESET}", file=sys.stderr)
-        print(f"  Expected: {expected_sha}", file=sys.stderr)
-        print(f"  Actual:   {actual_sha}", file=sys.stderr)
-        sys.exit(1)
-
-    # Validate the downloaded script compiles
-    try:
-        compile(new_script.decode("utf-8"), "agy-swap", "exec")
-    except SyntaxError as exc:
-        print(f"{RED}✕ Downloaded script has syntax errors: {exc}{RESET}", file=sys.stderr)
-        sys.exit(1)
-
-    # Replace the current script in-place
-    current_path = os.path.realpath(sys.argv[0]) if os.path.isfile(sys.argv[0]) else shutil.which("agy-swap")
-    if not current_path or not os.path.isfile(current_path):
-        print(f"{RED}✕ Cannot locate agy-swap binary to update.{RESET}", file=sys.stderr)
-        sys.exit(1)
-
-    try:
-        old_stat = os.stat(current_path)
-        fd, tmp_path = tempfile.mkstemp(prefix=".agy-swap.", dir=os.path.dirname(current_path))
-        try:
-            with os.fdopen(fd, "wb") as f:
-                f.write(new_script)
-                f.flush()
-                os.fsync(f.fileno())
-            os.chmod(tmp_path, old_stat.st_mode)
-            os.replace(tmp_path, current_path)
-        except Exception:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
-    except OSError as exc:
-        print(f"{RED}✕ Failed to write update: {exc}{RESET}", file=sys.stderr)
-        sys.exit(1)
-
-    print(f"{GREEN}✓ Updated agy-swap v{VERSION} → v{latest_version}{RESET}")
-    notes_url = release.get("html_url", "")
-    if notes_url:
-        print(f"  {GRAY}Release notes: {notes_url}{RESET}")
-
-
-# ── Interactive TUI Mode ─────────────────────────────────────────────────────
-
+# ── Module: tui ──────────────────────────────────────────────────
 def cmd_interactive(args):
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         cmd_list(args)
@@ -2330,7 +2256,6 @@ def cmd_interactive(args):
             sys.stdout.write("\033[J")
             sys.stdout.flush()
 
-            # Auto-refresh: start background thread if due
             if bg_refresh_thread and not bg_refresh_thread.is_alive():
                 bg_refresh_thread = None
             if not bg_refresh_thread and time.time() - last_refresh_time >= TUI_AUTO_REFRESH_SECS:
@@ -2496,8 +2421,96 @@ def cmd_interactive(args):
         sys.stdout.write("\033[?1049l\033[?25h")
         sys.stdout.flush()
 
-# ── CLI Entry Point ──────────────────────────────────────────────────────────
+# ── Module: updater ──────────────────────────────────────────────────
+def cmd_update(args):
+    force = getattr(args, "force", False)
 
+    with Spinner("Checking for updates..."):
+        try:
+            req = urllib.request.Request(GITHUB_API_RELEASE, headers={"Accept": "application/vnd.github+json"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                release = json.loads(resp.read().decode("utf-8"))
+        except (OSError, ValueError, urllib.error.HTTPError) as exc:
+            print(f"{RED}✕ Could not check for updates: {exc}{RESET}", file=sys.stderr)
+            sys.exit(1)
+
+    latest_tag = release.get("tag_name", "")
+    latest_version = latest_tag.removeprefix("v")
+
+    if not latest_version:
+        print(f"{RED}✕ Could not determine latest version.{RESET}", file=sys.stderr)
+        sys.exit(1)
+
+    if latest_version == VERSION and not force:
+        print(f"{GREEN}✓ Already up to date (v{VERSION}).{RESET}")
+        return
+
+    print(f"  Current: {GRAY}v{VERSION}{RESET}")
+    print(f"  Latest:  {GREEN}v{latest_version}{RESET}")
+
+    install_url = f"{GITHUB_RAW}/{latest_tag}/install.sh"
+    script_url = f"{GITHUB_RAW}/{latest_tag}/agy-swap"
+
+    with Spinner(f"Downloading v{latest_version}..."):
+        try:
+            with urllib.request.urlopen(install_url, timeout=15) as resp:
+                install_text = resp.read().decode("utf-8")
+            sha_match = re.search(r'^EXPECTED_SHA256="([a-f0-9]+)"$', install_text, re.MULTILINE)
+            if not sha_match:
+                print(f"{RED}✕ Could not extract checksum from release.{RESET}", file=sys.stderr)
+                sys.exit(1)
+            expected_sha = sha_match.group(1)
+
+            with urllib.request.urlopen(script_url, timeout=30) as resp:
+                new_script = resp.read()
+        except (OSError, ValueError, urllib.error.HTTPError) as exc:
+            print(f"{RED}✕ Download failed: {exc}{RESET}", file=sys.stderr)
+            sys.exit(1)
+
+    actual_sha = hashlib.sha256(new_script).hexdigest()
+    if actual_sha != expected_sha:
+        print(f"{RED}✕ Checksum verification failed!{RESET}", file=sys.stderr)
+        print(f"  Expected: {expected_sha}", file=sys.stderr)
+        print(f"  Actual:   {actual_sha}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        compile(new_script.decode("utf-8"), "agy-swap", "exec")
+    except SyntaxError as exc:
+        print(f"{RED}✕ Downloaded script has syntax errors: {exc}{RESET}", file=sys.stderr)
+        sys.exit(1)
+
+    current_path = os.path.realpath(sys.argv[0]) if os.path.isfile(sys.argv[0]) else shutil.which("agy-swap")
+    if not current_path or not os.path.isfile(current_path):
+        print(f"{RED}✕ Cannot locate agy-swap binary to update.{RESET}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        old_stat = os.stat(current_path)
+        fd, tmp_path = tempfile.mkstemp(prefix=".agy-swap.", dir=os.path.dirname(current_path))
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(new_script)
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(tmp_path, old_stat.st_mode)
+            os.replace(tmp_path, current_path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+    except OSError as exc:
+        print(f"{RED}✕ Failed to write update: {exc}{RESET}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"{GREEN}✓ Updated agy-swap v{VERSION} → v{latest_version}{RESET}")
+    notes_url = release.get("html_url", "")
+    if notes_url:
+        print(f"  {GRAY}Release notes: {notes_url}{RESET}")
+
+# ── Module: __main__ ──────────────────────────────────────────────────
 def main():
     configure_output()
     enable_windows_ansi()
