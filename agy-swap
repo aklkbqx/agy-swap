@@ -34,7 +34,8 @@ MAX_TOKEN_BYTES = 1024 * 1024
 LOG_SCAN_BYTES = 8 * 1024 * 1024
 LOG_TOTAL_SCAN_BYTES = 64 * 1024 * 1024
 QUOTA_SCHEMA = 2
-QUOTA_CACHE_SECS = 5 * 60
+QUOTA_CACHE_SECS = 60
+TUI_AUTO_REFRESH_SECS = 60
 CLOUD_CODE_API = "https://daily-cloudcode-pa.googleapis.com/v1internal:"
 OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GITHUB_REPO = "aklkbqx/agy-swap"
@@ -1474,6 +1475,31 @@ def get_key():
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
+
+def get_key_with_timeout(timeout=None):
+    if timeout is None:
+        return get_key()
+    if platform.system() == "Windows":
+        import msvcrt
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if msvcrt.kbhit():
+                return _read_windows_key(msvcrt.getch)
+            time.sleep(0.05)
+        return None
+    else:
+        import tty, termios
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ready, _, _ = select.select([fd], [], [], timeout)
+            if not ready:
+                return None
+            return _read_unix_key(fd)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
 def _new_account(email, name, token_str):
     return {
         "email": email,
@@ -2155,6 +2181,8 @@ def cmd_interactive(args):
         last_highlighted_idx = 0
         message = ""
         message_type = "info"
+        last_refresh_time = time.time()
+        bg_refresh_thread = None
 
         while True:
             accounts = load_accounts()
@@ -2274,7 +2302,25 @@ def cmd_interactive(args):
             sys.stdout.write("\033[J")
             sys.stdout.flush()
 
-            key = get_key()
+            # Auto-refresh: start background thread if due
+            if bg_refresh_thread and not bg_refresh_thread.is_alive():
+                bg_refresh_thread = None
+            if not bg_refresh_thread and time.time() - last_refresh_time >= TUI_AUTO_REFRESH_SECS:
+                def _auto_refresh():
+                    try:
+                        accs = load_accounts(sync_logs=False)
+                        refresh_quota_snapshots(accs)
+                    except Exception:
+                        pass
+                bg_refresh_thread = threading.Thread(target=_auto_refresh, daemon=True)
+                bg_refresh_thread.start()
+                last_refresh_time = time.time()
+
+            elapsed = time.time() - last_refresh_time
+            wait = max(0.5, TUI_AUTO_REFRESH_SECS - elapsed)
+            key = get_key_with_timeout(wait)
+            if key is None:
+                continue
             message = ""
 
             if key == "up":
@@ -2313,6 +2359,7 @@ def cmd_interactive(args):
                 sys.stdout.flush()
                 accs = load_accounts()
                 quota_errors = refresh_quota_with_progress(accs, force=True)
+                last_refresh_time = time.time()
                 message = "Usage refreshed" if not quota_errors else f"Usage refresh failed for {len(quota_errors)} account(s); cached data kept"
                 message_type = "success" if not quota_errors else "error"
                 sys.stdout.write("\033[?1049h\033[?25l\033[H")
