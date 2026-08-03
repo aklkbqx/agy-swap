@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from agy_swap import TIER_NAMES, QUOTA_CACHE_SECS, QuotaFetchError, AccountStoreError
 from agy_swap.display import clean_display_text, _parse_utc_datetime
-from agy_swap.oauth import _refresh_access_token, _cloud_code_post, extract_verified_google_email_claim
+from agy_swap.oauth import _refresh_access_token, _cloud_code_post, extract_verified_google_email_claim, decode_token
 from agy_swap.store import _normalize_quota_snapshot, save_accounts
 
 
@@ -130,7 +130,6 @@ def refresh_quota_snapshots(accounts, force=False, progress=None):
 
 
 def get_token_reset_info(token_data_str):
-    from agy_swap.oauth import decode_token
     token_json = decode_token(token_data_str)
     if not token_json or "token" not in token_json:
         return None
