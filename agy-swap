@@ -21,13 +21,14 @@ import shutil
 import select
 import tempfile
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 CONFIG_DIR = os.path.expanduser("~/.gemini/agy-swap")
 ACCOUNTS_FILE = os.path.join(CONFIG_DIR, "accounts.json")
 OAUTH_FILE = os.path.expanduser("~/.gemini/antigravity-cli/antigravity-oauth-token")
 OAUTH_CREDS_FILE = os.path.expanduser("~/.gemini/oauth_creds.json")
 GOOGLE_ACCOUNTS_FILE = os.path.expanduser("~/.gemini/google_accounts.json")
-VERSION = "1.6.4"
+VERSION = "1.6.5"
 MAX_LIMIT_SECS = 7 * 24 * 3600
 MAX_TOKEN_BYTES = 1024 * 1024
 LOG_SCAN_BYTES = 8 * 1024 * 1024
@@ -1098,8 +1099,8 @@ def _cloud_code_post(access_token, method, body):
 
 def fetch_account_quota(account):
     access_token = _refresh_access_token(account.get("token_data"))
-    profile = get_google_userinfo(access_token)
-    if not profile or normalize_email(profile.get("email")) != account.get("email"):
+    claimed_email = extract_verified_google_email_claim(account.get("token_data"))
+    if claimed_email and claimed_email != account.get("email"):
         raise QuotaFetchError("refreshed token identity does not match the account")
 
     account_info = _cloud_code_post(access_token, "loadCodeAssist", {"metadata": {"ideType": "ANTIGRAVITY"}})
@@ -1173,19 +1174,44 @@ def refresh_quota_snapshots(accounts, force=False, progress=None):
     changed = False
     now = datetime.now(timezone.utc)
     total = len(accounts)
-    for index, (email, account) in enumerate(accounts.items(), 1):
+
+    to_fetch = []
+    cached_count = 0
+    for email, account in accounts.items():
         age = quota_snapshot_age(account, now)
-        cached = not force and age is not None and age < QUOTA_CACHE_SECS
-        status = "cached" if cached else "synced"
-        if not cached:
+        if not force and age is not None and age < QUOTA_CACHE_SECS:
+            cached_count += 1
+            if progress:
+                progress(cached_count, total, account, "cached")
+        else:
+            to_fetch.append((email, account))
+
+    if to_fetch:
+        def _fetch_one(item):
+            email, account = item
             try:
-                account["quota_snapshot"] = fetch_account_quota(account)
-                changed = True
+                snapshot = fetch_account_quota(account)
+                return email, snapshot, None
             except QuotaFetchError as exc:
-                errors[email] = str(exc)
-                status = "failed"
-        if progress:
-            progress(index, total, account, status)
+                return email, None, str(exc)
+
+        workers = min(len(to_fetch), 8)
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(_fetch_one, item): item[0] for item in to_fetch}
+            done_count = cached_count
+            for future in as_completed(futures):
+                email, snapshot, error = future.result()
+                done_count += 1
+                if snapshot:
+                    accounts[email]["quota_snapshot"] = snapshot
+                    changed = True
+                    status = "synced"
+                else:
+                    errors[email] = error
+                    status = "failed"
+                if progress:
+                    progress(done_count, total, accounts[email], status)
+
     if changed:
         save_accounts(accounts)
     return errors
