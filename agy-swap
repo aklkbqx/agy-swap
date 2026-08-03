@@ -1518,7 +1518,6 @@ def refresh_quota_snapshots(accounts, force=False, progress=None):
 
 
 def get_token_reset_info(token_data_str):
-    from agy_swap.oauth import decode_token
     token_json = decode_token(token_data_str)
     if not token_json or "token" not in token_json:
         return None
@@ -1939,7 +1938,6 @@ def cmd_next(args):
 
 
 def cmd_switch(args):
-    from agy_swap.tui import cmd_interactive
     accounts = load_accounts()
     if not accounts:
         print(f"{GRAY}No accounts found. Add one with 'agy-swap add' first.{RESET}")
@@ -2033,7 +2031,6 @@ def cmd_limits(args):
 
 
 def cmd_remove(args):
-    from agy_swap.tui import cmd_interactive
     accounts = load_accounts()
     if not accounts:
         print(f"{GRAY}No accounts found.{RESET}")

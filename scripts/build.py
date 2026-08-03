@@ -54,6 +54,17 @@ def extract_imports_and_body(source: str):
                     import_lines.append(lines[lno - 1])
                     remove_linenos.add(lno)
 
+    # Walk full AST to strip any nested internal agy_swap imports inside functions
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("agy_swap"):
+            for lno in range(node.lineno, node.end_lineno + 1):
+                remove_linenos.add(lno)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.startswith("agy_swap"):
+                    for lno in range(node.lineno, node.end_lineno + 1):
+                        remove_linenos.add(lno)
+
     body_lines = []
     for lno, line in enumerate(lines, 1):
         if lno not in remove_linenos:
