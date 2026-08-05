@@ -4,3 +4,15 @@ __pycache__/
 .serena/
 src/agy_swap/__pycache__/
 *.egg-info/
+graft/
+.env.graft
+.claude/
+.cursor/
+.gemini/
+.windsurf/
+.codex/
+.mcp.json
+opencode.json
+AGENTS.md
+GEMINI.md
+.ignore
