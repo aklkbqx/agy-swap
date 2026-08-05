@@ -46,9 +46,27 @@ else
         printf "%bError: curl is required for remote installation.%b\n" "$RED" "$NC" >&2
         exit 1
     fi
-    curl -fsSL --proto '=https' --tlsv1.2 \
-        "https://raw.githubusercontent.com/aklkbqx/agy-swap/v${VERSION}/agy-swap" \
-        -o "$tmp_file"
+    urls=(
+        "https://cdn.jsdelivr.net/gh/aklkbqx/agy-swap@v${VERSION}/agy-swap"
+        "https://fastly.jsdelivr.net/gh/aklkbqx/agy-swap@v${VERSION}/agy-swap"
+        "https://gcore.jsdelivr.net/gh/aklkbqx/agy-swap@v${VERSION}/agy-swap"
+        "https://raw.githubusercontent.com/aklkbqx/agy-swap/v${VERSION}/agy-swap"
+        "https://github.com/aklkbqx/agy-swap/raw/v${VERSION}/agy-swap"
+    )
+    downloaded=0
+    for url in "${urls[@]}"; do
+        if curl -fsSL --proto '=https' --tlsv1.2 "$url" -o "$tmp_file" 2>/dev/null; then
+            downloaded=1
+            break
+        elif curl -fsSLk "$url" -o "$tmp_file" 2>/dev/null; then
+            downloaded=1
+            break
+        fi
+    done
+    if [[ "$downloaded" -ne 1 ]]; then
+        printf "%bError: Failed to download agy-swap from available mirrors.%b\n" "$RED" "$NC" >&2
+        exit 1
+    fi
 fi
 
 actual_sha="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$tmp_file")"

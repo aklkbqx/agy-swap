@@ -15,6 +15,7 @@ MODULE_ORDER = [
     "storage",
     "display",
     "tty",
+    "network",
     "oauth",
     "logs",
     "store",
