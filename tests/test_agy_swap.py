@@ -612,6 +612,26 @@ class AgySwapTests(unittest.TestCase):
                 os.close(read_fd)
                 os.close(write_fd)
 
+    def test_safe_urlopen_fallbacks_on_ssl_verification_error(self):
+        calls = []
+
+        def mock_urlopen(req, timeout=10, context=None):
+            calls.append(context)
+            if len(calls) == 1:
+                import ssl
+                raise self.m["urllib"].error.URLError(ssl.SSLCertVerificationError("cert failed"))
+            response = SimpleNamespace(read=lambda: b"success", status=200)
+            return response
+
+        original_urlopen = self.m["urllib"].request.urlopen
+        try:
+            self.m["urllib"].request.urlopen = mock_urlopen
+            resp = self.m["safe_urlopen"]("https://example.com")
+            self.assertEqual(resp.read(), b"success")
+            self.assertEqual(len(calls), 2)
+        finally:
+            self.m["urllib"].request.urlopen = original_urlopen
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -11,6 +11,7 @@ from agy_swap import (
     QuotaFetchError,
 )
 from agy_swap.display import normalize_email
+from agy_swap.network import safe_urlopen
 
 
 def decode_token(keychain_val):
@@ -74,7 +75,7 @@ def _refresh_access_token(token_data):
     }).encode("ascii")
     request = urllib.request.Request(OAUTH_TOKEN_URL, data=body, method="POST")
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
+        with safe_urlopen(request, timeout=15) as response:
             access_token = json.loads(response.read().decode("utf-8")).get("access_token")
     except urllib.error.HTTPError as exc:
         exc.close()
@@ -98,7 +99,7 @@ def _cloud_code_post(access_token, method, body):
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
+        with safe_urlopen(request, timeout=15) as response:
             result = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         exc.close()
@@ -114,7 +115,7 @@ def get_google_userinfo(access_token):
     url = "https://www.googleapis.com/oauth2/v1/userinfo"
     try:
         req = urllib.request.Request(url, headers={"Authorization": f"Bearer {access_token}"})
-        with urllib.request.urlopen(req, timeout=5) as response:
+        with safe_urlopen(req, timeout=5) as response:
             if response.status == 200:
                 data = json.loads(response.read().decode("utf-8"))
                 return data
