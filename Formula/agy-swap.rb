@@ -4,8 +4,8 @@ class AgySwap < Formula
   desc "Minimal interactive account switcher (TUI) for Google Antigravity CLI (agy)"
   homepage "https://github.com/aklkbqx/agy-swap"
   url "https://github.com/aklkbqx/agy-swap/raw/main/agy-swap"
-  version "1.0.0"
-  sha256 "3b82c4295d4d41e24fb2b0591089d7e2e65dffcd9b6983565fa7a0eb0de61455"
+  version "1.8.0"
+  sha256 "e5b7152710baabb06f4f7daa4ac3cab63b6336d2a29ef4762c589ede2775c61b"
 
   depends_on "python"
 
