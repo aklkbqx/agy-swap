@@ -3,7 +3,7 @@
 import os
 import re
 
-VERSION = "1.8.0"
+VERSION = "1.8.1"
 
 # ── Paths ──
 CONFIG_DIR = os.path.expanduser("~/.gemini/agy-swap")
