@@ -14,6 +14,12 @@ from agy_swap import (
 
 
 def configure_output():
+    if os.name == "nt":
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, ValueError):
+                pass
     if sys.stdout.isatty() and "NO_COLOR" not in os.environ:
         return
     for name in ("ORANGE", "GREEN", "BLUE", "RED", "YELLOW", "CYAN", "GRAY", "DARK_GRAY", "BRIGHT_WHITE", "BOLD", "RESET"):

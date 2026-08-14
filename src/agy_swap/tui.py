@@ -15,10 +15,10 @@ from agy_swap.commands import (
 from agy_swap.credentials import apply_account_token, get_current_keychain_token
 from agy_swap.display import (
     get_responsive_width, get_avatar_badge, get_account_limit_display,
-    quota_groups, quota_snapshot_age, active_quota_limits, clean_display_text,
+    quota_groups, active_quota_limits, clean_display_text,
     truncate_visible, format_quota_bar, format_duration,
 )
-from agy_swap.oauth import get_token_reset_info
+from agy_swap.quota import quota_snapshot_age, get_token_reset_info
 from agy_swap.tty import get_key, get_key_with_timeout
 
 
