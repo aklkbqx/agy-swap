@@ -102,19 +102,32 @@ class Accounts(dict):
 _LOG_SCAN_CACHE = None
 
 # ── Module: storage ──────────────────────────────────────────────────
+def _set_private_mode(path, mode):
+    # Windows Credential Manager protects the live OAuth token. For the local
+    # account store, keep the normal inherited Windows ACL instead of applying
+    # POSIX mode bits, which can make the directory unreadable to the next
+    # Python process on Windows.
+    if platform.system() != "Windows":
+        os.chmod(path, mode)
+
+
+def _directory_mode():
+    return 0o777 if platform.system() == "Windows" else 0o700
+
+
 def _atomic_write_bytes(path, data):
     directory = os.path.dirname(path)
-    os.makedirs(directory, mode=0o700, exist_ok=True)
+    os.makedirs(directory, mode=_directory_mode(), exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".tmp.", dir=directory)
     try:
-        if hasattr(os, "fchmod"):
+        if platform.system() != "Windows" and hasattr(os, "fchmod"):
             os.fchmod(fd, 0o600)
         with os.fdopen(fd, "wb") as f:
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, path)
-        os.chmod(path, 0o600)
+        _set_private_mode(path, 0o600)
     except Exception:
         try:
             os.unlink(tmp)
@@ -155,10 +168,10 @@ def _restore_files(snapshot):
 
 @contextmanager
 def _file_lock(path):
-    os.makedirs(CONFIG_DIR, mode=0o700, exist_ok=True)
-    os.chmod(CONFIG_DIR, 0o700)
+    os.makedirs(CONFIG_DIR, mode=_directory_mode(), exist_ok=True)
+    _set_private_mode(CONFIG_DIR, 0o700)
     with open(path, "a+b") as lock:
-        os.chmod(path, 0o600)
+        _set_private_mode(path, 0o600)
         if platform.system() == "Windows":
             import msvcrt
             if os.fstat(lock.fileno()).st_size == 0:
@@ -188,6 +201,12 @@ def _session_lock():
 
 # ── Module: display ──────────────────────────────────────────────────
 def configure_output():
+    if os.name == "nt":
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, ValueError):
+                pass
     if sys.stdout.isatty() and "NO_COLOR" not in os.environ:
         return
     for name in ("ORANGE", "GREEN", "BLUE", "RED", "YELLOW", "CYAN", "GRAY", "DARK_GRAY", "BRIGHT_WHITE", "BOLD", "RESET"):
@@ -555,11 +574,17 @@ def safe_urlopen(url_or_req, timeout=10):
 
 # ── Module: oauth ──────────────────────────────────────────────────
 def decode_token(keychain_val):
-    if not keychain_val or not keychain_val.startswith("go-keyring-base64:"):
+    if not keychain_val or not isinstance(keychain_val, str):
         return None
     try:
-        encoded = keychain_val.split(":", 1)[1]
-        data = json.loads(base64.b64decode(encoded, validate=True).decode("utf-8"))
+        if keychain_val.startswith("go-keyring-base64:"):
+            encoded = keychain_val.split(":", 1)[1]
+            raw = base64.b64decode(encoded, validate=True).decode("utf-8")
+        else:
+            # Recent Antigravity CLI versions store the Windows Credential
+            # Manager value as raw JSON instead of the keyring wrapper.
+            raw = keychain_val
+        data = json.loads(raw)
         return data if isinstance(data, dict) else None
     except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
         return None
@@ -666,6 +691,11 @@ def get_google_userinfo(access_token):
     return None
 
 # ── Module: logs ──────────────────────────────────────────────────
+# Package modules have their own globals; keep the log-scan cache here rather
+# than relying on the bundled single-file namespace.
+_LOG_SCAN_CACHE = None
+
+
 def find_antigravity_logs():
     log_dirs = [
         os.path.expanduser("~/Library/Logs/Google Antigravity"),
