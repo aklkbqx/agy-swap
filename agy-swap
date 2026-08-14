@@ -28,7 +28,7 @@ import urllib.parse
 import urllib.request
 
 # ── Module: __init__ ──────────────────────────────────────────────────
-VERSION = "1.8.0"
+VERSION = "1.8.1"
 
 # ── Paths ──
 CONFIG_DIR = os.path.expanduser("~/.gemini/agy-swap")
