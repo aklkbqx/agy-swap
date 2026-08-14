@@ -51,6 +51,12 @@ class AgySwapTests(unittest.TestCase):
         self.assertIsNone(parse("8d"))
         self.assertEqual(self.m["format_duration"](6 * 86400 + 2 * 3600 + 7 * 60), "6d 2h 7m")
 
+    def test_decode_token_accepts_raw_windows_credential_json(self):
+        wrapped = token_blob()
+        raw = base64.b64decode(wrapped.split(":", 1)[1]).decode("utf-8")
+        decoded = self.m["decode_token"](raw)
+        self.assertEqual(decoded["token"]["access_token"], "access")
+
     def test_next_account_skips_limits_and_uses_shortest_fallback(self):
         now = datetime.now(timezone.utc)
         accounts = {

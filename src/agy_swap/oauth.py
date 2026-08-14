@@ -15,11 +15,17 @@ from agy_swap.network import safe_urlopen
 
 
 def decode_token(keychain_val):
-    if not keychain_val or not keychain_val.startswith("go-keyring-base64:"):
+    if not keychain_val or not isinstance(keychain_val, str):
         return None
     try:
-        encoded = keychain_val.split(":", 1)[1]
-        data = json.loads(base64.b64decode(encoded, validate=True).decode("utf-8"))
+        if keychain_val.startswith("go-keyring-base64:"):
+            encoded = keychain_val.split(":", 1)[1]
+            raw = base64.b64decode(encoded, validate=True).decode("utf-8")
+        else:
+            # Recent Antigravity CLI versions store the Windows Credential
+            # Manager value as raw JSON instead of the keyring wrapper.
+            raw = keychain_val
+        data = json.loads(raw)
         return data if isinstance(data, dict) else None
     except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
         return None
