@@ -8,7 +8,7 @@ import sys
 
 root = Path(__file__).resolve().parents[1]
 core = (root / "agy-swap").read_bytes()
-core_text = core.decode("utf-8")
+core_text = core.decode("utf-8").replace("\r\n", "\n")
 install_text = (root / "install.sh").read_text(encoding="utf-8")
 core_version = re.search(r'^VERSION = "([^"]+)"$', core_text, re.MULTILINE).group(1)
 install_version = re.search(r'^VERSION="([^"]+)"$', install_text, re.MULTILINE).group(1)
