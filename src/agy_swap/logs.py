@@ -13,6 +13,11 @@ from agy_swap import MAX_LIMIT_SECS, LOG_SCAN_BYTES, LOG_TOTAL_SCAN_BYTES
 from agy_swap.display import clean_display_text, normalize_email, parse_duration_seconds, _parse_utc_datetime
 
 
+# Package modules have their own globals; keep the log-scan cache here rather
+# than relying on the bundled single-file namespace.
+_LOG_SCAN_CACHE = None
+
+
 def find_antigravity_logs():
     log_dirs = [
         os.path.expanduser("~/Library/Logs/Google Antigravity"),
