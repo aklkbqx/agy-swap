@@ -3,7 +3,7 @@
 import os
 import re
 
-VERSION = "1.8.1"
+VERSION = "1.8.2"
 
 # ── Paths ──
 CONFIG_DIR = os.path.expanduser("~/.gemini/agy-swap")
@@ -63,6 +63,9 @@ ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 class AccountStoreError(RuntimeError):
     pass
 
+class StoreRevisionConflictError(AccountStoreError):
+    pass
+
 class AmbiguousAccountError(ValueError):
     pass
 
@@ -72,6 +75,3 @@ class QuotaFetchError(RuntimeError):
 # ── Custom Data Types ──
 class Accounts(dict):
     revision = None
-
-# ── Global State Caches ──
-_LOG_SCAN_CACHE = None

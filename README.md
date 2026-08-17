@@ -68,6 +68,7 @@ Run `agy-swap` to open the full-screen terminal interface.
 agy-swap add
 printf '%s' "$TOKEN" | agy-swap add --token -
 agy-swap list
+agy-swap list --verbose
 agy-swap remove user@gmail.com
 agy-swap status
 agy-swap logout
@@ -90,8 +91,9 @@ agy-swap update
 
 ## Security
 
-- OAuth tokens are stored locally in owner-only files (`0700` directory, `0600` file) and synced to native OS keychains.
-- Refresh tokens are sent exclusively to Google's OAuth endpoints.
+- OAuth tokens are stored locally in owner-only files (`0700` directory, `0600` file) and synced to native OS keychains via secure stdin streams without exposing credentials in process argument lists (`ps`).
+- Refresh tokens are sent exclusively to Google's OAuth endpoints with strict TLS certificate verification enforced by default.
+- Environments requiring self-signed proxy inspection can explicitly opt in via `AGY_SWAP_INSECURE_TLS=1` (with a warning emitted to stderr).
 - Concurrent operations use cross-process file locks to prevent state corruption.
 - Never commit or share `~/.gemini/agy-swap/accounts.json`.
 

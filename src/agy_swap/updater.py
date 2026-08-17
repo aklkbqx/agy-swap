@@ -15,6 +15,27 @@ from agy_swap.network import safe_urlopen
 from agy_swap.tty import Spinner
 
 
+def extract_expected_sha(install_text):
+    """Extract SHA-256 checksum from install manifest. Returns 64-char hex string or raises ValueError."""
+    if not isinstance(install_text, str):
+        raise ValueError("Invalid update manifest")
+    sha_match = re.search(r'^EXPECTED_SHA256="([a-fA-F0-9]{64})"$', install_text, re.MULTILINE)
+    if not sha_match:
+        raise ValueError("Update manifest missing or invalid EXPECTED_SHA256 checksum")
+    return sha_match.group(1).lower()
+
+
+def verify_update_payload(install_text, new_script):
+    """Verify script payload against manifest SHA-256. Returns verified actual_sha or raises ValueError/RuntimeError."""
+    if not isinstance(new_script, bytes) or not new_script:
+        raise ValueError("Empty or invalid update payload")
+    expected_sha = extract_expected_sha(install_text)
+    actual_sha = hashlib.sha256(new_script).hexdigest()
+    if actual_sha != expected_sha:
+        raise RuntimeError(f"Checksum verification failed: expected {expected_sha}, got {actual_sha}")
+    return actual_sha
+
+
 def _is_valid_script_or_manifest(data):
     if not data or not isinstance(data, bytes):
         return False
@@ -116,9 +137,6 @@ def cmd_update(args):
     print(f"  Current: {GRAY}v{VERSION}{RESET}")
     print(f"  Latest:  {GREEN}v{latest_version}{RESET}")
 
-    sha_match = re.search(r'^EXPECTED_SHA256="([a-f0-9]+)"$', install_text, re.MULTILINE)
-    expected_sha = sha_match.group(1) if sha_match else None
-
     with Spinner(f"Downloading v{latest_version}..."):
         try:
             new_script = _fetch_first_available(script_urls, timeout=30)
@@ -126,13 +144,11 @@ def cmd_update(args):
             print(f"{RED}✕ Download failed: {exc}{RESET}", file=sys.stderr)
             sys.exit(1)
 
-    if expected_sha:
-        actual_sha = hashlib.sha256(new_script).hexdigest()
-        if actual_sha != expected_sha:
-            print(f"{RED}✕ Checksum verification failed!{RESET}", file=sys.stderr)
-            print(f"  Expected: {expected_sha}", file=sys.stderr)
-            print(f"  Actual:   {actual_sha}", file=sys.stderr)
-            sys.exit(1)
+    try:
+        actual_sha = verify_update_payload(install_text, new_script)
+    except Exception as exc:
+        print(f"{RED}✕ Integrity verification failed: {exc}{RESET}", file=sys.stderr)
+        sys.exit(1)
 
     try:
         compile(new_script.decode("utf-8"), "agy-swap", "exec")

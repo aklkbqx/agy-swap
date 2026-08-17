@@ -1,12 +1,15 @@
 import base64
 from contextlib import nullcontext, redirect_stdout
+import hashlib
 import io
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 
 
@@ -430,7 +433,7 @@ class AgySwapTests(unittest.TestCase):
             current["user@example.com"]["name"] = "Current"
             self.m["save_accounts"](current)
             stale["user@example.com"]["name"] = "Stale"
-            with self.assertRaises(self.m["AccountStoreError"]):
+            with self.assertRaises(self.m["StoreRevisionConflictError"]):
                 self.m["save_accounts"](stale)
 
             (config / "accounts.json").write_text("[{}]", encoding="utf-8")
@@ -618,7 +621,31 @@ class AgySwapTests(unittest.TestCase):
                 os.close(read_fd)
                 os.close(write_fd)
 
-    def test_safe_urlopen_fallbacks_on_ssl_verification_error(self):
+    def test_safe_urlopen_default_is_strict_tls_and_fails_on_ssl_error(self):
+        calls = []
+
+        def mock_urlopen(req, timeout=10, context=None):
+            calls.append(context)
+            import ssl
+            raise self.m["urllib"].error.URLError(ssl.SSLCertVerificationError("cert failed"))
+
+        original_urlopen = self.m["urllib"].request.urlopen
+        orig_env = os.environ.pop("AGY_SWAP_INSECURE_TLS", None)
+        orig_env2 = os.environ.pop("AGY_SWAP_ALLOW_INSECURE_SSL", None)
+        try:
+            self.m["urllib"].request.urlopen = mock_urlopen
+            with self.assertRaises(self.m["urllib"].error.URLError):
+                self.m["safe_urlopen"]("https://example.com")
+            # Strict mode only attempts verified context (1 attempt)
+            self.assertEqual(len(calls), 1)
+        finally:
+            self.m["urllib"].request.urlopen = original_urlopen
+            if orig_env is not None:
+                os.environ["AGY_SWAP_INSECURE_TLS"] = orig_env
+            if orig_env2 is not None:
+                os.environ["AGY_SWAP_ALLOW_INSECURE_SSL"] = orig_env2
+
+    def test_safe_urlopen_opt_in_insecure_tls_warns_and_falls_back(self):
         calls = []
 
         def mock_urlopen(req, timeout=10, context=None):
@@ -630,13 +657,392 @@ class AgySwapTests(unittest.TestCase):
             return response
 
         original_urlopen = self.m["urllib"].request.urlopen
+        orig_env = os.environ.get("AGY_SWAP_INSECURE_TLS")
+        os.environ["AGY_SWAP_INSECURE_TLS"] = "1"
+        stderr_capture = io.StringIO()
         try:
             self.m["urllib"].request.urlopen = mock_urlopen
-            resp = self.m["safe_urlopen"]("https://example.com")
+            with redirect_stdout(stderr_capture):
+                old_stderr = sys.stderr
+                try:
+                    sys.stderr = stderr_capture
+                    resp = self.m["safe_urlopen"]("https://example.com")
+                finally:
+                    sys.stderr = old_stderr
             self.assertEqual(resp.read(), b"success")
             self.assertEqual(len(calls), 2)
+            self.assertIn("Warning: AGY_SWAP_INSECURE_TLS is enabled", stderr_capture.getvalue())
         finally:
             self.m["urllib"].request.urlopen = original_urlopen
+            if orig_env is not None:
+                os.environ["AGY_SWAP_INSECURE_TLS"] = orig_env
+            else:
+                os.environ.pop("AGY_SWAP_INSECURE_TLS", None)
+
+    def test_set_keychain_token_pipes_stdin_on_darwin(self):
+        token_secret = token_blob("darwin@example.com")
+        calls = []
+
+        def mock_run(args, **kwargs):
+            calls.append((args, kwargs))
+            return SimpleNamespace(returncode=0)
+
+        original_run = self.m["subprocess"].run
+        original_system = self.m["platform"].system
+        try:
+            self.m["platform"].system = lambda: "Darwin"
+            self.m["subprocess"].run = mock_run
+            res = self.m["set_keychain_token"](token_secret)
+            self.assertTrue(res)
+            self.assertEqual(len(calls), 1)
+            args, kwargs = calls[0]
+            # Verify -w is last argument and secret is NOT anywhere in argv
+            self.assertEqual(args[-1], "-w")
+            self.assertNotIn(token_secret, args)
+            # Verify secret is passed via stdin
+            self.assertEqual(kwargs.get("input"), f"{token_secret}\n".encode("utf-8"))
+        finally:
+            self.m["subprocess"].run = original_run
+            self.m["platform"].system = original_system
+
+    def test_oauth_client_id_handles_all_aud_types(self):
+        client_func = self.m["_oauth_client_id"]
+        known_id = "884354919052-36trc1jjb3tguiac32ov6cod268c5blh.apps.googleusercontent.com"
+        default_id = self.m["DEFAULT_OAUTH_CLIENT_ID"]
+
+        def make_token_with_aud(aud_claim):
+            header = base64.urlsafe_b64encode(b'{"alg":"none"}').decode().rstrip("=")
+            claim = {"iss": "https://accounts.google.com", "email": "user@example.com"}
+            if aud_claim is not None:
+                claim["aud"] = aud_claim
+            payload = base64.urlsafe_b64encode(json.dumps(claim).encode()).decode().rstrip("=")
+            return {"token": {"id_token": f"{header}.{payload}.sig"}}
+
+        # String matching known client
+        self.assertEqual(client_func(make_token_with_aud(known_id)), known_id)
+        # String matching unknown client -> default
+        self.assertEqual(client_func(make_token_with_aud("unknown-client.apps.googleusercontent.com")), default_id)
+        # List containing known client -> known client
+        self.assertEqual(client_func(make_token_with_aud(["unknown-1", known_id, "unknown-2"])), known_id)
+        # List containing only unknown clients -> default
+        self.assertEqual(client_func(make_token_with_aud(["unknown-1", "unknown-2"])), default_id)
+        # Empty list -> default
+        self.assertEqual(client_func(make_token_with_aud([])), default_id)
+        # Non-string / numeric aud -> default (no TypeError)
+        self.assertEqual(client_func(make_token_with_aud(123456)), default_id)
+        self.assertEqual(client_func(make_token_with_aud({"nested": "dict"})), default_id)
+        self.assertEqual(client_func(make_token_with_aud(True)), default_id)
+        # Missing aud -> default
+        self.assertEqual(client_func(make_token_with_aud(None)), default_id)
+        # Malformed JWT structure
+        self.assertEqual(client_func({"token": {"id_token": "not.a.valid.jwt.signature"}}), default_id)
+        self.assertEqual(client_func({"token": {"id_token": "not_a_jwt"}}), default_id)
+        self.assertEqual(client_func({}), default_id)
+
+    def test_updater_verify_update_payload_fail_closed(self):
+        verify_func = self.m.get("verify_update_payload")
+        if verify_func is None:
+            from agy_swap.updater import verify_update_payload as verify_func
+
+        payload = b"print('valid payload')\n"
+        correct_sha = hashlib.sha256(payload).hexdigest()
+        valid_manifest = f'VERSION="1.8.2"\nEXPECTED_SHA256="{correct_sha}"\n'
+
+        # Valid manifest and matching payload -> succeeds returning sha
+        self.assertEqual(verify_func(valid_manifest, payload), correct_sha)
+
+        # Missing EXPECTED_SHA256 -> raises ValueError
+        with self.assertRaises(ValueError):
+            verify_func('VERSION="1.8.2"\n', payload)
+
+        # Malformed EXPECTED_SHA256 (not 64 hex chars) -> raises ValueError
+        with self.assertRaises(ValueError):
+            verify_func('VERSION="1.8.2"\nEXPECTED_SHA256="not_a_valid_sha"\n', payload)
+        with self.assertRaises(ValueError):
+            verify_func('VERSION="1.8.2"\nEXPECTED_SHA256="12345"\n', payload)
+
+        # Mismatched SHA256 -> raises RuntimeError
+        wrong_sha = "0" * 64
+        with self.assertRaises(RuntimeError):
+            verify_func(f'VERSION="1.8.2"\nEXPECTED_SHA256="{wrong_sha}"\n', payload)
+
+        # Empty or non-bytes payload -> raises ValueError
+        with self.assertRaises(ValueError):
+            verify_func(valid_manifest, b"")
+        with self.assertRaises(ValueError):
+            verify_func(valid_manifest, "not bytes")
+
+    def test_load_accounts_sync_logs_handles_concurrent_revision_conflict(self):
+        with tempfile.TemporaryDirectory() as base:
+            config = Path(base)
+            accounts_file = config / "accounts.json"
+            now = datetime.now(timezone.utc)
+            original = {
+                "user@example.com": {
+                    "email": "user@example.com",
+                    "name": "User",
+                    "token_data": token_blob("user@example.com"),
+                    "quota_limits": {
+                        "claude": {
+                            "model": "Claude", "family": "claude",
+                            "reset_at": (now - timedelta(minutes=10)).isoformat(),
+                            "observed_at": (now - timedelta(hours=1)).isoformat(),
+                            "source": "log",
+                        }
+                    }
+                }
+            }
+            accounts_file.write_text(json.dumps(original), encoding="utf-8")
+            self.m["CONFIG_DIR"] = str(config)
+            self.m["ACCOUNTS_FILE"] = str(accounts_file)
+            self.m["ACCOUNTS_LOCK_FILE"] = str(config / ".accounts.lock")
+            self.m["auto_scan_logs_for_limits"] = lambda include_evidence=False: ({}, {}) if include_evidence else {}
+
+            orig_save = self.m["save_accounts"]
+            save_called = []
+
+            def mock_save_accounts(accs):
+                save_called.append(accs)
+                raise self.m["StoreRevisionConflictError"]("accounts.json changed in another process; retry the command")
+
+            try:
+                self.m["save_accounts"] = mock_save_accounts
+                # load_accounts with sync_logs=True detects expired limit, attempts save, catches StoreRevisionConflictError and proceeds
+                accs = self.m["load_accounts"](sync_logs=True)
+                self.assertIn("user@example.com", accs)
+                self.assertEqual(len(save_called), 1)
+                # Expired limit was cleaned in memory
+                self.assertNotIn("quota_limits", accs["user@example.com"])
+            finally:
+                self.m["save_accounts"] = orig_save
+
+    def test_load_accounts_sync_logs_propagates_unrelated_account_store_error(self):
+        with tempfile.TemporaryDirectory() as base:
+            config = Path(base)
+            accounts_file = config / "accounts.json"
+            now = datetime.now(timezone.utc)
+            original = {
+                "user@example.com": {
+                    "email": "user@example.com",
+                    "name": "User",
+                    "token_data": token_blob("user@example.com"),
+                    "quota_limits": {
+                        "claude": {
+                            "model": "Claude", "family": "claude",
+                            "reset_at": (now - timedelta(minutes=10)).isoformat(),
+                            "observed_at": (now - timedelta(hours=1)).isoformat(),
+                            "source": "log",
+                        }
+                    }
+                }
+            }
+            accounts_file.write_text(json.dumps(original), encoding="utf-8")
+            self.m["CONFIG_DIR"] = str(config)
+            self.m["ACCOUNTS_FILE"] = str(accounts_file)
+            self.m["ACCOUNTS_LOCK_FILE"] = str(config / ".accounts.lock")
+            self.m["auto_scan_logs_for_limits"] = lambda include_evidence=False: ({}, {}) if include_evidence else {}
+
+            orig_save = self.m["save_accounts"]
+
+            def mock_save_accounts(accs):
+                raise self.m["AccountStoreError"]("validation or disk corruption error")
+
+            try:
+                self.m["save_accounts"] = mock_save_accounts
+                with self.assertRaises(self.m["AccountStoreError"]) as cm:
+                    self.m["load_accounts"](sync_logs=True)
+                self.assertNotIsInstance(cm.exception, self.m["StoreRevisionConflictError"])
+                self.assertIn("validation or disk corruption error", str(cm.exception))
+            finally:
+                self.m["save_accounts"] = orig_save
+
+    def test_cmd_add_token_stdin_handles_missing_userinfo_with_verified_claim(self):
+        token = token_blob("piped@example.com")
+        with tempfile.TemporaryDirectory() as base:
+            config = Path(base)
+            self.m["CONFIG_DIR"] = str(config)
+            self.m["ACCOUNTS_FILE"] = str(config / "accounts.json")
+            self.m["ACCOUNTS_LOCK_FILE"] = str(config / ".accounts.lock")
+
+            orig_userinfo = self.m["get_google_userinfo"]
+            orig_stdin = self.m["sys"].stdin
+            out = io.StringIO()
+            try:
+                self.m["get_google_userinfo"] = lambda _tok: None
+                self.m["sys"].stdin = io.StringIO(token)
+                args = SimpleNamespace(token="-", add=True, command="add")
+                with redirect_stdout(out):
+                    self.m["cmd_add"](args)
+                accounts = self.m["load_accounts"](sync_logs=False)
+                self.assertIn("piped@example.com", accounts)
+                self.assertEqual(accounts["piped@example.com"]["name"], "Google User")
+            finally:
+                self.m["get_google_userinfo"] = orig_userinfo
+                self.m["sys"].stdin = orig_stdin
+
+    def test_cmd_add_token_stdin_fails_closed_when_no_email_claim_in_non_tty(self):
+        token = token_blob(email=None)
+        with tempfile.TemporaryDirectory() as base:
+            config = Path(base)
+            self.m["CONFIG_DIR"] = str(config)
+            self.m["ACCOUNTS_FILE"] = str(config / "accounts.json")
+            self.m["ACCOUNTS_LOCK_FILE"] = str(config / ".accounts.lock")
+
+            orig_userinfo = self.m["get_google_userinfo"]
+            orig_stdin = self.m["sys"].stdin
+            out = io.StringIO()
+            err = io.StringIO()
+            try:
+                self.m["get_google_userinfo"] = lambda _tok: None
+                self.m["sys"].stdin = io.StringIO(token)
+                args = SimpleNamespace(token="-", add=True, command="add")
+                with redirect_stdout(out), mock.patch("sys.stderr", err):
+                    with self.assertRaises(SystemExit) as cm:
+                        self.m["cmd_add"](args)
+                self.assertEqual(cm.exception.code, 1)
+            finally:
+                self.m["get_google_userinfo"] = orig_userinfo
+                self.m["sys"].stdin = orig_stdin
+
+    def test_cli_list_verbose_parsing_and_execution(self):
+        with tempfile.TemporaryDirectory() as base:
+            config = Path(base)
+            self.m["CONFIG_DIR"] = str(config)
+            self.m["ACCOUNTS_FILE"] = str(config / "accounts.json")
+            self.m["ACCOUNTS_LOCK_FILE"] = str(config / ".accounts.lock")
+            now = datetime.now(timezone.utc)
+            accounts = self.m["Accounts"]({
+                "test@example.com": {
+                    "email": "test@example.com",
+                    "name": "Tester",
+                    "quota_limits": {
+                        "claude": {
+                            "model": "Claude Opus", "family": "claude",
+                            "reset_at": (now + timedelta(hours=2)).isoformat(),
+                            "observed_at": now.isoformat(),
+                            "source": "log",
+                            "source_file": "cli.log",
+                        }
+                    }
+                }
+            })
+            self.m["save_accounts"](accounts)
+            self.m["get_current_keychain_token"] = lambda: None
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.m["cmd_list"](SimpleNamespace(verbose=True, command="list", list=True))
+            val = output.getvalue()
+            self.assertIn("observed", val)
+            self.assertIn("source local log cli.log", val)
+
+    def test_parse_log_timestamp_handles_leap_year_feb_29_around_non_leap_years(self):
+        parse_func = self.m["_parse_log_timestamp"]
+        with tempfile.NamedTemporaryFile("w", delete=False) as log_file:
+            log_path = log_file.name
+        try:
+            # Set mtime to a non-leap year (e.g. 2025-08-15)
+            ref_dt = datetime(2025, 8, 15, 12, 0, 0, tzinfo=timezone.utc)
+            os.utime(log_path, (ref_dt.timestamp(), ref_dt.timestamp()))
+
+            line = "I0229 14:30:00.123456 12345 server.go:100] Resource limit hit"
+            dt = parse_func(line, log_path)
+            self.assertIsNotNone(dt)
+            self.assertEqual(dt.month, 2)
+            self.assertEqual(dt.day, 29)
+            # Should resolve to closest leap year 2024
+            self.assertEqual(dt.year, 2024)
+        finally:
+            os.unlink(log_path)
+
+    def test_tui_resolved_cache_invalidates_on_mutation(self):
+        token_str = token_blob("tui_test@example.com")
+        accs_before = {}
+        resolved_cache = {}
+
+        def get_active_details(token_str, accs):
+            if not token_str:
+                return None, None, False
+            if token_str in resolved_cache:
+                return resolved_cache[token_str]
+            for email, acc in accs.items():
+                if acc.get("token_data") == token_str:
+                    result = (email, acc.get("name", "Google User"), True)
+                    resolved_cache[token_str] = result
+                    return result
+            email = self.m["extract_email_from_token"](token_str)
+            if email:
+                for acc_email, acc in accs.items():
+                    if acc_email.lower() == email.lower():
+                        result = (acc_email, acc.get("name", "Google User"), True)
+                        resolved_cache[token_str] = result
+                        return result
+                result = (email, "Google User", False)
+                resolved_cache[token_str] = result
+                return result
+            result = (None, None, False)
+            resolved_cache[token_str] = result
+            return result
+
+        # First lookup: not in accounts -> is_saved is False
+        email, name, is_saved = get_active_details(token_str, accs_before)
+        self.assertEqual(email, "tui_test@example.com")
+        self.assertFalse(is_saved)
+
+        # User saves account:
+        accs_after = {"tui_test@example.com": {"email": "tui_test@example.com", "name": "Google User", "token_data": token_str}}
+        # Cache without invalidation would return stale False:
+        self.assertFalse(get_active_details(token_str, accs_after)[2])
+        # Invalidate cache on mutation:
+        resolved_cache.clear()
+        # Re-lookup -> is_saved is now True!
+        email, name, is_saved = get_active_details(token_str, accs_after)
+        self.assertEqual(email, "tui_test@example.com")
+        self.assertTrue(is_saved)
+
+    def test_src_package_direct_imports(self):
+        import sys
+        src_path = str(Path(__file__).resolve().parents[1] / "src")
+        if src_path not in sys.path:
+            sys.path.insert(0, src_path)
+
+        import agy_swap
+        import agy_swap.__main__
+        import agy_swap.commands
+        import agy_swap.credentials
+        import agy_swap.display
+        import agy_swap.logs
+        import agy_swap.network
+        import agy_swap.oauth
+        import agy_swap.quota
+        import agy_swap.storage
+        import agy_swap.store
+        import agy_swap.tty
+        import agy_swap.updater
+
+        self.assertEqual(agy_swap.VERSION, "1.8.2")
+        self.assertTrue(callable(agy_swap.__main__.main))
+        self.assertTrue(issubclass(agy_swap.StoreRevisionConflictError, agy_swap.AccountStoreError))
+
+    def test_release_manifests_consistency(self):
+        root = Path(__file__).resolve().parents[1]
+        core_bytes = (root / "agy-swap").read_bytes()
+        actual_sha = hashlib.sha256(core_bytes).hexdigest()
+        core_text = core_bytes.decode("utf-8")
+
+        install_text = (root / "install.sh").read_text(encoding="utf-8")
+        formula_text = (root / "Formula" / "agy-swap.rb").read_text(encoding="utf-8")
+        pyproject_text = (root / "pyproject.toml").read_text(encoding="utf-8")
+
+        self.assertIn(f'EXPECTED_SHA256="{actual_sha}"', install_text)
+        self.assertIn(f'sha256 "{actual_sha}"', formula_text)
+        self.assertIn('VERSION = "1.8.2"', core_text)
+        self.assertIn('VERSION="1.8.2"', install_text)
+        self.assertIn('version "1.8.2"', formula_text)
+        self.assertIn('version = "1.8.2"', pyproject_text)
+        self.assertIn('url "https://github.com/aklkbqx/agy-swap/raw/v1.8.2/agy-swap"', formula_text)
+        self.assertIn('assert_match "usage: agy-swap"', formula_text)
+        self.assertNotIn("curl -fsSLk", install_text)
 
 
 if __name__ == "__main__":

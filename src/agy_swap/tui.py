@@ -5,12 +5,13 @@ import threading
 import time
 
 from agy_swap import (
-    VERSION, TUI_AUTO_REFRESH_SECS, ORANGE, GREEN, RED, YELLOW, CYAN, GRAY, BRIGHT_WHITE, BOLD, RESET,
+    VERSION, TUI_AUTO_REFRESH_SECS, AccountStoreError,
+    ORANGE, GREEN, RED, YELLOW, CYAN, GRAY, BRIGHT_WHITE, BOLD, RESET,
 )
 from agy_swap.commands import (
     cmd_add_flow, cmd_list, load_accounts, save_accounts,
-    get_active_account_email, extract_email_from_token,
-    refresh_quota_with_progress, refresh_quota_snapshots,
+    extract_email_from_token, refresh_quota_with_progress,
+    refresh_quota_snapshots,
 )
 from agy_swap.credentials import apply_account_token, get_current_keychain_token
 from agy_swap.display import (
@@ -69,7 +70,11 @@ def cmd_interactive(args):
         bg_refresh_thread = None
 
         while True:
-            accounts = load_accounts()
+            try:
+                accounts = load_accounts()
+            except AccountStoreError as exc:
+                message = f"Store error: {exc}"
+                message_type = "error"
             current_token = get_current_keychain_token()
             active_email, active_name, is_saved = get_active_details(current_token, accounts)
             acc_list = list(accounts.values())
@@ -232,6 +237,9 @@ def cmd_interactive(args):
                     input("\nPress Enter to return...")
                 except KeyboardInterrupt:
                     success, msg = False, "Login cancelled"
+                except AccountStoreError as exc:
+                    success, msg = False, f"Store error: {exc}"
+                resolved_cache.clear()
                 message = msg
                 message_type = "success" if success else "error"
                 sys.stdout.write("\033[?1049h\033[?25l\033[H")
@@ -240,33 +248,43 @@ def cmd_interactive(args):
             elif key == "r":
                 sys.stdout.write("\033[?1049l\033[?25h")
                 sys.stdout.flush()
-                accs = load_accounts()
-                quota_errors = refresh_quota_with_progress(accs, force=True)
-                last_refresh_time = time.time()
-                message = "Usage refreshed" if not quota_errors else f"Usage refresh failed for {len(quota_errors)} account(s); cached data kept"
-                message_type = "success" if not quota_errors else "error"
+                try:
+                    accs = load_accounts()
+                    quota_errors = refresh_quota_with_progress(accs, force=True)
+                    last_refresh_time = time.time()
+                    message = "Usage refreshed" if not quota_errors else f"Usage refresh failed for {len(quota_errors)} account(s); cached data kept"
+                    message_type = "success" if not quota_errors else "error"
+                    resolved_cache.clear()
+                except AccountStoreError as exc:
+                    message = f"Refresh failed: {exc}"
+                    message_type = "error"
                 sys.stdout.write("\033[?1049h\033[?25l\033[H")
                 sys.stdout.flush()
                 continue
             elif key == "t" and selected_idx < len(acc_list):
                 acc_target = items[selected_idx][2]
                 email_t = acc_target["email"]
-                accs = load_accounts()
-                if email_t in accs:
-                    if accs[email_t].get("quota_snapshot"):
-                        message = f"Tier for {email_t} is synced from Google"
-                        message_type = "info"
-                        continue
-                    current_plan = accs[email_t].get("plan") if accs[email_t].get("tier_source") == "manual" else None
-                    plan = "Pro" if current_plan is None else "Free" if current_plan == "Pro" else None
-                    if plan:
-                        accs[email_t].update({"plan": plan, "tier": plan, "tier_source": "manual", "is_pro": plan == "Pro"})
-                    else:
-                        for field in ("plan", "tier", "tier_source", "is_pro"):
-                            accs[email_t].pop(field, None)
-                    save_accounts(accs)
-                    message = f"Set tier label for {email_t} to {plan or 'Unknown'}"
-                    message_type = "success"
+                try:
+                    accs = load_accounts()
+                    if email_t in accs:
+                        if accs[email_t].get("quota_snapshot"):
+                            message = f"Tier for {email_t} is synced from Google"
+                            message_type = "info"
+                            continue
+                        current_plan = accs[email_t].get("plan") if accs[email_t].get("tier_source") == "manual" else None
+                        plan = "Pro" if current_plan is None else "Free" if current_plan == "Pro" else None
+                        if plan:
+                            accs[email_t].update({"plan": plan, "tier": plan, "tier_source": "manual", "is_pro": plan == "Pro"})
+                        else:
+                            for field in ("plan", "tier", "tier_source", "is_pro"):
+                                accs[email_t].pop(field, None)
+                        save_accounts(accs)
+                        resolved_cache.clear()
+                        message = f"Set tier label for {email_t} to {plan or 'Unknown'}"
+                        message_type = "success"
+                except AccountStoreError as exc:
+                    message = f"Store error: {exc}"
+                    message_type = "error"
                 continue
             elif key in ("q", "esc", "\x03", "\x04"):
                 break
@@ -280,12 +298,17 @@ def cmd_interactive(args):
                 sys.stdout.write("\033[J")
                 sys.stdout.flush()
                 if get_key().lower() == "y":
-                    accs = load_accounts()
-                    if email_del in accs:
-                        del accs[email_del]
-                        save_accounts(accs)
-                        message = f"Removed account {email_del}"
-                        message_type = "success"
+                    try:
+                        accs = load_accounts()
+                        if email_del in accs:
+                            del accs[email_del]
+                            save_accounts(accs)
+                            resolved_cache.clear()
+                            message = f"Removed account {email_del}"
+                            message_type = "success"
+                    except AccountStoreError as exc:
+                        message = f"Store error: {exc}"
+                        message_type = "error"
                 else:
                     message = "Canceled"
                     message_type = "info"
@@ -302,6 +325,7 @@ def cmd_interactive(args):
                         success = apply_account_token(acc["token_data"], acc.get("email"))
                         time.sleep(0.4)
                     if success:
+                        resolved_cache.clear()
                         message = f"Switched to {acc['email']}"
                         message_type = "success"
                     else:
@@ -317,6 +341,9 @@ def cmd_interactive(args):
                             input("\nPress Enter to return...")
                         except KeyboardInterrupt:
                             success, msg = False, "Login cancelled"
+                        except AccountStoreError as exc:
+                            success, msg = False, f"Store error: {exc}"
+                        resolved_cache.clear()
                         message = msg
                         message_type = "success" if success else "error"
 
@@ -331,12 +358,17 @@ def cmd_interactive(args):
                             sys.stdout.write("\033[J")
                             sys.stdout.flush()
                             if get_key().lower() == "y":
-                                accs = load_accounts()
-                                if email_del in accs:
-                                    del accs[email_del]
-                                    save_accounts(accs)
-                                    message = f"Removed account {email_del}"
-                                    message_type = "success"
+                                try:
+                                    accs = load_accounts()
+                                    if email_del in accs:
+                                        del accs[email_del]
+                                        save_accounts(accs)
+                                        resolved_cache.clear()
+                                        message = f"Removed account {email_del}"
+                                        message_type = "success"
+                                except AccountStoreError as exc:
+                                    message = f"Store error: {exc}"
+                                    message_type = "error"
                             else:
                                 message = "Canceled"
                                 message_type = "info"

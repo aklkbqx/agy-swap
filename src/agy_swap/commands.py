@@ -1,7 +1,6 @@
 """CLI subcommands and account management workflows."""
 
 from datetime import datetime, timezone, timedelta
-import json
 import shutil
 import subprocess
 import sys
@@ -10,7 +9,7 @@ import time
 from agy_swap import (
     QUOTA_SCHEMA, MAX_TOKEN_BYTES,
     GREEN, RED, YELLOW, GRAY, DARK_GRAY, CYAN, BOLD, RESET,
-    AccountStoreError, AmbiguousAccountError,
+    AmbiguousAccountError,
     OAUTH_FILE, OAUTH_CREDS_FILE, GOOGLE_ACCOUNTS_FILE,
 )
 from agy_swap.credentials import (
@@ -66,16 +65,25 @@ def _save_token_as_account(token_str):
             print(f"\n{GREEN}✓ Successfully saved account: {name} <{email}>{RESET} [{tier_label}]")
             return True, f"Added {email}"
         else:
-            email = normalize_email(input("Enter account email manually: "))
+            email = extract_verified_google_email_claim(token_str)
+            name = "Google User"
+            if not email:
+                if sys.stdin.isatty():
+                    try:
+                        email = normalize_email(input("Enter account email manually: "))
+                    except (EOFError, KeyboardInterrupt):
+                        email = None
+                else:
+                    return False, "Google userinfo unavailable and no verified email claim in token"
             if email:
-                accounts[email] = _new_account(email, "Google User", token_str)
+                accounts[email] = _new_account(email, name, token_str)
                 tier_label = get_tier_badge(accounts[email])
                 save_accounts(accounts)
                 print(f"\n{GREEN}✓ Saved account: {email}{RESET} [{tier_label}]")
                 return True, f"Added {email}"
             else:
                 return False, "A valid email is required"
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, EOFError):
         print(f"\n{YELLOW}Cancelled. Token is still active in Keychain.{RESET}")
         return False, "Save cancelled"
 
@@ -216,14 +224,23 @@ def cmd_add(args):
             userinfo = get_google_userinfo(access_token)
         
         if not userinfo:
-            email = normalize_email(input("Enter email address manually: "))
+            email = extract_verified_google_email_claim(token_str)
             name = "Google User"
+            if not email:
+                if sys.stdin.isatty():
+                    try:
+                        email = normalize_email(input("Enter email address manually: "))
+                    except (EOFError, KeyboardInterrupt):
+                        email = None
+                else:
+                    print(f"{RED}Google userinfo unavailable and no verified email claim in token. In non-interactive mode, a token with a verified email claim is required.{RESET}", file=sys.stderr)
+                    sys.exit(1)
         else:
             email = normalize_email(userinfo.get("email"))
             name = clean_display_text(userinfo.get("name"), "Google User") or "Google User"
 
         if not email:
-            print(f"{RED}Email address is required.{RESET}")
+            print(f"{RED}Email address is required.{RESET}", file=sys.stderr)
             sys.exit(1)
 
         accounts = load_accounts(sync_logs=False)

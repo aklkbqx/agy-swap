@@ -1,6 +1,6 @@
 """Output formatting, terminal display helpers, and duration utilities."""
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import os
 import re
 import shutil
@@ -8,8 +8,8 @@ import sys
 import unicodedata
 
 from agy_swap import (
-    ORANGE, GREEN, BLUE, RED, YELLOW, CYAN, GRAY, DARK_GRAY, BRIGHT_WHITE,
-    BOLD, RESET, ANSI_ESCAPE, MAX_LIMIT_SECS, TIER_NAMES,
+    ORANGE, GREEN, RED, YELLOW, GRAY, DARK_GRAY,
+    RESET, ANSI_ESCAPE, MAX_LIMIT_SECS,
 )
 
 
