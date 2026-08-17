@@ -2,8 +2,8 @@
 # Install script for agy-swap by @aklkbqx (https://github.com/aklkbqx)
 set -euo pipefail
 
-VERSION="1.8.1"
-EXPECTED_SHA256="5f7beb2556e73c14c69d0e213c49a657bfbf75fc91f1a09ec9f7f57c05f10169"
+VERSION="1.8.2"
+EXPECTED_SHA256="b1123d6d55c5abf73ced5a249700e517f75656faf829be6d201e494ff8070407"
 TARGET_DIR="${AGY_SWAP_TARGET_DIR:-${HOME}/.local/bin}"
 TARGET_FILE="${TARGET_DIR}/agy-swap"
 
@@ -56,9 +56,6 @@ else
     downloaded=0
     for url in "${urls[@]}"; do
         if curl -fsSL --proto '=https' --tlsv1.2 "$url" -o "$tmp_file" 2>/dev/null; then
-            downloaded=1
-            break
-        elif curl -fsSLk "$url" -o "$tmp_file" 2>/dev/null; then
             downloaded=1
             break
         fi

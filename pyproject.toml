@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agy-swap"
-version = "1.8.1"
+version = "1.8.2"
 description = "A small, dependency-free Python account switcher and quota monitor for Google Antigravity CLI (agy)"
 readme = "README.md"
 authors = [{ name = "@aklkbqx", email = "aklkbqx@users.noreply.github.com" }]
