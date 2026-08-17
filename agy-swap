@@ -28,7 +28,7 @@ import urllib.parse
 import urllib.request
 
 # ── Module: __init__ ──────────────────────────────────────────────────
-VERSION = "1.8.1"
+VERSION = "1.8.2"
 
 # ── Paths ──
 CONFIG_DIR = os.path.expanduser("~/.gemini/agy-swap")
@@ -88,6 +88,9 @@ ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 class AccountStoreError(RuntimeError):
     pass
 
+class StoreRevisionConflictError(AccountStoreError):
+    pass
+
 class AmbiguousAccountError(ValueError):
     pass
 
@@ -97,9 +100,6 @@ class QuotaFetchError(RuntimeError):
 # ── Custom Data Types ──
 class Accounts(dict):
     revision = None
-
-# ── Global State Caches ──
-_LOG_SCAN_CACHE = None
 
 # ── Module: storage ──────────────────────────────────────────────────
 def _set_private_mode(path, mode):
@@ -534,23 +534,30 @@ def get_key_with_timeout(timeout=None):
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 # ── Module: network ──────────────────────────────────────────────────
+def allow_insecure_tls():
+    """Check if insecure TLS verification bypass is explicitly enabled via environment variable."""
+    val = os.environ.get("AGY_SWAP_INSECURE_TLS", "") or os.environ.get("AGY_SWAP_ALLOW_INSECURE_SSL", "")
+    return val.strip().lower() in ("1", "true", "yes", "on")
+
+
 def get_ssl_contexts():
-    """Return SSL contexts to try in order (default verified first, then unverified fallback)."""
+    """Return SSL contexts to try. Strict default verification by default.
+    Unverified fallback is only included if explicitly enabled via AGY_SWAP_INSECURE_TLS=1."""
     contexts = []
     try:
         contexts.append(ssl.create_default_context())
     except Exception:
         pass
-    try:
-        ctx = ssl._create_unverified_context()
-        contexts.append(ctx)
-    except Exception:
-        pass
+    if allow_insecure_tls():
+        try:
+            contexts.append(ssl._create_unverified_context())
+        except Exception:
+            pass
     return contexts
 
 
 def safe_urlopen(url_or_req, timeout=10):
-    """Execute urlopen with SSL context fallback for environments with self-signed certs or missing CA roots."""
+    """Execute urlopen with strict SSL verification by default; insecure fallback requires opt-in."""
     if isinstance(url_or_req, str):
         req = urllib.request.Request(url_or_req, headers={"User-Agent": "Mozilla/5.0"})
     else:
@@ -561,6 +568,9 @@ def safe_urlopen(url_or_req, timeout=10):
     last_exc = None
     for ctx in get_ssl_contexts():
         try:
+            if ctx.verify_mode == ssl.CERT_NONE:
+                sys.stderr.write("Warning: AGY_SWAP_INSECURE_TLS is enabled; TLS certificate verification is disabled.\n")
+                sys.stderr.flush()
             return urllib.request.urlopen(req, timeout=timeout, context=ctx)
         except urllib.error.HTTPError:
             # HTTP level errors (e.g. 404, 403, 401) mean TLS handshakes succeeded
@@ -614,15 +624,28 @@ def extract_verified_google_email_claim(token_str):
 
 
 def _oauth_client_id(token_json):
+    if not isinstance(token_json, dict):
+        return DEFAULT_OAUTH_CLIENT_ID
     token = token_json.get("token", {})
-    id_token = token.get("id_token") or token_json.get("id_token")
+    id_token = (token.get("id_token") if isinstance(token, dict) else None) or token_json.get("id_token")
+    if not isinstance(id_token, str):
+        return DEFAULT_OAUTH_CLIENT_ID
     try:
-        payload = id_token.split(".")[1]
-        payload += "=" * (-len(payload) % 4)
+        parts = id_token.split(".")
+        if len(parts) != 3:
+            return DEFAULT_OAUTH_CLIENT_ID
+        payload = parts[1] + "=" * (-len(parts[1]) % 4)
         audience = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8")).get("aud")
-    except (AttributeError, IndexError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+    except (AttributeError, IndexError, ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError):
         audience = None
-    return audience if audience in OAUTH_CLIENT_SECRETS else DEFAULT_OAUTH_CLIENT_ID
+
+    if isinstance(audience, (list, tuple)):
+        for aud_item in audience:
+            if isinstance(aud_item, str) and aud_item in OAUTH_CLIENT_SECRETS:
+                return aud_item
+        return DEFAULT_OAUTH_CLIENT_ID
+
+    return audience if isinstance(audience, str) and audience in OAUTH_CLIENT_SECRETS else DEFAULT_OAUTH_CLIENT_ID
 
 
 def _refresh_access_token(token_data):
@@ -820,10 +843,14 @@ def _parse_log_timestamp(line, log_file):
             return None
         month, day, hour, minute, second = [int(value) for value in glog.groups()]
         reference = datetime.fromtimestamp(os.path.getmtime(log_file)).astimezone()
-        candidates = [
-            datetime(year, month, day, hour, minute, second).astimezone()
-            for year in (reference.year - 1, reference.year, reference.year + 1)
-        ]
+        candidates = []
+        for year in (reference.year - 1, reference.year, reference.year + 1):
+            try:
+                candidates.append(datetime(year, month, day, hour, minute, second).astimezone())
+            except ValueError:
+                continue
+        if not candidates:
+            return None
         return min(candidates, key=lambda value: abs((value - reference).total_seconds())).astimezone(timezone.utc)
     except (OSError, ValueError):
         return None
@@ -1143,7 +1170,12 @@ def load_accounts(sync_logs=True):
             changed = reconcile_log_limits(acc, detected_limits.get(email, {}), evidence.get(email, {})) or changed
 
         if changed:
-            save_accounts(accounts)
+            try:
+                save_accounts(accounts)
+            except StoreRevisionConflictError:
+                # Opportunistic background log sync hit a revision conflict from another process;
+                # proceed with in-memory state for this read command without crashing.
+                pass
 
     return accounts
 
@@ -1158,7 +1190,7 @@ def save_accounts(accounts):
             current_revision = None
         expected_revision = getattr(accounts, "revision", current_revision)
         if expected_revision != current_revision:
-            raise AccountStoreError("accounts.json changed in another process; retry the command")
+            raise StoreRevisionConflictError("accounts.json changed in another process; retry the command")
         if current_revision is not None:
             with open(ACCOUNTS_FILE, "rb") as f:
                 _atomic_write_bytes(ACCOUNTS_FILE + ".bak", f.read())
@@ -1295,7 +1327,6 @@ def _get_secure_token():
 
 
 def _read_oauth_file_token():
-    import json, base64
     try:
         with open(OAUTH_FILE, "rb") as f:
             raw = f.read()
@@ -1314,7 +1345,8 @@ def set_keychain_token(token_data_str):
     if plat == "Darwin":
         try:
             subprocess.run(
-                ["security", "add-generic-password", "-U", "-a", "antigravity", "-s", "gemini", "-w", token_data_str],
+                ["security", "add-generic-password", "-U", "-a", "antigravity", "-s", "gemini", "-w"],
+                input=f"{token_data_str}\n".encode("utf-8"),
                 check=True,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -1353,7 +1385,6 @@ def write_oauth_file(token_data_str, email=None):
         _atomic_write_json(OAUTH_CREDS_FILE, creds)
 
         if email:
-            import os, json
             ga = {"active": email, "old": []}
             try:
                 if os.path.exists(GOOGLE_ACCOUNTS_FILE):
@@ -1398,7 +1429,6 @@ def delete_keychain_token():
 
 
 def delete_oauth_files():
-    import os
     ok = True
     for path in (OAUTH_FILE, OAUTH_CREDS_FILE, GOOGLE_ACCOUNTS_FILE):
         try:
@@ -1656,16 +1686,25 @@ def _save_token_as_account(token_str):
             print(f"\n{GREEN}✓ Successfully saved account: {name} <{email}>{RESET} [{tier_label}]")
             return True, f"Added {email}"
         else:
-            email = normalize_email(input("Enter account email manually: "))
+            email = extract_verified_google_email_claim(token_str)
+            name = "Google User"
+            if not email:
+                if sys.stdin.isatty():
+                    try:
+                        email = normalize_email(input("Enter account email manually: "))
+                    except (EOFError, KeyboardInterrupt):
+                        email = None
+                else:
+                    return False, "Google userinfo unavailable and no verified email claim in token"
             if email:
-                accounts[email] = _new_account(email, "Google User", token_str)
+                accounts[email] = _new_account(email, name, token_str)
                 tier_label = get_tier_badge(accounts[email])
                 save_accounts(accounts)
                 print(f"\n{GREEN}✓ Saved account: {email}{RESET} [{tier_label}]")
                 return True, f"Added {email}"
             else:
                 return False, "A valid email is required"
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, EOFError):
         print(f"\n{YELLOW}Cancelled. Token is still active in Keychain.{RESET}")
         return False, "Save cancelled"
 
@@ -1806,14 +1845,23 @@ def cmd_add(args):
             userinfo = get_google_userinfo(access_token)
         
         if not userinfo:
-            email = normalize_email(input("Enter email address manually: "))
+            email = extract_verified_google_email_claim(token_str)
             name = "Google User"
+            if not email:
+                if sys.stdin.isatty():
+                    try:
+                        email = normalize_email(input("Enter email address manually: "))
+                    except (EOFError, KeyboardInterrupt):
+                        email = None
+                else:
+                    print(f"{RED}Google userinfo unavailable and no verified email claim in token. In non-interactive mode, a token with a verified email claim is required.{RESET}", file=sys.stderr)
+                    sys.exit(1)
         else:
             email = normalize_email(userinfo.get("email"))
             name = clean_display_text(userinfo.get("name"), "Google User") or "Google User"
 
         if not email:
-            print(f"{RED}Email address is required.{RESET}")
+            print(f"{RED}Email address is required.{RESET}", file=sys.stderr)
             sys.exit(1)
 
         accounts = load_accounts(sync_logs=False)
@@ -2206,7 +2254,11 @@ def cmd_interactive(args):
         bg_refresh_thread = None
 
         while True:
-            accounts = load_accounts()
+            try:
+                accounts = load_accounts()
+            except AccountStoreError as exc:
+                message = f"Store error: {exc}"
+                message_type = "error"
             current_token = get_current_keychain_token()
             active_email, active_name, is_saved = get_active_details(current_token, accounts)
             acc_list = list(accounts.values())
@@ -2369,6 +2421,9 @@ def cmd_interactive(args):
                     input("\nPress Enter to return...")
                 except KeyboardInterrupt:
                     success, msg = False, "Login cancelled"
+                except AccountStoreError as exc:
+                    success, msg = False, f"Store error: {exc}"
+                resolved_cache.clear()
                 message = msg
                 message_type = "success" if success else "error"
                 sys.stdout.write("\033[?1049h\033[?25l\033[H")
@@ -2377,33 +2432,43 @@ def cmd_interactive(args):
             elif key == "r":
                 sys.stdout.write("\033[?1049l\033[?25h")
                 sys.stdout.flush()
-                accs = load_accounts()
-                quota_errors = refresh_quota_with_progress(accs, force=True)
-                last_refresh_time = time.time()
-                message = "Usage refreshed" if not quota_errors else f"Usage refresh failed for {len(quota_errors)} account(s); cached data kept"
-                message_type = "success" if not quota_errors else "error"
+                try:
+                    accs = load_accounts()
+                    quota_errors = refresh_quota_with_progress(accs, force=True)
+                    last_refresh_time = time.time()
+                    message = "Usage refreshed" if not quota_errors else f"Usage refresh failed for {len(quota_errors)} account(s); cached data kept"
+                    message_type = "success" if not quota_errors else "error"
+                    resolved_cache.clear()
+                except AccountStoreError as exc:
+                    message = f"Refresh failed: {exc}"
+                    message_type = "error"
                 sys.stdout.write("\033[?1049h\033[?25l\033[H")
                 sys.stdout.flush()
                 continue
             elif key == "t" and selected_idx < len(acc_list):
                 acc_target = items[selected_idx][2]
                 email_t = acc_target["email"]
-                accs = load_accounts()
-                if email_t in accs:
-                    if accs[email_t].get("quota_snapshot"):
-                        message = f"Tier for {email_t} is synced from Google"
-                        message_type = "info"
-                        continue
-                    current_plan = accs[email_t].get("plan") if accs[email_t].get("tier_source") == "manual" else None
-                    plan = "Pro" if current_plan is None else "Free" if current_plan == "Pro" else None
-                    if plan:
-                        accs[email_t].update({"plan": plan, "tier": plan, "tier_source": "manual", "is_pro": plan == "Pro"})
-                    else:
-                        for field in ("plan", "tier", "tier_source", "is_pro"):
-                            accs[email_t].pop(field, None)
-                    save_accounts(accs)
-                    message = f"Set tier label for {email_t} to {plan or 'Unknown'}"
-                    message_type = "success"
+                try:
+                    accs = load_accounts()
+                    if email_t in accs:
+                        if accs[email_t].get("quota_snapshot"):
+                            message = f"Tier for {email_t} is synced from Google"
+                            message_type = "info"
+                            continue
+                        current_plan = accs[email_t].get("plan") if accs[email_t].get("tier_source") == "manual" else None
+                        plan = "Pro" if current_plan is None else "Free" if current_plan == "Pro" else None
+                        if plan:
+                            accs[email_t].update({"plan": plan, "tier": plan, "tier_source": "manual", "is_pro": plan == "Pro"})
+                        else:
+                            for field in ("plan", "tier", "tier_source", "is_pro"):
+                                accs[email_t].pop(field, None)
+                        save_accounts(accs)
+                        resolved_cache.clear()
+                        message = f"Set tier label for {email_t} to {plan or 'Unknown'}"
+                        message_type = "success"
+                except AccountStoreError as exc:
+                    message = f"Store error: {exc}"
+                    message_type = "error"
                 continue
             elif key in ("q", "esc", "\x03", "\x04"):
                 break
@@ -2417,12 +2482,17 @@ def cmd_interactive(args):
                 sys.stdout.write("\033[J")
                 sys.stdout.flush()
                 if get_key().lower() == "y":
-                    accs = load_accounts()
-                    if email_del in accs:
-                        del accs[email_del]
-                        save_accounts(accs)
-                        message = f"Removed account {email_del}"
-                        message_type = "success"
+                    try:
+                        accs = load_accounts()
+                        if email_del in accs:
+                            del accs[email_del]
+                            save_accounts(accs)
+                            resolved_cache.clear()
+                            message = f"Removed account {email_del}"
+                            message_type = "success"
+                    except AccountStoreError as exc:
+                        message = f"Store error: {exc}"
+                        message_type = "error"
                 else:
                     message = "Canceled"
                     message_type = "info"
@@ -2439,6 +2509,7 @@ def cmd_interactive(args):
                         success = apply_account_token(acc["token_data"], acc.get("email"))
                         time.sleep(0.4)
                     if success:
+                        resolved_cache.clear()
                         message = f"Switched to {acc['email']}"
                         message_type = "success"
                     else:
@@ -2454,6 +2525,9 @@ def cmd_interactive(args):
                             input("\nPress Enter to return...")
                         except KeyboardInterrupt:
                             success, msg = False, "Login cancelled"
+                        except AccountStoreError as exc:
+                            success, msg = False, f"Store error: {exc}"
+                        resolved_cache.clear()
                         message = msg
                         message_type = "success" if success else "error"
 
@@ -2468,12 +2542,17 @@ def cmd_interactive(args):
                             sys.stdout.write("\033[J")
                             sys.stdout.flush()
                             if get_key().lower() == "y":
-                                accs = load_accounts()
-                                if email_del in accs:
-                                    del accs[email_del]
-                                    save_accounts(accs)
-                                    message = f"Removed account {email_del}"
-                                    message_type = "success"
+                                try:
+                                    accs = load_accounts()
+                                    if email_del in accs:
+                                        del accs[email_del]
+                                        save_accounts(accs)
+                                        resolved_cache.clear()
+                                        message = f"Removed account {email_del}"
+                                        message_type = "success"
+                                except AccountStoreError as exc:
+                                    message = f"Store error: {exc}"
+                                    message_type = "error"
                             else:
                                 message = "Canceled"
                                 message_type = "info"
@@ -2489,6 +2568,27 @@ def cmd_interactive(args):
         sys.stdout.flush()
 
 # ── Module: updater ──────────────────────────────────────────────────
+def extract_expected_sha(install_text):
+    """Extract SHA-256 checksum from install manifest. Returns 64-char hex string or raises ValueError."""
+    if not isinstance(install_text, str):
+        raise ValueError("Invalid update manifest")
+    sha_match = re.search(r'^EXPECTED_SHA256="([a-fA-F0-9]{64})"$', install_text, re.MULTILINE)
+    if not sha_match:
+        raise ValueError("Update manifest missing or invalid EXPECTED_SHA256 checksum")
+    return sha_match.group(1).lower()
+
+
+def verify_update_payload(install_text, new_script):
+    """Verify script payload against manifest SHA-256. Returns verified actual_sha or raises ValueError/RuntimeError."""
+    if not isinstance(new_script, bytes) or not new_script:
+        raise ValueError("Empty or invalid update payload")
+    expected_sha = extract_expected_sha(install_text)
+    actual_sha = hashlib.sha256(new_script).hexdigest()
+    if actual_sha != expected_sha:
+        raise RuntimeError(f"Checksum verification failed: expected {expected_sha}, got {actual_sha}")
+    return actual_sha
+
+
 def _is_valid_script_or_manifest(data):
     if not data or not isinstance(data, bytes):
         return False
@@ -2590,9 +2690,6 @@ def cmd_update(args):
     print(f"  Current: {GRAY}v{VERSION}{RESET}")
     print(f"  Latest:  {GREEN}v{latest_version}{RESET}")
 
-    sha_match = re.search(r'^EXPECTED_SHA256="([a-f0-9]+)"$', install_text, re.MULTILINE)
-    expected_sha = sha_match.group(1) if sha_match else None
-
     with Spinner(f"Downloading v{latest_version}..."):
         try:
             new_script = _fetch_first_available(script_urls, timeout=30)
@@ -2600,13 +2697,11 @@ def cmd_update(args):
             print(f"{RED}✕ Download failed: {exc}{RESET}", file=sys.stderr)
             sys.exit(1)
 
-    if expected_sha:
-        actual_sha = hashlib.sha256(new_script).hexdigest()
-        if actual_sha != expected_sha:
-            print(f"{RED}✕ Checksum verification failed!{RESET}", file=sys.stderr)
-            print(f"  Expected: {expected_sha}", file=sys.stderr)
-            print(f"  Actual:   {actual_sha}", file=sys.stderr)
-            sys.exit(1)
+    try:
+        actual_sha = verify_update_payload(install_text, new_script)
+    except Exception as exc:
+        print(f"{RED}✕ Integrity verification failed: {exc}{RESET}", file=sys.stderr)
+        sys.exit(1)
 
     try:
         compile(new_script.decode("utf-8"), "agy-swap", "exec")
@@ -2662,11 +2757,13 @@ def main():
     parser.add_argument("--remove", dest="remove_account", metavar="ACCOUNT", help="Remove a saved account")
     parser.add_argument("--status", action="store_true", help="Show active account details")
     parser.add_argument("--logout", action="store_true", help="Logout of active session")
+    parser.add_argument("--verbose", action="store_true", help="Show cooldown provenance and observation time")
 
     subparsers = parser.add_subparsers(dest="command", help="Subcommand to run")
     add_parser = subparsers.add_parser("add", help="Log in & add a Google account")
     add_parser.add_argument("--token", choices=["-"], metavar="-", default=argparse.SUPPRESS, help="Import a token from stdin")
-    subparsers.add_parser("list", help="List all saved accounts")
+    list_parser = subparsers.add_parser("list", help="List all saved accounts")
+    list_parser.add_argument("--verbose", action="store_true", help="Show cooldown provenance and observation time")
     limits_parser = subparsers.add_parser("limits", help="Show account quota limits")
     limits_parser.add_argument("--verbose", action="store_true", help="Show cooldown provenance and observation time")
     limits_parser.add_argument("--refresh", action="store_true", help="Force a fresh Google quota request")

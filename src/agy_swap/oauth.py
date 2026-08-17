@@ -55,15 +55,28 @@ def extract_verified_google_email_claim(token_str):
 
 
 def _oauth_client_id(token_json):
+    if not isinstance(token_json, dict):
+        return DEFAULT_OAUTH_CLIENT_ID
     token = token_json.get("token", {})
-    id_token = token.get("id_token") or token_json.get("id_token")
+    id_token = (token.get("id_token") if isinstance(token, dict) else None) or token_json.get("id_token")
+    if not isinstance(id_token, str):
+        return DEFAULT_OAUTH_CLIENT_ID
     try:
-        payload = id_token.split(".")[1]
-        payload += "=" * (-len(payload) % 4)
+        parts = id_token.split(".")
+        if len(parts) != 3:
+            return DEFAULT_OAUTH_CLIENT_ID
+        payload = parts[1] + "=" * (-len(parts[1]) % 4)
         audience = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8")).get("aud")
-    except (AttributeError, IndexError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+    except (AttributeError, IndexError, ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError):
         audience = None
-    return audience if audience in OAUTH_CLIENT_SECRETS else DEFAULT_OAUTH_CLIENT_ID
+
+    if isinstance(audience, (list, tuple)):
+        for aud_item in audience:
+            if isinstance(aud_item, str) and aud_item in OAUTH_CLIENT_SECRETS:
+                return aud_item
+        return DEFAULT_OAUTH_CLIENT_ID
+
+    return audience if isinstance(audience, str) and audience in OAUTH_CLIENT_SECRETS else DEFAULT_OAUTH_CLIENT_ID
 
 
 def _refresh_access_token(token_data):
