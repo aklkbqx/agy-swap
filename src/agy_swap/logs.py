@@ -8,7 +8,6 @@ import platform
 import re
 import time
 
-import agy_swap
 from agy_swap import MAX_LIMIT_SECS, LOG_SCAN_BYTES, LOG_TOTAL_SCAN_BYTES
 from agy_swap.display import clean_display_text, normalize_email, parse_duration_seconds, _parse_utc_datetime
 
@@ -142,10 +141,14 @@ def _parse_log_timestamp(line, log_file):
             return None
         month, day, hour, minute, second = [int(value) for value in glog.groups()]
         reference = datetime.fromtimestamp(os.path.getmtime(log_file)).astimezone()
-        candidates = [
-            datetime(year, month, day, hour, minute, second).astimezone()
-            for year in (reference.year - 1, reference.year, reference.year + 1)
-        ]
+        candidates = []
+        for year in (reference.year - 1, reference.year, reference.year + 1):
+            try:
+                candidates.append(datetime(year, month, day, hour, minute, second).astimezone())
+            except ValueError:
+                continue
+        if not candidates:
+            return None
         return min(candidates, key=lambda value: abs((value - reference).total_seconds())).astimezone(timezone.utc)
     except (OSError, ValueError):
         return None

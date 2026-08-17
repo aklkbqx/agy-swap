@@ -1,5 +1,8 @@
 """Platform Keychain (macOS, Windows, Linux) and local OAuth file operations."""
 
+import base64
+import json
+import os
 import platform
 import subprocess
 
@@ -139,7 +142,6 @@ def _get_secure_token():
 
 
 def _read_oauth_file_token():
-    import json, base64
     try:
         with open(OAUTH_FILE, "rb") as f:
             raw = f.read()
@@ -158,7 +160,8 @@ def set_keychain_token(token_data_str):
     if plat == "Darwin":
         try:
             subprocess.run(
-                ["security", "add-generic-password", "-U", "-a", "antigravity", "-s", "gemini", "-w", token_data_str],
+                ["security", "add-generic-password", "-U", "-a", "antigravity", "-s", "gemini", "-w"],
+                input=f"{token_data_str}\n".encode("utf-8"),
                 check=True,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -197,7 +200,6 @@ def write_oauth_file(token_data_str, email=None):
         _atomic_write_json(OAUTH_CREDS_FILE, creds)
 
         if email:
-            import os, json
             ga = {"active": email, "old": []}
             try:
                 if os.path.exists(GOOGLE_ACCOUNTS_FILE):
@@ -242,7 +244,6 @@ def delete_keychain_token():
 
 
 def delete_oauth_files():
-    import os
     ok = True
     for path in (OAUTH_FILE, OAUTH_CREDS_FILE, GOOGLE_ACCOUNTS_FILE):
         try:

@@ -5,8 +5,10 @@ import json
 import os
 import re
 
-import agy_swap
-from agy_swap import ACCOUNTS_FILE, QUOTA_SCHEMA, MAX_LIMIT_SECS, Accounts, AccountStoreError
+from agy_swap import (
+    ACCOUNTS_FILE, QUOTA_SCHEMA, MAX_LIMIT_SECS, Accounts,
+    AccountStoreError, StoreRevisionConflictError,
+)
 from agy_swap.display import clean_display_text, normalize_email, _parse_utc_datetime
 from agy_swap.logs import auto_scan_logs_for_limits, _model_identity
 from agy_swap.oauth import decode_token, extract_verified_google_email_claim
@@ -207,7 +209,12 @@ def load_accounts(sync_logs=True):
             changed = reconcile_log_limits(acc, detected_limits.get(email, {}), evidence.get(email, {})) or changed
 
         if changed:
-            save_accounts(accounts)
+            try:
+                save_accounts(accounts)
+            except StoreRevisionConflictError:
+                # Opportunistic background log sync hit a revision conflict from another process;
+                # proceed with in-memory state for this read command without crashing.
+                pass
 
     return accounts
 
@@ -222,7 +229,7 @@ def save_accounts(accounts):
             current_revision = None
         expected_revision = getattr(accounts, "revision", current_revision)
         if expected_revision != current_revision:
-            raise AccountStoreError("accounts.json changed in another process; retry the command")
+            raise StoreRevisionConflictError("accounts.json changed in another process; retry the command")
         if current_revision is not None:
             with open(ACCOUNTS_FILE, "rb") as f:
                 _atomic_write_bytes(ACCOUNTS_FILE + ".bak", f.read())
