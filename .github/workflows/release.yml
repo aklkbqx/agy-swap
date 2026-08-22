@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        goos: [darwin, linux, windows]
+        goarch: [amd64, arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+      - name: Build native binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          suffix=""
+          [[ "${{ matrix.goos }}" == "windows" ]] && suffix=".exe"
+          asset="agy-swap_v${version}_${{ matrix.goos }}_${{ matrix.goarch }}${suffix}"
+          CGO_ENABLED=0 GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" \
+            go build -trimpath -ldflags="-s -w -X main.version=${version}" -o "dist/${asset}" ./cmd/agy-swap
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agy-swap-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: agy-swap-*
+          path: dist
+          merge-multiple: true
+      - name: Verify version, checksums, and formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          go run ./cmd/releasetool verify-version "$version" install.sh
+          go run ./cmd/releasetool checksums dist
+          go run ./cmd/releasetool formula "$version" dist/checksums.txt packaging/agy-swap.rb.tmpl dist/agy-swap.rb
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes
+      - name: Update stable Homebrew formula on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          encoded="$(base64 -w 0 dist/agy-swap.rb)"
+          sha="$(gh api "repos/${GITHUB_REPOSITORY}/contents/Formula/agy-swap.rb?ref=main" --jq .sha)"
+          gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/Formula/agy-swap.rb" \
+            -f message="chore: update Homebrew formula for ${GITHUB_REF_NAME}" \
+            -f content="$encoded" -f branch=main -f sha="$sha"
