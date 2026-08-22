@@ -7,7 +7,7 @@ import (
 	"github.com/aklkbqx/agy-swap/internal/app"
 )
 
-var version = "2.0.0-dev"
+var version = "2.1.0-dev"
 
 func main() {
 	application, err := app.New(version, os.Stdin, os.Stdout, os.Stderr)
