@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/term"
@@ -15,12 +16,20 @@ type tuiKeyEvent struct{ key string }
 type tuiAccountsEvent struct {
 	accounts    *Accounts
 	quotaErrors map[string]string
+	revision    uint64
 }
 type tuiActiveEvent struct {
 	token string
 	email string
 }
 type tuiResizeEvent struct{ width, height int }
+
+type tuiEvent interface{ tuiEvent() }
+
+func (tuiKeyEvent) tuiEvent()      {}
+func (tuiAccountsEvent) tuiEvent() {}
+func (tuiActiveEvent) tuiEvent()   {}
+func (tuiResizeEvent) tuiEvent()   {}
 
 func (a *Application) cmdInteractive(ctx context.Context) int {
 	inFile, inOK := a.In.(*os.File)
@@ -50,15 +59,29 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 
 	state := newTUIState(accounts, current)
 	state.active = a.activeHint(accounts, current)
-	events := make(chan any, 24)
+	events := make(chan tuiEvent, 32)
 	done := make(chan struct{})
+	workerCtx, cancelWorkers := context.WithCancel(ctx)
+	defer cancelWorkers()
+	var inputPaused atomic.Bool
 	var closeDone sync.Once
 	finish := func() {
 		closeDone.Do(func() { close(done) })
+		cancelWorkers()
 	}
 
 	go func() {
 		for {
+			if inputPaused.Load() {
+				select {
+				case <-done:
+					return
+				case <-time.After(20 * time.Millisecond):
+				}
+				continue
+			}
+			// readTerminalKey polls the terminal fd, so this worker remains
+			// cancellable even when the terminal is idle.
 			key := readTerminalKey(inFile)
 			if key == "" {
 				select {
@@ -86,25 +109,28 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		if state.resolvingToken == current {
 			return
 		}
+		state.active = ""
 		token := current
 		snapshot := state.accounts
 		state.resolvingToken = token
 		go func() {
-			resolveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			resolveCtx, cancel := context.WithTimeout(workerCtx, 5*time.Second)
 			email := a.activeEmail(resolveCtx, snapshot, token)
 			cancel()
 			select {
 			case events <- tuiActiveEvent{token: token, email: email}:
-			case <-ctx.Done():
+			case <-workerCtx.Done():
 			}
 		}()
 	}
-
 	refreshing := false
+	var refreshRevision uint64
 	startRefresh := func(force bool) {
 		if refreshing {
 			return
 		}
+		refreshRevision++
+		revision := refreshRevision
 		refreshing = true
 		state.refreshing = true
 		state.beginAnimation("refresh", 0)
@@ -113,16 +139,23 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			fresh, loadErr := a.store.Load(true)
 			errs := map[string]string{}
 			if loadErr == nil && fresh.Len() > 0 {
-				errs = a.quota.Refresh(ctx, fresh, force, nil)
+				errs = a.quota.Refresh(workerCtx, fresh, force, nil)
 			}
 			if loadErr != nil {
 				errs["store"] = loadErr.Error()
 			}
 			select {
-			case events <- tuiAccountsEvent{fresh, errs}:
-			case <-ctx.Done():
+			case events <- tuiAccountsEvent{accounts: fresh, quotaErrors: errs, revision: revision}:
+			case <-workerCtx.Done():
 			}
 		}()
+	}
+	invalidateRefresh := func() {
+		// Mutating actions must invalidate an in-flight snapshot. Otherwise a
+		// slower quota response could repaint accounts that were just changed.
+		refreshRevision++
+		refreshing = false
+		state.refreshing = false
 	}
 
 	var frameTimer *time.Timer
@@ -155,12 +188,20 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	defer credentialTicker.Stop()
 	quotaTicker := time.NewTicker(tuiAutoRefresh)
 	defer quotaTicker.Stop()
+	defer func() {
+		if frameTimer != nil {
+			frameTimer.Stop()
+		}
+	}()
 	a.renderTUI(state, outFile)
 	startActiveResolve()
 	startRefresh(false)
 	armFrame()
 
 	suspend := func(action func() int) {
+		invalidateRefresh()
+		inputPaused.Store(true)
+		defer inputPaused.Store(false)
 		_ = term.Restore(int(inFile.Fd()), oldState)
 		raw = false
 		leaveScreen()
@@ -188,6 +229,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	}
 
 	performDelete := func(email string) {
+		invalidateRefresh()
 		fresh, loadErr := a.store.Load(false)
 		if loadErr != nil {
 			state.message, state.messageType = loadErr.Error(), "error"
@@ -199,6 +241,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			return
 		}
 		state.setAccounts(fresh)
+		state.active = a.activeHint(state.accounts, current)
 		state.message, state.messageType = "Removed account "+email, "success"
 		state.beginAnimation("success", 360*time.Millisecond)
 	}
@@ -208,6 +251,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		if !ok {
 			return
 		}
+		invalidateRefresh()
 		fresh, loadErr := a.store.Load(false)
 		if loadErr != nil {
 			state.message, state.messageType = loadErr.Error(), "error"
@@ -261,6 +305,17 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 				state.search = state.search[:len(state.search)-1]
 				state.clampSelection()
 			}
+		case "ctrl-u":
+			state.search = ""
+			state.clampSelection()
+		case "ctrl-w":
+			state.search = strings.TrimRight(state.search, " \t")
+			if index := strings.LastIndexAny(state.search, " \t"); index >= 0 {
+				state.search = state.search[:index]
+			} else {
+				state.search = ""
+			}
+			state.clampSelection()
 		default:
 			if len(key) == 1 && key[0] >= 32 && key[0] != 127 {
 				state.search += strings.ToLower(key)
@@ -304,6 +359,10 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		case event := <-events:
 			switch value := event.(type) {
 			case tuiAccountsEvent:
+				if value.revision != refreshRevision {
+					// A slower refresh must never overwrite a newer frame.
+					continue
+				}
 				refreshing = false
 				state.refreshing = false
 				state.setAccounts(value.accounts)
@@ -324,7 +383,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					a.renderTUI(state, outFile)
 				}
 			case tuiResizeEvent:
-				state.width, state.height = value.width, value.height
+				state.width, state.height = maxInt(28, value.width), maxInt(12, value.height)
 				a.renderTUI(state, outFile)
 			case tuiKeyEvent:
 				key := strings.ToLower(value.key)
@@ -364,6 +423,14 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					state.move(-1)
 				case "down", "j":
 					state.move(1)
+				case "page-up":
+					state.move(-maxInt(1, len(state.visibleEmails())/2))
+				case "page-down":
+					state.move(maxInt(1, len(state.visibleEmails())/2))
+				case "home":
+					state.moveToBoundary(false)
+				case "end":
+					state.moveToBoundary(true)
 				case "r":
 					state.message, state.messageType = "Refreshing quota…", "info"
 					startRefresh(true)

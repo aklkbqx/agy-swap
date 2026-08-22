@@ -206,15 +206,48 @@ func quotaAccount(email string, gemini, thirdParty float64, reset time.Time) Acc
 	return Account{"email": email, "name": email, "quota_snapshot": map[string]any{"observed_at": isoTime(time.Now()), "tier": map[string]any{"id": "free-tier", "name": "Free"}, "groups": []any{map[string]any{"id": "gemini", "name": "Gemini Models", "buckets": []any{map[string]any{"id": "gemini-weekly", "name": "Weekly", "window": "weekly", "remaining_fraction": gemini, "reset_at": isoTime(reset)}}}, map[string]any{"id": "third_party", "name": "Third Party", "buckets": []any{map[string]any{"id": "3p-weekly", "name": "Weekly", "window": "weekly", "remaining_fraction": thirdParty, "reset_at": isoTime(reset)}}}}}}
 }
 
+func TestAccountAvailabilityKeepsFamiliesIndependent(t *testing.T) {
+	reset := time.Now().Add(3 * time.Hour)
+	account := quotaAccount("user@example.com", 0.9584, 0, reset)
+	p := makePalette(false)
+	if got := accountHealthCompact(account, time.Now()); got != "Gemini 96% ready" {
+		t.Fatalf("compact health = %q, want Gemini ready state", got)
+	}
+	status := accountStatus(account, p, time.Now())
+	if !strings.Contains(status, "Ready") || !strings.Contains(status, "Gemini") || !strings.Contains(status, "Claude/GPT limited") {
+		t.Fatalf("family-aware status = %q", status)
+	}
+
+	allLimited := quotaAccount("limited@example.com", 0, 0, reset)
+	if got := accountHealthCompact(allLimited, time.Now()); got != "limited" {
+		t.Fatalf("all-limited compact health = %q", got)
+	}
+	if status := accountStatus(allLimited, p, time.Now()); !strings.Contains(status, "Limited") {
+		t.Fatalf("all-limited status = %q", status)
+	}
+}
+
 func TestTUILayoutRespondsToTerminalShape(t *testing.T) {
 	if got := tuiLayoutFor(120, 30); got != tuiLayoutWide {
 		t.Fatalf("wide layout = %v", got)
 	}
+	if got := tuiLayoutFor(92, 18); got != tuiLayoutWide {
+		t.Fatalf("wide boundary layout = %v", got)
+	}
+	if got := tuiLayoutFor(91, 18); got != tuiLayoutStacked {
+		t.Fatalf("stacked boundary layout = %v", got)
+	}
 	if got := tuiLayoutFor(80, 24); got != tuiLayoutStacked {
 		t.Fatalf("stacked layout = %v", got)
 	}
+	if got := tuiLayoutFor(64, 16); got != tuiLayoutStacked {
+		t.Fatalf("stacked minimum layout = %v", got)
+	}
 	if got := tuiLayoutFor(60, 24); got != tuiLayoutCompact {
 		t.Fatalf("compact width layout = %v", got)
+	}
+	if got := tuiLayoutFor(63, 16); got != tuiLayoutCompact {
+		t.Fatalf("compact boundary layout = %v", got)
 	}
 	if got := tuiLayoutFor(100, 12); got != tuiLayoutCompact {
 		t.Fatalf("compact height layout = %v", got)
@@ -256,19 +289,196 @@ func TestTUIRenderProducesOneTerminalLinePerEntry(t *testing.T) {
 	}{
 		{inner: 118, height: 30},
 		{inner: 78, height: 24},
+		{inner: 90, height: 18},
+		{inner: 62, height: 24},
 		{inner: 58, height: 14},
+		{inner: 38, height: 20},
 		{inner: 26, height: 12},
 	} {
 		lines := a.tuiLines(state, testCase.inner, testCase.height)
-		if len(lines) == 0 {
-			t.Fatal("TUI produced no lines")
+		if len(lines) != testCase.height {
+			t.Fatalf("inner=%d height=%d produced %d lines", testCase.inner, testCase.height, len(lines))
 		}
 		for i, line := range lines {
 			if strings.ContainsRune(line, '\n') || strings.ContainsRune(line, '\r') {
 				t.Fatalf("inner=%d line %d contains an embedded newline: %q", testCase.inner, i, line)
 			}
-			if visibleWidth(line) > testCase.inner+2 {
-				t.Fatalf("inner=%d line %d exceeds frame width: %d", testCase.inner, i, visibleWidth(line))
+			if visibleWidth(line) != testCase.inner+2 {
+				t.Fatalf("inner=%d line %d width=%d want=%d: %q", testCase.inner, i, visibleWidth(line), testCase.inner+2, line)
+			}
+		}
+	}
+}
+
+func TestTUITopLineShowsCreditDuringSync(t *testing.T) {
+	accounts := NewAccounts()
+	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
+	a := &Application{Version: "2.1.1", p: makePalette(false), color: false}
+	state := newTUIState(accounts, "user@example.com")
+	for _, refreshing := range []bool{false, true} {
+		state.refreshing = refreshing
+		lines := a.tuiTopLines(state, 118)
+		if !strings.Contains(strings.Join(lines, "\n"), tuiCredit) {
+			t.Fatalf("refreshing=%v top line missing %q: %q", refreshing, tuiCredit, lines)
+		}
+	}
+}
+
+func TestTUIResponsiveRenderersShareVisualContract(t *testing.T) {
+	accounts := NewAccounts()
+	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
+	a := &Application{Version: "2.1.1", p: makePalette(false), color: false}
+	state := newTUIState(accounts, "user@example.com")
+	stacked := a.tuiAccountRows(state, 78, 2)
+	wide := a.tuiAccountTableRows(state, 56, 4)
+	for name, rows := range map[string][]string{"stacked": stacked, "wide": wide} {
+		joined := strings.Join(rows, "\n")
+		for _, want := range []string{">", "[US]", "Gemini 85% ready"} {
+			if !strings.Contains(joined, want) {
+				t.Fatalf("%s renderer missing %q: %q", name, want, rows)
+			}
+		}
+	}
+	stackedDetail := a.tuiDetailLines(state, 62, 12)
+	wideDetail := a.tuiDetailTableLines(state, 62, 12)
+	for _, want := range []string{"user@example.com", "STATUS", "Gemini Models", "WEEKLY"} {
+		if !strings.Contains(strings.Join(stackedDetail, "\n"), want) || !strings.Contains(strings.Join(wideDetail, "\n"), want) {
+			t.Fatalf("detail renderers lost shared field %q:\nstacked=%q\nwide=%q", want, stackedDetail, wideDetail)
+		}
+	}
+	if len(stackedDetail) > 12 || len(wideDetail) > 12 {
+		t.Fatalf("detail renderers exceeded row budget: stacked=%d wide=%d", len(stackedDetail), len(wideDetail))
+	}
+}
+
+func TestTUIResponsiveRenderersShareColorTokens(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	accounts := NewAccounts()
+	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
+	p := makePalette(true)
+	a := &Application{Version: "2.1.1", p: p, color: true}
+	state := newTUIState(accounts, "user@example.com")
+	state.active = "user@example.com"
+	stacked := strings.Join(a.tuiAccountRows(state, 78, 2), "\n") + "\n" + strings.Join(a.tuiDetailLines(state, 62, 12), "\n")
+	wide := strings.Join(a.tuiAccountTableRows(state, 56, 4), "\n") + "\n" + strings.Join(a.tuiDetailTableLines(state, 62, 12), "\n")
+	for name, rendered := range map[string]string{"stacked": stacked, "wide": wide} {
+		for token, want := range map[string]string{"orange": p.Orange, "green": p.Green, "blue": p.Blue, "cyan": p.Cyan} {
+			if want == "" || !strings.Contains(rendered, want) {
+				t.Fatalf("%s renderer missing %s semantic token", name, token)
+			}
+		}
+	}
+}
+
+func TestTUIResponsiveDetailPreservesResetWindow(t *testing.T) {
+	reset := time.Now().Add(6*24*time.Hour + 23*time.Hour + 59*time.Minute)
+	bucket := map[string]any{"remaining_fraction": 1.0, "reset_at": isoTime(reset)}
+	compact := formatQuotaBarResponsive(bucket, makePalette(false), time.Now(), 18, 40)
+	if !strings.Contains(compact, "· 6d 23h") {
+		t.Fatalf("compact quota value lost reset window: %q", compact)
+	}
+	minimum := formatQuotaBarResponsive(bucket, makePalette(false), time.Now(), 18, 24)
+	if !strings.Contains(minimum, "100%") {
+		t.Fatalf("minimum quota value lost percentage: %q", minimum)
+	}
+}
+
+func TestTUICompactTallViewportKeepsSelectedDetail(t *testing.T) {
+	accounts := NewAccounts()
+	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
+	a := &Application{Version: "2.1.1", p: makePalette(false), color: false}
+	state := newTUIState(accounts, "user@example.com")
+	lines := a.tuiLines(state, 58, 24)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{"ACCOUNT HEALTH", "STATUS", "Gemini Models"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("compact tall viewport missing %q: %q", want, lines)
+		}
+	}
+}
+
+func TestTUIWideAccountTableUsesStableColumns(t *testing.T) {
+	accounts := NewAccounts()
+	alpha := quotaAccount("alpha@example.com", 1, 0.4, time.Now().Add(time.Hour))
+	alpha["name"] = "Alpha"
+	accounts.Set("alpha@example.com", alpha)
+	accounts.Set("beta@example.com", Account{"email": "beta@example.com", "name": "Beta"})
+	a := &Application{Version: "2.1.1", p: makePalette(false), color: false}
+	state := newTUIState(accounts, "")
+	rows := a.tuiAccountTableRows(state, 56, 8)
+	if len(rows) != 4 { // header, rule, and two account rows
+		t.Fatalf("rows = %d, want 4: %q", len(rows), rows)
+	}
+	if !strings.Contains(rows[0], "ACCOUNT") || !strings.Contains(rows[0], "HEALTH") {
+		t.Fatalf("missing table headers: %q", rows[0])
+	}
+	if !strings.Contains(rows[2], "> · [AL]") || !strings.Contains(rows[2], "Alpha") {
+		t.Fatalf("selected row lost its identity: %q", rows[2])
+	}
+	for i, row := range rows {
+		if visibleWidth(row) != 56 {
+			t.Fatalf("row %d width=%d want=56: %q", i, visibleWidth(row), row)
+		}
+		if strings.ContainsRune(row, '\uFFFD') {
+			t.Fatalf("row %d contains replacement glyph: %q", i, row)
+		}
+	}
+}
+
+func TestTUIAccountTableSurvivesInvalidUTF8(t *testing.T) {
+	accounts := NewAccounts()
+	accounts.Set("bad@example.com", Account{"email": "bad@example.com", "name": string([]byte{'B', 0xff, 'd'})})
+	a := &Application{Version: "2.1.1", p: makePalette(false), color: false}
+	state := newTUIState(accounts, "")
+	rows := a.tuiAccountTableRows(state, 42, 5)
+	for i, row := range rows {
+		if strings.ContainsRune(row, '\uFFFD') {
+			t.Fatalf("row %d contains replacement glyph: %q", i, row)
+		}
+	}
+	if got := visibleWidth(avatar("Akalak Kruaboon", "user@example.com", false)); got != 4 {
+		t.Fatalf("avatar width=%d want=4", got)
+	}
+}
+
+func TestTUIDetailTableUsesKeyValueColumns(t *testing.T) {
+	accounts := NewAccounts()
+	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
+	a := &Application{Version: "2.1.1", p: makePalette(false), color: false}
+	state := newTUIState(accounts, "user@example.com")
+	rows := a.tuiDetailTableLines(state, 52, 12)
+	statusRow := ""
+	for _, row := range rows {
+		if strings.Contains(row, "STATUS") {
+			statusRow = row
+			break
+		}
+	}
+	if statusRow == "" || !strings.Contains(statusRow, "│") {
+		t.Fatalf("detail table missing status column: %q", rows)
+	}
+	for i, row := range rows {
+		if visibleWidth(row) != 52 {
+			t.Fatalf("row %d width=%d want=52: %q", i, visibleWidth(row), row)
+		}
+	}
+}
+
+func TestTUIOverlayKeepsFrameGeometry(t *testing.T) {
+	accounts := NewAccounts()
+	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
+	a := &Application{Version: "2.1.1", p: makePalette(false), color: false}
+	for _, mode := range []tuiMode{tuiHelp, tuiConfirmDelete} {
+		state := newTUIState(accounts, "user@example.com")
+		state.mode = mode
+		state.confirmEmail = "user@example.com"
+		lines := a.tuiLines(state, 118, 30)
+		if len(lines) != 30 {
+			t.Fatalf("mode=%d produced %d lines", mode, len(lines))
+		}
+		for i, line := range lines {
+			if visibleWidth(line) != 120 {
+				t.Fatalf("mode=%d line=%d width=%d", mode, i, visibleWidth(line))
 			}
 		}
 	}
@@ -528,8 +738,24 @@ func TestCLIParsingLegacyAndSubcommands(t *testing.T) {
 	}
 }
 
+func TestVersionReportsBuildProvenance(t *testing.T) {
+	var out bytes.Buffer
+	a := &Application{Version: "2.1.1", BuildID: "local-20260823", Out: &out}
+	if code := a.Run(context.Background(), []string{"--version"}); code != 0 {
+		t.Fatalf("version exit code = %d", code)
+	}
+	if got := out.String(); got != "agy-swap v2.1.1 (local-20260823)\n" {
+		t.Fatalf("version output = %q", got)
+	}
+	out.Reset()
+	a.BuildID = "unknown"
+	if code := a.Run(context.Background(), []string{"--version"}); code != 0 || out.String() != "agy-swap v2.1.1\n" {
+		t.Fatalf("unknown build output = %q (code %d)", out.String(), code)
+	}
+}
+
 func TestTerminalKeysAndDisplayWidth(t *testing.T) {
-	cases := map[string]string{"\x1b[A": "up", "\x1b[B": "down", "\x1b[3~": "delete", "\r": "enter", "\x7f": "backspace"}
+	cases := map[string]string{"\x1b[A": "up", "\x1b[B": "down", "\x1b[C": "right", "\x1b[D": "left", "\x1b[H": "home", "\x1b[F": "end", "\x1b[3~": "delete", "\x1b[5~": "page-up", "\x1b[6~": "page-down", "\x1bOA": "up", "\r": "enter", "\x7f": "backspace", "\x15": "ctrl-u", "\x17": "ctrl-w", "\x1b": "esc"}
 	for input, want := range cases {
 		if got := readTerminalKey(bytes.NewBufferString(input)); got != want {
 			t.Fatalf("%q -> %q", input, got)
@@ -537,6 +763,10 @@ func TestTerminalKeysAndDisplayWidth(t *testing.T) {
 	}
 	if visibleWidth("A界e\u0301") != 4 {
 		t.Fatalf("width = %d", visibleWidth("A界e\u0301"))
+	}
+	colored := "\x1b[31mlong colored account\x1b[0m"
+	if got := truncateVisible(colored, 8, makePalette(true)); visibleWidth(got) != 8 {
+		t.Fatalf("colored truncation width = %d: %q", visibleWidth(got), got)
 	}
 }
 
@@ -597,6 +827,23 @@ func benchmarkLogScanner(b *testing.B) *LogScanner {
 	config := filepath.Join(home, ".gemini", "agy-swap")
 	paths := Paths{Home: home, ConfigDir: config, LogCache: filepath.Join(config, "log-cache-v1.json")}
 	return NewLogScanner(paths)
+}
+
+func BenchmarkTUIFrame100Accounts(b *testing.B) {
+	accounts := NewAccounts()
+	for i := 0; i < 100; i++ {
+		email := fmt.Sprintf("user-%03d@example.com", i)
+		accounts.Set(email, Account{"email": email, "name": fmt.Sprintf("Operator %03d", i)})
+	}
+	a := &Application{Version: "2.1.1", p: makePalette(false), color: false}
+	state := newTUIState(accounts, "user-050@example.com")
+	state.selectedEmail = "user-050@example.com"
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		state.selectedEmail = fmt.Sprintf("user-%03d@example.com", i%100)
+		_ = a.tuiLines(state, 118, 30)
+	}
 }
 
 func BenchmarkLogScan64MBCold(b *testing.B) {
