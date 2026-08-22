@@ -206,6 +206,74 @@ func quotaAccount(email string, gemini, thirdParty float64, reset time.Time) Acc
 	return Account{"email": email, "name": email, "quota_snapshot": map[string]any{"observed_at": isoTime(time.Now()), "tier": map[string]any{"id": "free-tier", "name": "Free"}, "groups": []any{map[string]any{"id": "gemini", "name": "Gemini Models", "buckets": []any{map[string]any{"id": "gemini-weekly", "name": "Weekly", "window": "weekly", "remaining_fraction": gemini, "reset_at": isoTime(reset)}}}, map[string]any{"id": "third_party", "name": "Third Party", "buckets": []any{map[string]any{"id": "3p-weekly", "name": "Weekly", "window": "weekly", "remaining_fraction": thirdParty, "reset_at": isoTime(reset)}}}}}}
 }
 
+func TestTUILayoutRespondsToTerminalShape(t *testing.T) {
+	if got := tuiLayoutFor(120, 30); got != tuiLayoutWide {
+		t.Fatalf("wide layout = %v", got)
+	}
+	if got := tuiLayoutFor(80, 24); got != tuiLayoutStacked {
+		t.Fatalf("stacked layout = %v", got)
+	}
+	if got := tuiLayoutFor(60, 24); got != tuiLayoutCompact {
+		t.Fatalf("compact width layout = %v", got)
+	}
+	if got := tuiLayoutFor(100, 12); got != tuiLayoutCompact {
+		t.Fatalf("compact height layout = %v", got)
+	}
+}
+
+func TestTUIStateSearchSelectionAndReducedMotion(t *testing.T) {
+	accounts := NewAccounts()
+	accounts.Set("alpha@example.com", Account{"email": "alpha@example.com", "name": "Alpha"})
+	accounts.Set("beta@example.com", Account{"email": "beta@example.com", "name": "Beta"})
+	state := newTUIState(accounts, "")
+	state.selectedEmail = "beta@example.com"
+	state.beginSearch()
+	state.search = "alp"
+	state.clampSelection()
+	if got := state.visibleEmails(); len(got) != 1 || got[0] != "alpha@example.com" {
+		t.Fatalf("filtered accounts = %v", got)
+	}
+	state.cancelSearch()
+	if state.search != "" || state.selectedEmail != "beta@example.com" {
+		t.Fatalf("search cancel changed browse state: search=%q selected=%q", state.search, state.selectedEmail)
+	}
+
+	t.Setenv("AGY_SWAP_REDUCED_MOTION", "1")
+	reduced := newTUIState(accounts, "")
+	reduced.beginAnimation("success", time.Second)
+	if reduced.animation.active {
+		t.Fatal("reduced-motion state started an animation")
+	}
+}
+
+func TestTUIRenderProducesOneTerminalLinePerEntry(t *testing.T) {
+	accounts := NewAccounts()
+	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
+	a := &Application{Version: "2.1.0", p: makePalette(false), color: false}
+	state := newTUIState(accounts, "user@example.com")
+	for _, testCase := range []struct {
+		inner, height int
+	}{
+		{inner: 118, height: 30},
+		{inner: 78, height: 24},
+		{inner: 58, height: 14},
+		{inner: 26, height: 12},
+	} {
+		lines := a.tuiLines(state, testCase.inner, testCase.height)
+		if len(lines) == 0 {
+			t.Fatal("TUI produced no lines")
+		}
+		for i, line := range lines {
+			if strings.ContainsRune(line, '\n') || strings.ContainsRune(line, '\r') {
+				t.Fatalf("inner=%d line %d contains an embedded newline: %q", testCase.inner, i, line)
+			}
+			if visibleWidth(line) > testCase.inner+2 {
+				t.Fatalf("inner=%d line %d exceeds frame width: %d", testCase.inner, i, visibleWidth(line))
+			}
+		}
+	}
+}
+
 func TestNextAccountSelectionPreservesUnknownAndCooldownSemantics(t *testing.T) {
 	accounts := NewAccounts()
 	reset := time.Now().Add(time.Hour)
