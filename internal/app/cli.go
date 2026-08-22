@@ -18,6 +18,7 @@ import (
 
 type Application struct {
 	Version             string
+	BuildID             string
 	In                  io.Reader
 	Out, Err            io.Writer
 	paths               Paths
@@ -38,7 +39,7 @@ func New(version string, in io.Reader, out, errOut io.Writer) (*Application, err
 	store := NewStore(paths)
 	httpService := NewHTTPService(errOut)
 	stdoutTTY := writerTerminal(out)
-	app := &Application{Version: version, In: in, Out: out, Err: errOut, paths: paths, store: store, credentials: NewCredentials(paths), http: httpService, quota: NewQuotaService(httpService, store), stdinTTY: readerTerminal(in), stdoutTTY: stdoutTTY, color: stdoutTTY && os.Getenv("NO_COLOR") == ""}
+	app := &Application{Version: version, BuildID: "unknown", In: in, Out: out, Err: errOut, paths: paths, store: store, credentials: NewCredentials(paths), http: httpService, quota: NewQuotaService(httpService, store), stdinTTY: readerTerminal(in), stdoutTTY: stdoutTTY, color: stdoutTTY && os.Getenv("NO_COLOR") == ""}
 	app.p = makePalette(app.color)
 	return app, nil
 }
@@ -69,7 +70,12 @@ func (a *Application) Run(ctx context.Context, argv []string) int {
 		return 2
 	}
 	if args.version {
-		fmt.Fprintf(a.Out, "agy-swap v%s\n", a.Version)
+		build := strings.TrimSpace(a.BuildID)
+		if build == "" || build == "unknown" {
+			fmt.Fprintf(a.Out, "agy-swap v%s\n", a.Version)
+		} else {
+			fmt.Fprintf(a.Out, "agy-swap v%s (%s)\n", a.Version, build)
+		}
 		return 0
 	}
 	if args.help {
