@@ -32,25 +32,31 @@ Download the matching `.exe` from [GitHub Releases](https://github.com/aklkbqx/a
 ### Build from source
 
 ```bash
-go build -ldflags "-X main.version=2.1.1" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.1.2 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ```
+
+Use `agy-swap --version` to verify the build provenance. A build identifier is
+included when the binary was compiled with `main.buildID`, which helps detect
+an older Homebrew or PATH-shadowed binary with the same semantic version.
 
 Go 1.26 or later is required only when building from source.
 
 ## Interactive TUI
 
-Run `agy-swap` in a terminal. The Operator Deck adapts automatically: wide
-terminals show the account list beside the selected account's health details;
-smaller terminals stack the same information or switch to a compact list.
-Cached accounts are painted immediately, while quota refreshes run in the
-background.
+Run `agy-swap` in a terminal. The operations view adapts automatically: wide
+terminals show a fixed account panel beside the selected account's health
+details; smaller terminals stack the same information or switch to a compact
+list. Every frame is width-safe, cached accounts paint immediately, and quota
+refreshes run in the background with an explicit sync status.
 
 | Key | Action |
 | :--- | :--- |
 | `↑` / `↓` or `j` / `k` | Move selection |
+| `Home` / `End` / `PageUp` / `PageDown` | Jump or page through accounts |
 | `Enter` | Switch to the selected account |
 | `1`–`9` | Jump to an account |
 | `/` | Search by name or email |
+| `Ctrl-U` / `Ctrl-W` while searching | Clear or erase the previous search word |
 | `a` | Add or log in to an account |
 | `r` | Force-refresh quota data |
 | `n` | Choose the next available account |

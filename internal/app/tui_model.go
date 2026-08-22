@@ -141,6 +141,19 @@ func (s *tuiState) move(delta int) {
 	s.beginAnimation("focus", 140*time.Millisecond)
 }
 
+func (s *tuiState) moveToBoundary(last bool) {
+	emails := s.visibleEmails()
+	if len(emails) == 0 {
+		return
+	}
+	if last {
+		s.selectedEmail = emails[len(emails)-1]
+	} else {
+		s.selectedEmail = emails[0]
+	}
+	s.beginAnimation("focus", 140*time.Millisecond)
+}
+
 func (s *tuiState) beginSearch() {
 	s.searchPrevious = s.search
 	s.selectedBefore = s.selectedEmail
