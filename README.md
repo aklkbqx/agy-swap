@@ -32,27 +32,37 @@ Download the matching `.exe` from [GitHub Releases](https://github.com/aklkbqx/a
 ### Build from source
 
 ```bash
-go build -ldflags "-X main.version=2.0.0" -o agy-swap ./cmd/agy-swap
+go build -ldflags "-X main.version=2.1.0" -o agy-swap ./cmd/agy-swap
 ```
 
 Go 1.26 or later is required only when building from source.
 
 ## Interactive TUI
 
-Run `agy-swap` in a terminal.
+Run `agy-swap` in a terminal. The Operator Deck adapts automatically: wide
+terminals show the account list beside the selected account's health details;
+smaller terminals stack the same information or switch to a compact list.
+Cached accounts are painted immediately, while quota refreshes run in the
+background.
 
 | Key | Action |
 | :--- | :--- |
-| `↑` / `↓` | Move selection |
+| `↑` / `↓` or `j` / `k` | Move selection |
 | `Enter` | Switch to the selected account |
-| `1`–`9` | Select an account by number |
+| `1`–`9` | Jump to an account |
+| `/` | Search by name or email |
 | `a` | Add or log in to an account |
 | `r` | Force-refresh quota data |
+| `n` | Choose the next available account |
 | `t` | Toggle the manual tier fallback |
 | `d` / `Backspace` / `Delete` | Delete the selected account |
-| `q` / `Esc` | Quit |
+| `l` | Log out the active session |
+| `?` | Open the keyboard guide |
+| `q` / `Esc` | Quit (or close the current overlay) |
 
-Cached accounts are rendered before quota and log refreshes run, so slow network requests do not block the first frame.
+Search and destructive actions use focused overlays so the current account is
+never changed accidentally. Set `AGY_SWAP_REDUCED_MOTION=1` for a static TUI
+when motion should be minimized.
 
 ## CLI
 
