@@ -462,6 +462,19 @@ func (f *fakeCredentialBackend) Set(_ context.Context, value string) bool {
 }
 func (f *fakeCredentialBackend) Delete(context.Context) bool { f.token = ""; return true }
 
+func TestStoredActiveEmailHint(t *testing.T) {
+	paths := testPaths(t)
+	if err := os.MkdirAll(filepath.Dir(paths.GoogleAccounts), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := atomicWrite(paths.GoogleAccounts, []byte(`{"active":"User@Example.com","old":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := NewCredentials(paths).StoredActiveEmail(); got != "user@example.com" {
+		t.Fatalf("stored active email = %q", got)
+	}
+}
+
 func TestCredentialFilesAndTransactionalRollback(t *testing.T) {
 	paths := testPaths(t)
 	backend := &fakeCredentialBackend{token: "previous"}

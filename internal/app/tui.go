@@ -49,6 +49,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	}()
 
 	state := newTUIState(accounts, current)
+	state.active = a.activeHint(accounts, current)
 	events := make(chan any, 24)
 	done := make(chan struct{})
 	var closeDone sync.Once
@@ -76,7 +77,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	}()
 
 	startActiveResolve := func() {
-		local := localActiveEmail(state.accounts, current)
+		local := a.activeHint(state.accounts, current)
 		if local != "" || current == "" {
 			state.active = local
 			state.resolvingToken = ""
@@ -89,7 +90,9 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		snapshot := state.accounts
 		state.resolvingToken = token
 		go func() {
-			email := a.activeEmail(ctx, snapshot, token)
+			resolveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			email := a.activeEmail(resolveCtx, snapshot, token)
+			cancel()
 			select {
 			case events <- tuiActiveEvent{token: token, email: email}:
 			case <-ctx.Done():
@@ -153,8 +156,8 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	quotaTicker := time.NewTicker(tuiAutoRefresh)
 	defer quotaTicker.Stop()
 	a.renderTUI(state, outFile)
-	startRefresh(false)
 	startActiveResolve()
+	startRefresh(false)
 	armFrame()
 
 	suspend := func(action func() int) {
@@ -179,7 +182,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		}
 		current = a.credentials.Current(ctx)
 		state.current = current
-		state.active = localActiveEmail(state.accounts, current)
+		state.active = a.activeHint(state.accounts, current)
 		startActiveResolve()
 		a.renderTUI(state, outFile)
 	}
@@ -281,7 +284,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			if newToken != current {
 				current = newToken
 				state.current = current
-				state.active = localActiveEmail(state.accounts, current)
+				state.active = a.activeHint(state.accounts, current)
 				startActiveResolve()
 				a.renderTUI(state, outFile)
 			}
@@ -401,4 +404,21 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			}
 		}
 	}
+}
+
+func (a *Application) activeHint(accounts *Accounts, current string) string {
+	if accounts == nil {
+		return ""
+	}
+	local := localActiveEmail(accounts, current)
+	if local != "" || current == "" || a.credentials == nil {
+		return local
+	}
+	candidate := a.credentials.StoredActiveEmail()
+	for _, email := range accounts.Order {
+		if strings.EqualFold(email, candidate) {
+			return email
+		}
+	}
+	return ""
 }
