@@ -1,22 +1,17 @@
 # agy-swap
 
-[![Homebrew Formula](https://img.shields.io/badge/homebrew-agy--swap-brightgreen?style=flat-square&logo=homebrew)](https://github.com/aklkbqx/agy-swap/tree/main/Formula)
-[![GitHub Stars](https://img.shields.io/github/stars/aklkbqx/agy-swap?style=flat-square&logo=github&color=orange)](https://github.com/aklkbqx/agy-swap/stargazers)
-[![GitHub License](https://img.shields.io/github/license/aklkbqx/agy-swap?style=flat-square&color=blue)](https://github.com/aklkbqx/agy-swap/blob/main/LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-informational?style=flat-square)](https://github.com/aklkbqx/agy-swap)
+A fast, native account switcher and quota monitor for Google Antigravity CLI (`agy`), rewritten in Go.
 
-A small, dependency-free Python account switcher and quota monitor for Google Antigravity CLI (`agy`).
+## Highlights
 
-## Features
+- Native binaries for macOS, Linux, and Windows on amd64 and arm64
+- Instant cached startup with a non-blocking terminal UI
+- Google Code Assist quota tracking and local cooldown detection
+- Transactional session switching with native OS credential stores
+- Backward-compatible with the v1 `accounts.json`, OAuth files, commands, and shortcuts
+- No Python runtime and no telemetry
 
-- **Seamless Switching:** Switch saved Google Antigravity OAuth sessions instantly without repeated browser logins.
-- **Quota Monitoring:** Real-time Google Code Assist quota tracking with remaining percentages, reset timers, and tier badges.
-- **Smart Cooldown Detection:** Scans local Antigravity logs for rate-limit cooldowns when Google API usage is unavailable.
-- **Dual Interface:** Keyboard-driven Terminal TUI and scriptable CLI subcommands.
-- **Secure Credentials:** Owner-only file permissions (`0700`/`0600`) mirrored to native OS keychains (macOS Keychain, Windows Credential Manager, Linux Secret Service).
-- **Zero External Dependencies:** Built entirely with Python's standard library.
-
-## Installation
+## Install
 
 ### Homebrew (macOS)
 
@@ -24,47 +19,45 @@ A small, dependency-free Python account switcher and quota monitor for Google An
 brew install aklkbqx/agy-swap/agy-swap
 ```
 
-### One-line Installer (macOS / Linux)
+### macOS / Linux installer
 
 ```bash
 curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash
 ```
 
-### PyPI / Git
+### Windows
+
+Download the matching `.exe` from [GitHub Releases](https://github.com/aklkbqx/agy-swap/releases), verify it against `checksums.txt`, rename it to `agy-swap.exe`, and place it in `PATH`.
+
+### Build from source
 
 ```bash
-pip install git+https://github.com/aklkbqx/agy-swap.git
+go build -ldflags "-X main.version=2.0.0" -o agy-swap ./cmd/agy-swap
 ```
 
-### From Source
-
-```bash
-git clone https://github.com/aklkbqx/agy-swap.git
-cd agy-swap
-./install.sh
-```
-
-Windows users can copy `agy-swap` to a directory in `PATH`; Python 3 is required on every platform.
+Go 1.26 or later is required only when building from source.
 
 ## Interactive TUI
 
-Run `agy-swap` to open the full-screen terminal interface.
+Run `agy-swap` in a terminal.
 
 | Key | Action |
 | :--- | :--- |
 | `↑` / `↓` | Move selection |
-| `Enter` | Switch to selected account |
-| `1`–`9` | Quick select account by number |
-| `a` | Add or log in a new account |
-| `r` | Force refresh usage quota |
-| `t` | Toggle manual tier label fallback |
-| `d` / `Backspace` | Delete selected account |
+| `Enter` | Switch to the selected account |
+| `1`–`9` | Select an account by number |
+| `a` | Add or log in to an account |
+| `r` | Force-refresh quota data |
+| `t` | Toggle the manual tier fallback |
+| `d` / `Backspace` / `Delete` | Delete the selected account |
 | `q` / `Esc` | Quit |
 
-## CLI Commands
+Cached accounts are rendered before quota and log refreshes run, so slow network requests do not block the first frame.
+
+## CLI
 
 ```bash
-# Account Management
+# Account management
 agy-swap add
 printf '%s' "$TOKEN" | agy-swap add --token -
 agy-swap list
@@ -73,29 +66,44 @@ agy-swap remove user@gmail.com
 agy-swap status
 agy-swap logout
 
-# Switching & Auto-Rotation
+# Switching and rotation
 agy-swap switch user@gmail.com
 agy-swap switch 2
 agy-swap next
 agy-swap next --family claude
 
-# Quota & Limits
+# Quota and cooldowns
 agy-swap limits
 agy-swap limits --refresh --verbose
 agy-swap limit set 1 6d --group claude
 agy-swap limit set user@gmail.com reset --group claude
 
-# Self-Update
+# Native binary update
 agy-swap update
 ```
 
-## Security
+The legacy top-level flags (`--add`, `--list`, `--next`, `--switch-to`, `--remove`, `--status`, and `--logout`) remain supported.
 
-- OAuth tokens are stored locally in owner-only files (`0700` directory, `0600` file) and synced to native OS keychains via secure stdin streams without exposing credentials in process argument lists (`ps`).
-- Refresh tokens are sent exclusively to Google's OAuth endpoints with strict TLS certificate verification enforced by default.
-- Environments requiring self-signed proxy inspection can explicitly opt in via `AGY_SWAP_INSECURE_TLS=1` (with a warning emitted to stderr).
-- Concurrent operations use cross-process file locks to prevent state corruption.
-- Never commit or share `~/.gemini/agy-swap/accounts.json`.
+## Data compatibility and security
+
+- Existing data stays at `~/.gemini/agy-swap/accounts.json`; account order and unknown legacy fields are preserved.
+- A disposable `log-cache-v1.json` makes repeated log scans fast. It contains cooldown evidence but never OAuth tokens.
+- Files use owner-only permissions on Unix and atomic, locked writes on every supported OS.
+- The active credential remains in macOS Keychain, Windows Credential Manager, or Linux Secret Service using the same identifiers as Antigravity.
+- Tokens are accepted only on stdin and are never placed in process arguments.
+- TLS verification is strict by default. `AGY_SWAP_INSECURE_TLS=1` explicitly enables the legacy insecure fallback and prints a warning.
+- Switching snapshots all credential files and restores the previous session if any write fails.
+
+Rolling back to v1.8.2 does not require a data migration because v2 continues to write quota schema 2.
+
+## Development
+
+```bash
+go test ./...
+go test -race ./...
+go vet ./...
+go test -bench . ./internal/app
+```
 
 ## License
 
