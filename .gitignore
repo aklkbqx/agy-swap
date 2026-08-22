@@ -1,9 +1,11 @@
-__pycache__/
-*.pyc
 .DS_Store
 .serena/
-src/agy_swap/__pycache__/
+__pycache__/
+*.pyc
 *.egg-info/
+/agy-swap
+/dist/
+/coverage.out
 graft/
 .env.graft
 .claude/
