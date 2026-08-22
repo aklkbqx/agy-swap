@@ -32,7 +32,7 @@ Download the matching `.exe` from [GitHub Releases](https://github.com/aklkbqx/a
 ### Build from source
 
 ```bash
-go build -ldflags "-X main.version=2.1.0" -o agy-swap ./cmd/agy-swap
+go build -ldflags "-X main.version=2.1.1" -o agy-swap ./cmd/agy-swap
 ```
 
 Go 1.26 or later is required only when building from source.

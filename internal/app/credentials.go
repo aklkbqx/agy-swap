@@ -40,6 +40,21 @@ func (c *Credentials) Current(ctx context.Context) string {
 	return c.readOAuthToken()
 }
 
+// StoredActiveEmail returns the last identity written by the Antigravity
+// credential flow. It is a local hint used to paint the active badge before a
+// remote userinfo lookup completes; callers still verify it against accounts.
+func (c *Credentials) StoredActiveEmail() string {
+	data, err := os.ReadFile(c.paths.GoogleAccounts)
+	if err != nil {
+		return ""
+	}
+	var parsed map[string]any
+	if json.Unmarshal(data, &parsed) != nil {
+		return ""
+	}
+	return normalizeEmail(getString(parsed, "active"))
+}
+
 func (c *Credentials) Set(ctx context.Context, token string) bool {
 	return c.backend.Set(ctx, token)
 }

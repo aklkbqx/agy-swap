@@ -1,4 +1,4 @@
-VERSION ?= 2.1.0-dev
+VERSION ?= 2.1.1-dev
 GOCACHE ?= /tmp/agy-swap-go-cache
 
 .PHONY: build test race vet benchmark
