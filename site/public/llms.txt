@@ -1,12 +1,29 @@
 # agy-swap
 
-Native Terminal Account Switcher And Quota Monitor.
+> High-Performance Native Account Switcher and Real-Time Quota Monitor for Google Antigravity CLI (`agy`). Built in Go with sub-millisecond execution and zero external dependencies.
 
-- **Website**: [https://agy-swap.aklkbqx.com/](https://agy-swap.aklkbqx.com/)
-- **Repository**: [https://github.com/aklkbqx/agy-swap](https://github.com/aklkbqx/agy-swap)
+- **Website**: https://agy-swap.aklkbqx.com/
+- **Repository**: https://github.com/aklkbqx/agy-swap
+- **License**: MIT
+- **Platforms**: macOS (arm64/x86_64), Linux (arm64/x86_64), Windows (arm64/x86_64)
 
-## Installs
+## Core Capabilities
+- **Transactional Account Switching**: Instant switching between Google Antigravity developer accounts with automatic rollback protection.
+- **Real-Time Quota & Cooldowns**: Proactive tracking of Gemini and third-party model limits, reset timers, and remaining capacity.
+- **Native OS Vault**: Hardware-backed token storage in macOS Keychain, Windows Credential Manager, and Linux Secret Service.
+- **Interactive TUI & Command Palette**: Adaptive terminal interface with fast keyboard navigation (`Ctrl-K` / `:`).
+- **Diagnostics**: Built-in `agy-swap doctor` health check for permissions, OAuth tokens, and network endpoints.
 
+## Installation
 - **macOS Homebrew**: `brew install aklkbqx/agy-swap/agy-swap`
-- **macOS/Linux**: `curl -fsSL --proto "=https" --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash`
-- **Windows**: `irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex`
+- **macOS / Linux**: `curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash`
+- **Windows PowerShell**: `irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex`
+
+## CLI Quick Reference
+- `agy-swap` (Launch interactive TUI)
+- `agy-swap add` (Interactive OAuth login)
+- `agy-swap list` (List accounts and quota)
+- `agy-swap switch <email|index>` (Switch active session)
+- `agy-swap next` (Rotate to next available account)
+- `agy-swap limits` (Show quota breakdown)
+- `agy-swap doctor` (Run system diagnostic checks)

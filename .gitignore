@@ -10,6 +10,7 @@ site/src/generated/tui-fixtures.json
 /coverage.out
 graft/
 .env.graft
+/.github/
 .claude/
 .cursor/
 .gemini/
