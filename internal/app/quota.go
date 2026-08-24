@@ -13,14 +13,20 @@ type quotaProgress func(index, total int, account Account, state string)
 type QuotaService struct {
 	http  *HTTPService
 	store *Store
+	vault AccountVault
 }
 
 func NewQuotaService(httpService *HTTPService, store *Store) *QuotaService {
 	return &QuotaService{http: httpService, store: store}
 }
 
+func (q *QuotaService) SetVault(vault AccountVault) { q.vault = vault }
+
 func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]any, error) {
-	tokenData := getString(account, "token_data")
+	tokenData, err := accountToken(ctx, account, q.vault)
+	if err != nil {
+		return nil, err
+	}
 	access, err := q.http.accessToken(ctx, tokenData)
 	if err != nil {
 		return nil, err

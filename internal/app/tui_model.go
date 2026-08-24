@@ -13,7 +13,50 @@ const (
 	tuiSearch
 	tuiHelp
 	tuiConfirmDelete
+	tuiPalette
+	tuiForm
+	tuiConfirmAction
 )
+
+type tuiView uint8
+
+const (
+	tuiViewDashboard tuiView = iota
+	tuiViewQuota
+	tuiViewProfiles
+	tuiViewHistory
+	tuiViewSettings
+	tuiViewDoctor
+	tuiViewBackup
+)
+
+type tuiFormField struct {
+	Key     string
+	Label   string
+	Value   string
+	Help    string
+	Secret  bool
+	Options []string
+}
+
+type tuiFormState struct {
+	Kind         string
+	Title        string
+	Description  string
+	Fields       []tuiFormField
+	Index        int
+	PreviousView tuiView
+}
+
+type tuiJobState struct {
+	ID      uint64
+	Kind    string
+	Label   string
+	Started time.Time
+	Message string
+	Error   string
+	Done    bool
+}
 
 type tuiAnimation struct {
 	kind   string
@@ -22,6 +65,8 @@ type tuiAnimation struct {
 	phase  int
 	active bool
 }
+
+const tuiToastDuration = 3 * time.Second
 
 type tuiState struct {
 	accounts       *Accounts
@@ -32,9 +77,18 @@ type tuiState struct {
 	search         string
 	searchPrevious string
 	mode           tuiMode
+	view           tuiView
 	confirmEmail   string
+	confirmAction  string
+	confirmTitle   string
+	paletteQuery   string
+	paletteIndex   int
+	form           *tuiFormState
 	message        string
 	messageType    string
+	toast          string
+	toastType      string
+	toastUntil     time.Time
 	quotaErrors    map[string]string
 	refreshing     bool
 	resolvingToken string
@@ -42,6 +96,17 @@ type tuiState struct {
 	height         int
 	motionEnabled  bool
 	animation      tuiAnimation
+	job            *tuiJobState
+	settings       AppSettings
+	settingsLoaded bool
+	profileNames   []string
+	profileIndex   int
+	history        []historyEvent
+	historyIndex   int
+	doctorChecks   []doctorCheck
+	doctorHealthy  bool
+	backupPath     string
+	quitRequested  bool
 }
 
 func newTUIState(accounts *Accounts, current string) *tuiState {
@@ -119,6 +184,42 @@ func (s *tuiState) setAccounts(accounts *Accounts) {
 	if local := localActiveEmail(s.accounts, s.current); local != "" {
 		s.active = local
 	}
+}
+
+func (s *tuiState) showToast(message, kind string) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		s.clearToast()
+		return
+	}
+	if kind != "success" && kind != "error" && kind != "info" {
+		kind = "info"
+	}
+	s.toast = message
+	s.toastType = kind
+	s.toastUntil = time.Now().Add(tuiToastDuration)
+	// A toast replaces the generic action result in the status row. Keeping
+	// both visible makes a successful switch look like two separate results.
+	s.message = ""
+	s.messageType = "info"
+}
+
+func (s *tuiState) clearToast() {
+	s.toast = ""
+	s.toastType = ""
+	s.toastUntil = time.Time{}
+}
+
+func (s *tuiState) toastActive(now time.Time) bool {
+	return s.toast != "" && (s.toastUntil.IsZero() || now.Before(s.toastUntil))
+}
+
+func (s *tuiState) expireToast(now time.Time) bool {
+	if s.toast == "" || s.toastUntil.IsZero() || now.Before(s.toastUntil) {
+		return false
+	}
+	s.clearToast()
+	return true
 }
 
 func (s *tuiState) move(delta int) {
@@ -210,4 +311,26 @@ func (s *tuiState) selectedIndex() int {
 		}
 	}
 	return 0
+}
+
+func (s *tuiState) moveProfile(delta int) {
+	if len(s.profileNames) == 0 {
+		return
+	}
+	s.profileIndex = (s.profileIndex + delta) % len(s.profileNames)
+	if s.profileIndex < 0 {
+		s.profileIndex += len(s.profileNames)
+	}
+	s.beginAnimation("focus", 140*time.Millisecond)
+}
+
+func (s *tuiState) moveHistory(delta int) {
+	if len(s.history) == 0 {
+		return
+	}
+	s.historyIndex = (s.historyIndex + delta) % len(s.history)
+	if s.historyIndex < 0 {
+		s.historyIndex += len(s.history)
+	}
+	s.beginAnimation("focus", 140*time.Millisecond)
 }

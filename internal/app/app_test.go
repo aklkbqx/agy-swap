@@ -24,7 +24,7 @@ func testPaths(t *testing.T) Paths {
 	t.Helper()
 	home := t.TempDir()
 	config := filepath.Join(home, ".gemini", "agy-swap")
-	return Paths{Home: home, ConfigDir: config, Accounts: filepath.Join(config, "accounts.json"), AccountsBackup: filepath.Join(config, "accounts.json.bak"), AccountsLock: filepath.Join(config, ".accounts.lock"), SessionLock: filepath.Join(config, ".session.lock"), LogCache: filepath.Join(config, "log-cache-v1.json"), OAuthToken: filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"), OAuthCredentials: filepath.Join(home, ".gemini", "oauth_creds.json"), GoogleAccounts: filepath.Join(home, ".gemini", "google_accounts.json")}
+	return Paths{Home: home, ConfigDir: config, Accounts: filepath.Join(config, "accounts.json"), AccountsBackup: filepath.Join(config, "accounts.json.bak"), AccountsLock: filepath.Join(config, ".accounts.lock"), SessionLock: filepath.Join(config, ".session.lock"), LogCache: filepath.Join(config, "log-cache-v1.json"), Settings: filepath.Join(config, "config.json"), History: filepath.Join(config, "history-v1.jsonl"), RuntimeState: filepath.Join(config, "runtime-state.json"), JournalDir: filepath.Join(config, "journals"), OAuthToken: filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"), OAuthCredentials: filepath.Join(home, ".gemini", "oauth_creds.json"), GoogleAccounts: filepath.Join(home, ".gemini", "google_accounts.json")}
 }
 
 func tokenBlob(t *testing.T, email string, verified bool, refresh string, expiry time.Time) string {
@@ -64,6 +64,55 @@ func TestVerifiedGoogleClaimIsStrict(t *testing.T) {
 	}
 	if got := extractVerifiedEmail(tokenBlob(t, "user@example.com", false, "r", time.Time{})); got != "" {
 		t.Fatal("unverified email accepted")
+	}
+}
+
+func TestReadLinePreservesBufferedInput(t *testing.T) {
+	var out bytes.Buffer
+	a := &Application{In: strings.NewReader("first\nsecond\n"), Out: &out}
+	if got := a.readLine(""); got != "first" {
+		t.Fatalf("first line = %q", got)
+	}
+	if got := a.readLine(""); got != "second" {
+		t.Fatalf("second line = %q", got)
+	}
+}
+
+func TestTokenIdentityMatchesTargetAccount(t *testing.T) {
+	matching := tokenBlob(t, "User@Example.com", true, "r", time.Time{})
+	if !tokenMatchesEmail(matching, "user@example.com") {
+		t.Fatal("matching verified email was rejected")
+	}
+	if tokenMatchesEmail(matching, "other@example.com") {
+		t.Fatal("mismatched verified email was accepted")
+	}
+	unverified := tokenBlob(t, "other@example.com", false, "r", time.Time{})
+	if !tokenMatchesEmail(unverified, "user@example.com") {
+		t.Fatal("token without a verified email claim was rejected")
+	}
+}
+
+func TestNormalizedReleaseTag(t *testing.T) {
+	for input, want := range map[string]string{"2.1.2": "v2.1.2", "v2.1.2": "v2.1.2", " 2.1.2 ": "v2.1.2", "": ""} {
+		if got := normalizedReleaseTag(input); got != want {
+			t.Fatalf("%q normalized to %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestParseYesNoRequiresAnExplicitAnswerWhenDefaultIsNo(t *testing.T) {
+	for _, input := range []string{"", "n", "no"} {
+		if answer, valid := parseYesNo(input, false); !valid || answer {
+			t.Fatalf("%q parsed as answer=%v valid=%v", input, answer, valid)
+		}
+	}
+	for _, input := range []string{"y", "yes", " Y "} {
+		if answer, valid := parseYesNo(input, false); !valid || !answer {
+			t.Fatalf("%q parsed as answer=%v valid=%v", input, answer, valid)
+		}
+	}
+	if answer, valid := parseYesNo("maybe", false); valid || answer {
+		t.Fatalf("invalid confirmation accepted: answer=%v valid=%v", answer, valid)
 	}
 }
 
@@ -484,6 +533,90 @@ func TestTUIOverlayKeepsFrameGeometry(t *testing.T) {
 	}
 }
 
+func TestTUISuccessToastKeepsFrameGeometryAndExpires(t *testing.T) {
+	accounts := NewAccounts()
+	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
+	a := &Application{Version: "2.1.2", p: makePalette(false), color: false}
+	state := newTUIState(accounts, "user@example.com")
+	state.showToast("Switched to user@example.com", "success")
+
+	lines := a.tuiLines(state, 78, 24)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "✓ Switched to user@example.com") {
+		t.Fatalf("success toast missing: %q", joined)
+	}
+	for i, line := range lines {
+		if visibleWidth(line) != 80 {
+			t.Fatalf("line %d width=%d want=80: %q", i, visibleWidth(line), line)
+		}
+	}
+
+	if !state.expireToast(time.Now().Add(tuiToastDuration + time.Second)) {
+		t.Fatal("expired toast was not cleared")
+	}
+	if state.toastActive(time.Now()) {
+		t.Fatal("expired toast is still active")
+	}
+}
+
+func TestTUIViewsPaletteFormsAndJobsKeepFrameGeometry(t *testing.T) {
+	accounts := NewAccounts()
+	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
+	a := &Application{Version: "2.1.1", p: makePalette(false), color: false}
+	state := newTUIState(accounts, "user@example.com")
+	state.settings = defaultSettings()
+	state.settingsLoaded = true
+	state.settings.Profiles["work"] = Profile{Account: "user@example.com", Family: "gemini", Policy: "sticky"}
+	state.profileNames = []string{"work"}
+	state.history = []historyEvent{{At: isoTime(time.Now()), Kind: "switch", Email: "user@example.com"}}
+	state.doctorChecks = []doctorCheck{{Name: "config", Status: "ok", Message: "ready"}}
+	state.doctorHealthy = true
+	state.backupPath = "backup.json"
+
+	views := []tuiView{tuiViewDashboard, tuiViewQuota, tuiViewProfiles, tuiViewHistory, tuiViewSettings, tuiViewDoctor, tuiViewBackup}
+	for _, view := range views {
+		state.view = view
+		state.mode = tuiBrowse
+		lines := a.tuiLines(state, 78, 24)
+		if len(lines) != 24 {
+			t.Fatalf("view=%d produced %d lines", view, len(lines))
+		}
+		for index, line := range lines {
+			if visibleWidth(line) != 80 {
+				t.Fatalf("view=%d line=%d width=%d want=80", view, index, visibleWidth(line))
+			}
+		}
+	}
+
+	state.beginPalette()
+	state.paletteQuery = "backup"
+	state.view = tuiViewBackup
+	items := state.paletteActions()
+	if len(items) == 0 || items[0].ID != "backup" {
+		t.Fatalf("backup palette filter = %#v", items)
+	}
+	if _, ok := state.selectedPaletteAction(); !ok {
+		t.Fatal("selected backup action should be runnable")
+	}
+	state.form = &tuiFormState{Kind: "settings", Index: 1, Fields: []tuiFormField{{Key: "policy", Value: "sticky"}, {Key: "family", Options: []string{"", "gemini"}}}}
+	state.mode = tuiForm
+	if submit, cancel := state.formKey("right"); submit || cancel || state.form.Fields[1].Value != "gemini" {
+		t.Fatalf("choice form key = submit=%v cancel=%v fields=%#v", submit, cancel, state.form.Fields)
+	}
+	if submit, cancel := state.formKey("esc"); submit || !cancel {
+		t.Fatalf("form escape = submit=%v cancel=%v", submit, cancel)
+	}
+	foundUpdate := false
+	for _, action := range tuiActions(state) {
+		if action.ID == "update" {
+			foundUpdate = action.Enabled && action.Shortcut == "u"
+		}
+	}
+	if !foundUpdate {
+		t.Fatal("TUI action palette does not expose the update action")
+	}
+}
+
 func TestNextAccountSelectionPreservesUnknownAndCooldownSemantics(t *testing.T) {
 	accounts := NewAccounts()
 	reset := time.Now().Add(time.Hour)
@@ -660,10 +793,12 @@ func TestNewerSuccessfulLogEventClearsOlderCooldown(t *testing.T) {
 type fakeCredentialBackend struct {
 	token   string
 	failSet bool
+	sets    int
 }
 
 func (f *fakeCredentialBackend) Get(context.Context) string { return f.token }
 func (f *fakeCredentialBackend) Set(_ context.Context, value string) bool {
+	f.sets++
 	if f.failSet {
 		return false
 	}
@@ -697,19 +832,32 @@ func TestCredentialFilesAndTransactionalRollback(t *testing.T) {
 	if backend.token != token {
 		t.Fatal("secure credential not updated")
 	}
+	setCount := backend.sets
+	if !credentials.Apply(context.Background(), token, "user@example.com") {
+		t.Fatal("reapplying the active credential failed")
+	}
+	if backend.sets != setCount {
+		t.Fatal("reapplying the active credential rewrote the keychain")
+	}
 	for _, path := range []string{paths.OAuthToken, paths.OAuthCredentials, paths.GoogleAccounts} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("missing %s", path)
 		}
 	}
 	previous := backend.token
+	other := tokenBlob(t, "other@example.com", true, "r", time.Now().Add(time.Hour))
+	if credentials.Apply(context.Background(), other, "user@example.com") {
+		t.Fatal("token for another verified account was accepted")
+	}
+	if backend.token != previous {
+		t.Fatal("identity-mismatched token changed the secure credential")
+	}
 	if err := os.Remove(paths.OAuthCredentials); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(paths.OAuthCredentials, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	other := tokenBlob(t, "other@example.com", true, "r", time.Now().Add(time.Hour))
 	if credentials.Apply(context.Background(), other, "other@example.com") {
 		t.Fatal("partial write reported success")
 	}
@@ -733,19 +881,147 @@ func TestCLIParsingLegacyAndSubcommands(t *testing.T) {
 			t.Fatalf("%v -> %#v", tc.argv, parsed)
 		}
 	}
+	parsed, err := parseCLI([]string{"version"})
+	if err != nil || parsed.command != "version" {
+		t.Fatalf("version command parsed as %#v, err=%v", parsed, err)
+	}
+	if _, err := parseCLI([]string{"version", "extra"}); err == nil {
+		t.Fatal("unexpected positional argument accepted by version command")
+	}
 	if _, err := parseCLI([]string{"add", "--token", "secret"}); err == nil {
 		t.Fatal("inline token accepted")
+	}
+}
+
+type fakeAccountVault map[string]string
+
+func (f fakeAccountVault) Get(_ context.Context, ref string) (string, bool) {
+	value, ok := f[ref]
+	return value, ok
+}
+func (f fakeAccountVault) Set(_ context.Context, ref, token string) bool { f[ref] = token; return true }
+func (f fakeAccountVault) Delete(_ context.Context, ref string) bool     { delete(f, ref); return true }
+
+func TestExtendedSettingsAliasesAndEncryptedBackup(t *testing.T) {
+	paths := testPaths(t)
+	store := NewStore(paths)
+	token := tokenBlob(t, "user@example.com", true, "refresh", time.Now().Add(time.Hour))
+	accounts := NewAccounts()
+	accounts.Set("user@example.com", newAccount("user@example.com", "User", token))
+	if err := store.Save(accounts); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	a := &Application{Version: "2.1.2", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
+	if code := a.Run(context.Background(), []string{"config", "set", "policy.min_remaining_pct", "25"}); code != 0 {
+		t.Fatalf("config set code=%d err=%s", code, errOut.String())
+	}
+	if code := a.Run(context.Background(), []string{"alias", "set", "work", "user@example.com"}); code != 0 {
+		t.Fatalf("alias set code=%d err=%s", code, errOut.String())
+	}
+	settings, err := store.LoadSettings()
+	if err != nil || settings.Policy.MinRemainingPct != 25 || settings.Aliases["work"] != "user@example.com" {
+		t.Fatalf("settings not persisted: %#v err=%v", settings, err)
+	}
+	resolved, err := resolveConfiguredTarget("work", accounts, settings)
+	if err != nil || resolved != "user@example.com" {
+		t.Fatalf("alias resolution = %q, %v", resolved, err)
+	}
+	metadata, err := a.backupDocument(context.Background(), false)
+	if err != nil || strings.Contains(string(metadata), "token_data") || strings.Contains(string(metadata), token) {
+		t.Fatalf("metadata backup leaked token: %v %s", err, metadata)
+	}
+	secret, err := a.backupDocument(context.Background(), true)
+	if err != nil || !strings.Contains(string(secret), "token_data") {
+		t.Fatalf("secret backup did not include token: %v", err)
+	}
+	envelope, err := encryptBackup("long-test-passphrase", secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(envelope)
+	var decoded encryptedBackup
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	plaintext, err := decryptBackup("long-test-passphrase", decoded)
+	if err != nil || !bytes.Equal(plaintext, secret) {
+		t.Fatalf("encrypted backup round trip failed: %v", err)
+	}
+	if _, err := decryptBackup("wrong-passphrase", decoded); err == nil {
+		t.Fatal("wrong backup passphrase accepted")
+	}
+}
+
+func TestExtendedParserAcceptsGlobalOptionsBeforeCommand(t *testing.T) {
+	command, opts, positional, err := parseExtended([]string{"--json", "--family", "gemini", "recommend", "--tag", "work"})
+	if err != nil || command != "recommend" || !opts.JSON || opts.Family != "gemini" || opts.Tag != "work" || len(positional) != 0 {
+		t.Fatalf("parsed command=%q opts=%#v positional=%v err=%v", command, opts, positional, err)
+	}
+}
+
+func TestRunNowParserAndTargetResolution(t *testing.T) {
+	command, opts, positional, err := parseExtended([]string{"run", "now", "--account", "work", "--target", "agy", "--", "-p", "hello"})
+	if err != nil || command != "run" || opts.Account != "work" || opts.Target != "agy" || strings.Join(positional, " ") != "now" || strings.Join(opts.RunArgs, " ") != "-p hello" {
+		t.Fatalf("run now parsed as command=%q opts=%#v positional=%v err=%v", command, opts, positional, err)
+	}
+
+	settings := defaultSettings()
+	if command, err := resolveRunTarget(settings, ""); err != nil || command != "agy" {
+		t.Fatalf("default target = %q, %v", command, err)
+	}
+	settings.Targets["local"] = TargetConfig{Command: "/usr/local/bin/agy", Enabled: true}
+	if command, err := resolveRunTarget(settings, "local"); err != nil || command != "/usr/local/bin/agy" {
+		t.Fatalf("configured target = %q, %v", command, err)
+	}
+	settings.Targets["disabled"] = TargetConfig{Command: "agy", Enabled: false}
+	if _, err := resolveRunTarget(settings, "disabled"); err == nil {
+		t.Fatal("disabled target was accepted")
+	}
+	if _, err := resolveRunTarget(settings, "missing"); err == nil {
+		t.Fatal("unknown target was accepted")
+	}
+}
+
+func TestHistoryRetentionAndSecretVaultFallback(t *testing.T) {
+	paths := testPaths(t)
+	store := NewStore(paths)
+	settings := defaultSettings()
+	settings.History.MaxBytes = 64 * 1024
+	if err := store.SaveSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	vault := fakeAccountVault{"account:user@example.com": "vault-token"}
+	a := &Application{paths: paths, store: store, vault: vault}
+	account := Account{"email": "user@example.com", "secret_ref": "account:user@example.com"}
+	if got, err := a.accountToken(context.Background(), account); err != nil || got != "vault-token" {
+		t.Fatalf("vault token = %q, %v", got, err)
+	}
+	for i := 0; i < 5; i++ {
+		if err := a.appendHistory("quota", "user@example.com", map[string]any{"remaining_pct": i}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, err := a.readHistory(10)
+	if err != nil || len(events) != 5 {
+		t.Fatalf("history = %d, %v", len(events), err)
+	}
+	if events[0].Kind != "quota" || events[0].Email != "user@example.com" {
+		t.Fatalf("unexpected history event: %#v", events[0])
 	}
 }
 
 func TestVersionReportsBuildProvenance(t *testing.T) {
 	var out bytes.Buffer
 	a := &Application{Version: "2.1.1", BuildID: "local-20260823", Out: &out}
-	if code := a.Run(context.Background(), []string{"--version"}); code != 0 {
-		t.Fatalf("version exit code = %d", code)
-	}
-	if got := out.String(); got != "agy-swap v2.1.1 (local-20260823)\n" {
-		t.Fatalf("version output = %q", got)
+	for _, argv := range [][]string{{"--version"}, {"version"}} {
+		out.Reset()
+		if code := a.Run(context.Background(), argv); code != 0 {
+			t.Fatalf("%v exit code = %d", argv, code)
+		}
+		if got := out.String(); got != "agy-swap v2.1.1 (local-20260823)\n" {
+			t.Fatalf("%v output = %q", argv, got)
+		}
 	}
 	out.Reset()
 	a.BuildID = "unknown"
@@ -754,8 +1030,21 @@ func TestVersionReportsBuildProvenance(t *testing.T) {
 	}
 }
 
+func TestCompletionIncludesVersionCommand(t *testing.T) {
+	for _, shell := range []string{"bash", "zsh", "fish", "powershell"} {
+		var out bytes.Buffer
+		a := &Application{Out: &out}
+		if code := a.cmdCompletion(extendedOptions{}, []string{shell}); code != 0 {
+			t.Fatalf("%s completion exit code = %d", shell, code)
+		}
+		if !strings.Contains(out.String(), "version") {
+			t.Fatalf("%s completion omitted version: %q", shell, out.String())
+		}
+	}
+}
+
 func TestTerminalKeysAndDisplayWidth(t *testing.T) {
-	cases := map[string]string{"\x1b[A": "up", "\x1b[B": "down", "\x1b[C": "right", "\x1b[D": "left", "\x1b[H": "home", "\x1b[F": "end", "\x1b[3~": "delete", "\x1b[5~": "page-up", "\x1b[6~": "page-down", "\x1bOA": "up", "\r": "enter", "\x7f": "backspace", "\x15": "ctrl-u", "\x17": "ctrl-w", "\x1b": "esc"}
+	cases := map[string]string{"\x1b[A": "up", "\x1b[B": "down", "\x1b[C": "right", "\x1b[D": "left", "\x1b[H": "home", "\x1b[F": "end", "\x1b[3~": "delete", "\x1b[5~": "page-up", "\x1b[6~": "page-down", "\x1bOA": "up", "\r": "enter", "\x7f": "backspace", "\x15": "ctrl-u", "\x17": "ctrl-w", "\x0b": "ctrl-k", "\x1b": "esc"}
 	for input, want := range cases {
 		if got := readTerminalKey(bytes.NewBufferString(input)); got != want {
 			t.Fatalf("%q -> %q", input, got)

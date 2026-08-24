@@ -28,6 +28,14 @@ type githubRelease struct {
 	Assets  []releaseAsset `json:"assets"`
 }
 
+func normalizedReleaseTag(tag string) string {
+	tag = strings.TrimSpace(tag)
+	if tag != "" && !strings.HasPrefix(tag, "v") {
+		return "v" + tag
+	}
+	return tag
+}
+
 func (h *HTTPService) getBytes(ctx context.Context, endpoint string, headers map[string]string, timeout time.Duration, limit int64) ([]byte, int, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -88,12 +96,14 @@ func (a *Application) cmdUpdate(ctx context.Context, args cliArgs) int {
 		fmt.Fprintf(a.Err, "%s✕ Could not determine latest version.%s\n", a.p.Red, a.p.Reset)
 		return 1
 	}
-	latest := strings.TrimPrefix(release.Tag, "v")
-	if latest == a.Version && !args.force {
-		fmt.Fprintf(a.Out, "%s✓ Already up to date (v%s).%s\n", a.p.Green, a.Version, a.p.Reset)
+	releaseTag := normalizedReleaseTag(release.Tag)
+	latest := strings.TrimPrefix(releaseTag, "v")
+	currentVersion := strings.TrimPrefix(strings.TrimSpace(a.Version), "v")
+	if latest == currentVersion && !args.force {
+		fmt.Fprintf(a.Out, "%s✓ Already up to date (v%s).%s\n", a.p.Green, currentVersion, a.p.Reset)
 		return 0
 	}
-	assetName := "agy-swap_" + release.Tag + "_" + runtime.GOOS + "_" + runtime.GOARCH
+	assetName := "agy-swap_" + releaseTag + "_" + runtime.GOOS + "_" + runtime.GOARCH
 	if runtime.GOOS == "windows" {
 		assetName += ".exe"
 	}
@@ -107,8 +117,12 @@ func (a *Application) cmdUpdate(ctx context.Context, args cliArgs) int {
 		}
 	}
 	if binaryURL == "" || checksumsURL == "" {
-		fmt.Fprintf(a.Err, "%s✕ Release does not contain an asset for %s/%s.%s\n", a.p.Red, runtime.GOOS, runtime.GOARCH, a.p.Reset)
+		fmt.Fprintf(a.Err, "%s✕ Release v%s does not contain %s (or checksums.txt) for %s/%s. Install from %s or run the matching platform installer.%s\n", a.p.Red, latest, assetName, runtime.GOOS, runtime.GOARCH, release.HTMLURL, a.p.Reset)
 		return 1
+	}
+	if args.updateCheck {
+		fmt.Fprintf(a.Out, "%s✓ Update asset is available: %s%s\n", a.p.Green, assetName, a.p.Reset)
+		return 0
 	}
 	fmt.Fprintf(a.Out, "  Current: %sv%s%s\n  Latest:  %sv%s%s\n", a.p.Gray, a.Version, a.p.Reset, a.p.Green, latest, a.p.Reset)
 	stop = a.spinner("Downloading v" + latest + "...")
@@ -121,7 +135,7 @@ func (a *Application) cmdUpdate(ctx context.Context, args cliArgs) int {
 		} else {
 			err = binaryErr
 		}
-		fmt.Fprintf(a.Err, "%s✕ Download failed: %v%s\n", a.p.Red, err, a.p.Reset)
+		fmt.Fprintf(a.Err, "%s✕ Download failed for %s: %v%s\n", a.p.Red, assetName, err, a.p.Reset)
 		return 1
 	}
 	expected, err := expectedChecksum(manifest, assetName)

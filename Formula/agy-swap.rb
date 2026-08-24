@@ -31,5 +31,6 @@ class AgySwap < Formula
 
   test do
     assert_match "agy-swap v#{version}", shell_output("#{bin}/agy-swap --version")
+    assert_match "agy-swap v#{version}", shell_output("#{bin}/agy-swap version")
   end
 end

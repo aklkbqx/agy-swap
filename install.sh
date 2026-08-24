@@ -2,13 +2,19 @@
 # Install the native agy-swap binary. No Python runtime is required.
 set -euo pipefail
 
-VERSION="2.1.2"
+VERSION="${AGY_SWAP_VERSION:-2.1.2}"
+VERSION="${VERSION#v}"
 TARGET_DIR="${AGY_SWAP_TARGET_DIR:-${HOME}/.local/bin}"
 TARGET_FILE="${TARGET_DIR}/agy-swap"
 RELEASE_BASE="https://github.com/aklkbqx/agy-swap/releases/download/v${VERSION}"
 
 GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 if [[ ! -t 1 || -n "${NO_COLOR:-}" ]]; then GREEN=''; BLUE=''; YELLOW=''; RED=''; NC=''; fi
+
+if [[ ! "$VERSION" =~ ^[0-9]+(\.[0-9]+){2}([.-][0-9A-Za-z.-]+)?$ ]]; then
+  printf "%bError: invalid release version: %s%b\n" "$RED" "$VERSION" "$NC" >&2
+  exit 1
+fi
 
 if ! command -v curl >/dev/null 2>&1; then
   printf "%bError: curl is required.%b\n" "$RED" "$NC" >&2
@@ -18,7 +24,7 @@ fi
 case "$(uname -s)" in
   Darwin) os_name="darwin" ;;
   Linux) os_name="linux" ;;
-  *) printf "%bError: this installer supports macOS and Linux; use the Windows release asset directly.%b\n" "$RED" "$NC" >&2; exit 1 ;;
+  *) printf "%bError: this installer supports macOS and Linux. On Windows run install.ps1.%b\n" "$RED" "$NC" >&2; exit 1 ;;
 esac
 case "$(uname -m)" in
   x86_64|amd64) arch_name="amd64" ;;
@@ -53,7 +59,11 @@ if [[ "$actual_sha" != "$expected_sha" ]]; then
 fi
 
 chmod 0755 "${tmp_dir}/${asset_name}"
-"${tmp_dir}/${asset_name}" --version >/dev/null
+reported_version="$("${tmp_dir}/${asset_name}" --version 2>/dev/null || true)"
+if [[ "$reported_version" != "agy-swap v${VERSION}"* ]]; then
+  printf "%bError: downloaded binary reported an unexpected version: %s%b\n" "$RED" "$reported_version" "$NC" >&2
+  exit 1
+fi
 if [[ -f "$TARGET_FILE" ]]; then cp -p "$TARGET_FILE" "${TARGET_FILE}.bak"; fi
 if ! mv -f "${tmp_dir}/${asset_name}" "$TARGET_FILE"; then
   [[ -f "${TARGET_FILE}.bak" ]] && mv -f "${TARGET_FILE}.bak" "$TARGET_FILE"

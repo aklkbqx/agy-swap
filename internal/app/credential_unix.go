@@ -5,6 +5,8 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
+	"io"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -38,8 +40,16 @@ func platformCredentialSet(parent context.Context, token string) bool {
 	defer cancel()
 	var command *exec.Cmd
 	if runtime.GOOS == "darwin" {
-		command = exec.CommandContext(ctx, "security", "add-generic-password", "-U", "-a", "antigravity", "-s", "gemini", "-w")
-		command.Stdin = strings.NewReader(token + "\n")
+		if token == "" {
+			return false
+		}
+		// macOS security's stdin form always opens /dev/tty and prompts. -X
+		// avoids that prompt; hex encoding keeps the bearer token out of plain
+		// text in the short-lived process argument list.
+		passwordData := hex.EncodeToString([]byte(token))
+		command = exec.CommandContext(ctx, "security", "add-generic-password", "-U", "-a", "antigravity", "-s", "gemini", "-X", passwordData)
+		command.Stdout = io.Discard
+		command.Stderr = io.Discard
 	} else if runtime.GOOS == "linux" {
 		command = exec.CommandContext(ctx, "secret-tool", "store", "--label=gemini", "service", "gemini", "username", "antigravity")
 		command.Stdin = bytes.NewBufferString(token)
