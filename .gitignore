@@ -4,7 +4,9 @@ __pycache__/
 *.pyc
 *.egg-info/
 /agy-swap
+*.exe
 /dist/
+site/src/generated/tui-fixtures.json
 /coverage.out
 graft/
 .env.graft

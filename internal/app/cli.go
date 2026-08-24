@@ -21,9 +21,12 @@ type Application struct {
 	BuildID             string
 	In                  io.Reader
 	Out, Err            io.Writer
+	lineReader          *bufio.Reader
+	lineReaderMu        sync.Mutex
 	paths               Paths
 	store               *Store
 	credentials         *Credentials
+	vault               AccountVault
 	http                *HTTPService
 	quota               *QuotaService
 	color               bool
@@ -39,7 +42,12 @@ func New(version string, in io.Reader, out, errOut io.Writer) (*Application, err
 	store := NewStore(paths)
 	httpService := NewHTTPService(errOut)
 	stdoutTTY := writerTerminal(out)
-	app := &Application{Version: version, BuildID: "unknown", In: in, Out: out, Err: errOut, paths: paths, store: store, credentials: NewCredentials(paths), http: httpService, quota: NewQuotaService(httpService, store), stdinTTY: readerTerminal(in), stdoutTTY: stdoutTTY, color: stdoutTTY && os.Getenv("NO_COLOR") == ""}
+	var lineReader *bufio.Reader
+	if in != nil {
+		lineReader = bufio.NewReader(in)
+	}
+	app := &Application{Version: version, BuildID: "unknown", In: in, Out: out, Err: errOut, lineReader: lineReader, paths: paths, store: store, credentials: NewCredentials(paths), vault: NewAccountVault(), http: httpService, quota: NewQuotaService(httpService, store), stdinTTY: readerTerminal(in), stdoutTTY: stdoutTTY, color: stdoutTTY && os.Getenv("NO_COLOR") == ""}
+	app.quota.SetVault(app.vault)
 	app.p = makePalette(app.color)
 	return app, nil
 }
@@ -57,17 +65,24 @@ type cliArgs struct {
 	verbose, refresh, force, help, version                                      bool
 	legacyAdd, legacyList, legacyNext, legacySwitch, legacyStatus, legacyLogout bool
 	legacyRemove, stringSwitch                                                  string
+	updateCheck                                                                 bool
 }
 
 func (a *Application) Run(ctx context.Context, argv []string) int {
 	if len(argv) > 0 && argv[0] == "__update-finalize" {
 		return a.runUpdateFinalizer(ctx, argv[1:])
 	}
+	if isExtendedCommand(argv) {
+		return a.runExtended(ctx, argv)
+	}
 	args, err := parseCLI(argv)
 	if err != nil {
 		fmt.Fprintf(a.Err, "agy-swap: error: %v\n", err)
 		a.printUsage(a.Err)
 		return 2
+	}
+	if args.command == "version" {
+		args.version = true
 	}
 	if args.version {
 		build := strings.TrimSpace(a.BuildID)
@@ -142,7 +157,9 @@ func (a *Application) printUsage(w io.Writer) {
                 [--family {claude,gemini,gpt}] [--switch-to ACCOUNT]
                 [--switch] [--remove ACCOUNT] [--status] [--logout]
                 [--verbose]
-                {add,list,limits,logout,next,switch,remove,status,update,limit} ...
+                {add,list,limits,logout,next,switch,remove,status,update,version,limit,
+                 doctor,config,alias,tag,profile,bind,recommend,statusline,watch,
+                 history,stats,forecast,backup,metrics,completion,account,target,run} ...
 
 Minimal Multi-Account Switcher for Google Antigravity CLI (agy)
 
@@ -156,7 +173,25 @@ commands:
   remove    Remove a saved account
   status    Show active account details
   update    Update agy-swap to the latest version
+  version   Show the installed version and build provenance
   limit     Manage a manual quota cooldown`)
+	fmt.Fprintln(w, `
+extended commands:
+  doctor             Check storage, credentials, vault, and platform readiness
+  config             Manage versioned configuration (show/set/reset)
+  alias/tag          Create account aliases and searchable tags
+  profile/bind        Define project profiles and directory bindings
+  recommend          Explain the safest account choice; --apply is opt-in
+  statusline          Render or install a JSON-driven statusline
+  watch/history       Poll quota, notify on thresholds, and inspect bounded history
+  stats/forecast      Summarize history and show reset forecasts
+  backup/metrics      Export/import backups and expose local Prometheus metrics
+  target              Check experimental CLI/IDE target adapters
+  run now             Launch a configured CLI target immediately
+  completion          Print bash, zsh, fish, or PowerShell completion
+
+Most extended commands support --json. Secret backup passphrases can be read
+from stdin with --passphrase-stdin.`)
 }
 
 func parseCLI(argv []string) (cliArgs, error) {
@@ -165,7 +200,7 @@ func parseCLI(argv []string) (cliArgs, error) {
 	if len(argv) == 0 {
 		return result, nil
 	}
-	known := map[string]bool{"add": true, "list": true, "limits": true, "logout": true, "next": true, "switch": true, "remove": true, "status": true, "update": true, "limit": true}
+	known := map[string]bool{"add": true, "list": true, "limits": true, "logout": true, "next": true, "switch": true, "remove": true, "status": true, "update": true, "version": true, "limit": true}
 	i := 0
 	if known[argv[0]] {
 		result.command = argv[0]
@@ -253,6 +288,11 @@ func parseCLI(argv []string) (cliArgs, error) {
 				return result, fmt.Errorf("unrecognized argument: %s", arg)
 			}
 			switch result.command {
+			case "update":
+				if arg != "check" || result.updateCheck {
+					return result, fmt.Errorf("unexpected argument: %s", arg)
+				}
+				result.updateCheck = true
 			case "switch", "remove":
 				if result.account != "" {
 					return result, fmt.Errorf("too many arguments")
@@ -317,8 +357,29 @@ func newAccount(email, name, token string) Account {
 
 func (a *Application) readLine(prompt string) string {
 	fmt.Fprint(a.Out, prompt)
-	line, _ := bufio.NewReader(a.In).ReadString('\n')
+	a.lineReaderMu.Lock()
+	defer a.lineReaderMu.Unlock()
+	if a.In == nil {
+		return ""
+	}
+	if a.lineReader == nil {
+		a.lineReader = bufio.NewReader(a.In)
+	}
+	line, _ := a.lineReader.ReadString('\n')
 	return strings.TrimSpace(line)
+}
+
+func parseYesNo(input string, defaultYes bool) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(input)) {
+	case "":
+		return defaultYes, true
+	case "y", "yes":
+		return true, true
+	case "n", "no":
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 func (a *Application) cmdAdd(ctx context.Context, args cliArgs) int {
@@ -360,11 +421,17 @@ func (a *Application) cmdAdd(ctx context.Context, args cliArgs) int {
 			fmt.Fprintf(a.Err, "%sEmail address is required.%s\n", a.p.Red, a.p.Reset)
 			return 1
 		}
+		if !tokenMatchesEmail(token, email) {
+			fmt.Fprintf(a.Err, "%sToken identity does not match the selected Google account.%s\n", a.p.Red, a.p.Reset)
+			return 1
+		}
 		accounts, err := a.store.Load(false)
 		if err != nil {
 			return a.storeError(err)
 		}
-		accounts.Set(email, newAccount(email, name, token))
+		account := newAccount(email, name, token)
+		_ = a.saveAccountSecret(ctx, account, token)
+		accounts.Set(email, account)
 		if err := a.store.Save(accounts); err != nil {
 			return a.storeError(err)
 		}
@@ -405,13 +472,26 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 				}
 			}
 			fmt.Fprintf(a.Out, "\n%s⚠ Active session detected: %s%s%s\n%sThis account is not yet saved in agy-swap.%s\n", a.p.Yellow, a.p.Bold, label, a.p.Reset, a.p.Gray, a.p.Reset)
-			if strings.ToLower(a.readLine(a.p.Cyan+"Save this account? [Y/n] (or 'n' to login a different account): "+a.p.Reset)) != "n" {
-				return a.saveTokenAccount(ctx, current)
+			for {
+				save, valid := parseYesNo(a.readLine(a.p.Cyan+"Save this account? [y/N] (type 'n' to login a different account): "+a.p.Reset), false)
+				if !valid {
+					fmt.Fprintln(a.Out, "Please answer y or n.")
+					continue
+				}
+				if save {
+					return a.saveTokenAccount(ctx, current)
+				}
+				break
 			}
 		}
 	}
 	fmt.Fprintf(a.Out, "\n%sAdd / Login Google Account%s\n%s1. A browser window will open to authenticate with Google.%s\n%s2. Complete login in Google Antigravity.%s\n", a.p.Bold, a.p.Reset, a.p.Gray, a.p.Reset, a.p.Gray, a.p.Reset)
-	_ = a.readLine(a.p.Cyan + "Press Enter when ready to start login..." + a.p.Reset)
+	for {
+		if a.readLine(a.p.Cyan+"Press Enter when ready to start login (no password is required here)..."+a.p.Reset) == "" {
+			break
+		}
+		fmt.Fprintln(a.Out, "Please press Enter without entering a password; authentication happens in the browser.")
+	}
 	if !a.credentials.clearUnlocked(ctx) {
 		fmt.Fprintln(a.Err, "Could not clear the active session before login")
 		return 1
@@ -476,11 +556,17 @@ func (a *Application) saveTokenAccount(ctx context.Context, token string) int {
 		fmt.Fprintln(a.Err, "A valid email is required")
 		return 1
 	}
+	if !tokenMatchesEmail(token, email) {
+		fmt.Fprintf(a.Err, "%sToken identity does not match the selected Google account.%s\n", a.p.Red, a.p.Reset)
+		return 1
+	}
 	accounts, err := a.store.Load(false)
 	if err != nil {
 		return a.storeError(err)
 	}
-	accounts.Set(email, newAccount(email, name, token))
+	account := newAccount(email, name, token)
+	_ = a.saveAccountSecret(ctx, account, token)
+	accounts.Set(email, account)
 	if err := a.store.Save(accounts); err != nil {
 		return a.storeError(err)
 	}
@@ -561,6 +647,11 @@ func (a *Application) activeEmail(ctx context.Context, accounts *Accounts, curre
 	claimed := localActiveEmail(accounts, current)
 	if claimed != "" {
 		return claimed
+	}
+	for _, email := range accounts.Order {
+		if token, err := a.accountToken(ctx, accounts.ByEmail[email]); err == nil && token == current {
+			return email
+		}
 	}
 	inner := tokenObject(decodeToken(current))
 	if inner != nil {
@@ -716,7 +807,8 @@ func (a *Application) cmdNext(ctx context.Context, args cliArgs) int {
 		reason = "unverified " + label + "quota"
 	}
 	fmt.Fprintf(a.Out, "Auto-rotating to account with %s: %s%s%s %s<%s>%s...\n", reason, a.p.Bold, getString(next, "name"), a.p.Reset, a.p.Gray, getString(next, "email"), a.p.Reset)
-	if a.credentials.applyUnlocked(ctx, getString(next, "token_data"), getString(next, "email")) {
+	token, tokenErr := a.accountToken(ctx, next)
+	if tokenErr == nil && a.credentials.applyUnlocked(ctx, token, getString(next, "email")) {
 		fmt.Fprintf(a.Out, "%s✓ Successfully auto-rotated to %s.%s\n", a.p.Green, getString(next, "email"), a.p.Reset)
 		return 0
 	}
@@ -740,7 +832,8 @@ func (a *Application) cmdSwitch(ctx context.Context, args cliArgs) int {
 		fmt.Fprintf(a.Err, "%sInteractive mode requires TTY.%s\n", a.p.Red, a.p.Reset)
 		return 1
 	}
-	email, err := resolveTarget(args.account, accounts)
+	settings, _ := a.loadSettings()
+	email, err := resolveConfiguredTarget(args.account, accounts, settings)
 	if err != nil {
 		fmt.Fprintf(a.Err, "%s%s%s\n", a.p.Red, strings.TrimPrefix(err.Error(), errAmbiguous.Error()+": "), a.p.Reset)
 		return 1
@@ -750,8 +843,17 @@ func (a *Application) cmdSwitch(ctx context.Context, args cliArgs) int {
 		return 1
 	}
 	account := accounts.ByEmail[email]
+	token, tokenErr := a.accountToken(ctx, account)
+	if tokenErr != nil {
+		fmt.Fprintf(a.Err, "%s✕ Failed to read account credential: %v.%s\n", a.p.Red, tokenErr, a.p.Reset)
+		return 1
+	}
+	if a.credentials.Current(ctx) == token {
+		fmt.Fprintf(a.Out, "Already using %s%s%s %s<%s>%s.\n", a.p.Bold, getString(account, "name"), a.p.Reset, a.p.Gray, email, a.p.Reset)
+		return 0
+	}
 	fmt.Fprintf(a.Out, "Switching to %s%s%s %s<%s>%s...\n", a.p.Bold, getString(account, "name"), a.p.Reset, a.p.Gray, email, a.p.Reset)
-	if a.credentials.Apply(ctx, getString(account, "token_data"), email) {
+	if a.credentials.Apply(ctx, token, email) {
 		fmt.Fprintf(a.Out, "%s✓ Successfully switched to %s.%s\n", a.p.Green, email, a.p.Reset)
 		return 0
 	}
@@ -768,7 +870,8 @@ func (a *Application) cmdSetLimit(_ context.Context, args cliArgs) int {
 		fmt.Fprintf(a.Out, "%sNo accounts found.%s\n", a.p.Gray, a.p.Reset)
 		return 1
 	}
-	email, err := resolveTarget(args.account, accounts)
+	settings, _ := a.loadSettings()
+	email, err := resolveConfiguredTarget(args.account, accounts, settings)
 	if err != nil || email == "" {
 		fmt.Fprintf(a.Err, "%sAccount '%s' not found.%s\n", a.p.Red, args.account, a.p.Reset)
 		return 1
@@ -843,15 +946,20 @@ func (a *Application) cmdRemove(_ context.Context, args cliArgs) int {
 		fmt.Fprintf(a.Err, "%sInteractive mode requires TTY.%s\n", a.p.Red, a.p.Reset)
 		return 1
 	}
-	email, _ := resolveTarget(args.account, accounts)
+	settings, _ := a.loadSettings()
+	email, _ := resolveConfiguredTarget(args.account, accounts, settings)
 	if email == "" {
 		fmt.Fprintf(a.Err, "%sAccount '%s' not found.%s\n", a.p.Red, args.account, a.p.Reset)
 		return 1
 	}
 	if strings.ToLower(a.readLine(fmt.Sprintf("Are you sure you want to remove '%s'? [y/N]: ", email))) == "y" {
+		ref := getString(accounts.ByEmail[email], "secret_ref")
 		accounts.Delete(email)
 		if err := a.store.Save(accounts); err != nil {
 			return a.storeError(err)
+		}
+		if ref != "" && a.vault != nil {
+			_ = a.vault.Delete(context.Background(), ref)
 		}
 		fmt.Fprintf(a.Out, "%s✓ Removed account '%s'.%s\n", a.p.Green, email, a.p.Reset)
 	}

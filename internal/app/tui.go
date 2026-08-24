@@ -23,6 +23,21 @@ type tuiActiveEvent struct {
 	email string
 }
 type tuiResizeEvent struct{ width, height int }
+type tuiJobEvent struct {
+	id            uint64
+	kind          string
+	message       string
+	err           error
+	doctorChecks  []doctorCheck
+	doctorHealthy bool
+}
+
+type tuiJobResult struct {
+	message       string
+	err           error
+	doctorChecks  []doctorCheck
+	doctorHealthy bool
+}
 
 type tuiEvent interface{ tuiEvent() }
 
@@ -30,6 +45,7 @@ func (tuiKeyEvent) tuiEvent()      {}
 func (tuiAccountsEvent) tuiEvent() {}
 func (tuiActiveEvent) tuiEvent()   {}
 func (tuiResizeEvent) tuiEvent()   {}
+func (tuiJobEvent) tuiEvent()      {}
 
 func (a *Application) cmdInteractive(ctx context.Context) int {
 	inFile, inOK := a.In.(*os.File)
@@ -161,7 +177,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	var frameTimer *time.Timer
 	var frameC <-chan time.Time
 	armFrame := func() {
-		if !state.animation.active {
+		if !state.animation.active && !state.toastActive(time.Now()) {
 			frameC = nil
 			if frameTimer != nil {
 				frameTimer.Stop()
@@ -198,7 +214,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	startRefresh(false)
 	armFrame()
 
-	suspend := func(action func() int) {
+	suspend := func(action func() int) int {
 		invalidateRefresh()
 		inputPaused.Store(true)
 		defer inputPaused.Store(false)
@@ -226,6 +242,75 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		state.active = a.activeHint(state.accounts, current)
 		startActiveResolve()
 		a.renderTUI(state, outFile)
+		return code
+	}
+
+	var jobID uint64
+	startJob := func(kind, label string, work func(context.Context) tuiJobResult) {
+		jobID++
+		id := jobID
+		state.job = &tuiJobState{ID: id, Kind: kind, Label: label, Started: time.Now()}
+		state.message = ""
+		state.beginAnimation("job", 0)
+		a.renderTUI(state, outFile)
+		go func() {
+			result := work(workerCtx)
+			select {
+			case events <- tuiJobEvent{id: id, kind: kind, message: result.message, err: result.err, doctorChecks: result.doctorChecks, doctorHealthy: result.doctorHealthy}:
+			case <-workerCtx.Done():
+			}
+		}()
+	}
+
+	setView := func(view tuiView) {
+		a.beginTUIView(state, view)
+		state.message = ""
+		if view == tuiViewDashboard {
+			state.messageType = "info"
+		}
+		a.renderTUI(state, outFile)
+	}
+
+	beginConfirmAction := func(kind, title string) {
+		state.mode = tuiConfirmAction
+		state.confirmAction = kind
+		state.confirmTitle = title
+		a.renderTUI(state, outFile)
+	}
+
+	startDoctor := func(refresh bool) {
+		startJob("doctor", "Running health check", func(jobCtx context.Context) tuiJobResult {
+			checks, healthy := a.tuiDoctorSnapshot(jobCtx, refresh)
+			return tuiJobResult{message: "Health check complete", doctorChecks: checks, doctorHealthy: healthy}
+		})
+	}
+
+	startBackupExport := func(path, passphrase string, includeSecrets bool) {
+		target := firstString(strings.TrimSpace(path), "agy-swap-backup.json")
+		state.backupPath = target
+		startJob("backup-export", "Writing backup", func(jobCtx context.Context) tuiJobResult {
+			message, err := a.tuiExportBackup(jobCtx, target, passphrase, includeSecrets)
+			return tuiJobResult{message: message, err: err}
+		})
+	}
+
+	startBackupImport := func(path, passphrase string, merge bool) {
+		target := strings.TrimSpace(path)
+		state.backupPath = target
+		invalidateRefresh()
+		startJob("backup-import", "Importing backup", func(jobCtx context.Context) tuiJobResult {
+			message, err := a.tuiImportBackup(jobCtx, target, passphrase, merge)
+			return tuiJobResult{message: message, err: err}
+		})
+	}
+
+	startBackupVerify := func(path, passphrase string) {
+		target := strings.TrimSpace(path)
+		state.backupPath = target
+		startJob("backup-verify", "Verifying backup", func(context.Context) tuiJobResult {
+			message, err := a.tuiVerifyBackup(target, passphrase)
+			return tuiJobResult{message: message, err: err}
+		})
 	}
 
 	performDelete := func(email string) {
@@ -235,10 +320,14 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			state.message, state.messageType = loadErr.Error(), "error"
 			return
 		}
+		ref := getString(fresh.ByEmail[email], "secret_ref")
 		fresh.Delete(email)
 		if saveErr := a.store.Save(fresh); saveErr != nil {
 			state.message, state.messageType = saveErr.Error(), "error"
 			return
+		}
+		if ref != "" && a.vault != nil {
+			_ = a.vault.Delete(ctx, ref)
 		}
 		state.setAccounts(fresh)
 		state.active = a.activeHint(state.accounts, current)
@@ -324,6 +413,188 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		}
 	}
 
+	performSwitch := func() {
+		email, account, ok := state.selectedAccount()
+		if !ok {
+			return
+		}
+		alreadyUsing := false
+		var switchErr error
+		code := suspend(func() int {
+			token, tokenErr := a.accountToken(ctx, account)
+			if tokenErr != nil {
+				switchErr = tokenErr
+				return 1
+			}
+			if a.credentials.Current(ctx) == token {
+				alreadyUsing = true
+				return 0
+			}
+			if a.credentials.Apply(ctx, token, email) {
+				return 0
+			}
+			return 1
+		})
+		if code == 0 {
+			if alreadyUsing {
+				state.showToast("Already using "+email, "info")
+			} else {
+				state.showToast("Switched to "+email, "success")
+			}
+		} else if switchErr != nil {
+			state.showToast("Switch failed: "+switchErr.Error(), "error")
+		} else {
+			state.showToast("Could not switch to "+email, "error")
+		}
+		a.renderTUI(state, outFile)
+		armFrame()
+	}
+
+	submitForm := func() {
+		if state.form == nil {
+			state.mode = tuiBrowse
+			return
+		}
+		form := state.form
+		kind := form.Kind
+		if kind == "backup-export" {
+			state.form = nil
+			state.mode = tuiBrowse
+			startBackupExport(formField(form, "path"), formField(form, "passphrase"), formBool(form, "encrypted"))
+			return
+		}
+		if kind == "backup-import" {
+			state.form = nil
+			state.mode = tuiBrowse
+			startBackupImport(formField(form, "path"), formField(form, "passphrase"), formBool(form, "merge"))
+			return
+		}
+		if kind == "backup-verify" {
+			state.form = nil
+			state.mode = tuiBrowse
+			startBackupVerify(formField(form, "path"), formField(form, "passphrase"))
+			return
+		}
+		if kind == "history-export" {
+			path := strings.TrimSpace(formField(form, "path"))
+			state.form = nil
+			state.mode = tuiBrowse
+			suspend(func() int { return a.cmdHistory(extendedOptions{Output: path}, []string{"export", path}) })
+			return
+		}
+		message, err := a.applyTUIForm(ctx, state)
+		previousView := form.PreviousView
+		state.form = nil
+		state.mode = tuiBrowse
+		if err != nil {
+			state.message, state.messageType = err.Error(), "error"
+		} else {
+			state.message, state.messageType = message, "success"
+			state.beginAnimation("success", 360*time.Millisecond)
+		}
+		a.beginTUIView(state, previousView)
+		// beginTUIView refreshes cached rows, so restore the action result after
+		// it has completed.
+		if err != nil {
+			state.message, state.messageType = err.Error(), "error"
+		} else {
+			state.message, state.messageType = message, "success"
+		}
+	}
+
+	runAction := func(id string) {
+		switch id {
+		case "dashboard":
+			setView(tuiViewDashboard)
+		case "quota":
+			setView(tuiViewQuota)
+		case "profiles":
+			setView(tuiViewProfiles)
+		case "history":
+			setView(tuiViewHistory)
+		case "settings":
+			setView(tuiViewSettings)
+		case "doctor":
+			setView(tuiViewDoctor)
+			startDoctor(false)
+		case "backup":
+			setView(tuiViewBackup)
+		case "recommend":
+			suspend(func() int { return a.cmdRecommend(ctx, extendedOptions{}, nil) })
+		case "forecast":
+			suspend(func() int { return a.cmdForecast(ctx, extendedOptions{}, nil) })
+		case "watch-once":
+			suspend(func() int { return a.cmdWatch(ctx, extendedOptions{Once: true}, nil) })
+		case "metrics":
+			suspend(func() int { return a.cmdMetrics(ctx, extendedOptions{}, []string{"render"}) })
+		case "run-now":
+			suspend(func() int { return a.cmdRunNow(ctx, extendedOptions{}, []string{"now"}) })
+		case "statusline-install":
+			suspend(func() int { return a.cmdStatusline(ctx, extendedOptions{}, []string{"install"}) })
+		case "completion":
+			suspend(func() int { return a.cmdCompletion(extendedOptions{}, []string{"bash"}) })
+		case "update-check":
+			suspend(func() int { return a.cmdUpdate(ctx, cliArgs{updateCheck: true}) })
+		case "update":
+			beginConfirmAction("update", "Download and install the latest release")
+		case "add-account":
+			setView(tuiViewDashboard)
+			suspend(func() int { return a.addLoginFlow(ctx) })
+		case "switch-account":
+			performSwitch()
+		case "next-account":
+			suspend(func() int { return a.cmdNext(ctx, cliArgs{}) })
+		case "refresh":
+			state.message, state.messageType = "Refreshing quota…", "info"
+			startRefresh(true)
+		case "edit-tags":
+			a.beginTUIForm(state, "tags")
+		case "toggle-tier":
+			toggleTier()
+		case "migrate-vault":
+			suspend(func() int { return a.cmdAccount(ctx, extendedOptions{Force: true}, []string{"migrate"}) })
+		case "profile-create":
+			a.beginTUIForm(state, "profile-create")
+		case "profile-edit":
+			if len(state.profileNames) > 0 {
+				a.beginTUIForm(state, "profile-edit")
+			}
+		case "profile-remove":
+			if len(state.profileNames) > 0 {
+				beginConfirmAction("profile-remove", "Remove selected profile")
+			}
+		case "history-clear":
+			if len(state.history) > 0 {
+				beginConfirmAction("history-clear", "Clear local history")
+			}
+		case "history-export":
+			if len(state.history) > 0 {
+				a.beginTUIForm(state, "history-export")
+			}
+		case "settings-edit":
+			a.beginTUIForm(state, "settings")
+		case "settings-reset":
+			beginConfirmAction("settings-reset", "Reset settings")
+		case "alias-create":
+			a.beginTUIForm(state, "alias")
+		case "binding-create":
+			a.beginTUIForm(state, "binding")
+		case "target-create":
+			a.beginTUIForm(state, "target")
+		case "backup-export":
+			a.beginTUIForm(state, "backup-export")
+		case "backup-import":
+			a.beginTUIForm(state, "backup-import")
+		case "backup-verify":
+			a.beginTUIForm(state, "backup-verify")
+		case "help":
+			state.mode = tuiHelp
+		case "quit":
+			state.quitRequested = true
+			finish()
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -349,7 +620,9 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 				startRefresh(false)
 			}
 		case <-frameC:
-			if state.advanceAnimation(time.Now()) {
+			now := time.Now()
+			state.expireToast(now)
+			if state.advanceAnimation(now) {
 				a.renderTUI(state, outFile)
 				armFrame()
 			} else {
@@ -385,6 +658,35 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			case tuiResizeEvent:
 				state.width, state.height = maxInt(28, value.width), maxInt(12, value.height)
 				a.renderTUI(state, outFile)
+			case tuiJobEvent:
+				if state.job == nil || state.job.ID != value.id {
+					continue
+				}
+				state.job.Done = true
+				state.job.Message = value.message
+				state.job.Error = ""
+				if value.err != nil {
+					state.job.Error = value.err.Error()
+					state.message, state.messageType = value.err.Error(), "error"
+					state.beginAnimation("error", 360*time.Millisecond)
+				} else {
+					state.message, state.messageType = value.message, "success"
+					state.beginAnimation("success", 360*time.Millisecond)
+				}
+				if value.kind == "doctor" {
+					state.doctorChecks, state.doctorHealthy = value.doctorChecks, value.doctorHealthy
+				}
+				if value.kind == "backup-import" && value.err == nil {
+					fresh, loadErr := a.store.Load(false)
+					if loadErr == nil {
+						state.setAccounts(fresh)
+					}
+					current = a.credentials.Current(ctx)
+					state.current = current
+					startActiveResolve()
+				}
+				a.renderTUI(state, outFile)
+				armFrame()
 			case tuiKeyEvent:
 				key := strings.ToLower(value.key)
 				if state.mode == tuiHelp {
@@ -410,52 +712,260 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					armFrame()
 					continue
 				}
+				if state.mode == tuiConfirmAction {
+					if key == "y" || key == "enter" {
+						action := state.confirmAction
+						state.mode, state.confirmAction, state.confirmTitle = tuiBrowse, "", ""
+						switch action {
+						case "profile-remove":
+							if state.profileIndex >= 0 && state.profileIndex < len(state.profileNames) {
+								name := state.profileNames[state.profileIndex]
+								settings, loadErr := a.loadSettings()
+								if loadErr != nil {
+									state.message, state.messageType = loadErr.Error(), "error"
+								} else {
+									delete(settings.Profiles, name)
+									if saveErr := a.store.SaveSettings(settings); saveErr != nil {
+										state.message, state.messageType = saveErr.Error(), "error"
+									} else {
+										state.message, state.messageType = "Removed profile "+name, "success"
+										a.beginTUIView(state, tuiViewProfiles)
+									}
+								}
+							}
+						case "history-clear":
+							if err := os.Remove(a.paths.History); err != nil && !os.IsNotExist(err) {
+								state.message, state.messageType = err.Error(), "error"
+							} else {
+								state.history = nil
+								state.historyIndex = 0
+								state.message, state.messageType = "History cleared", "success"
+							}
+						case "settings-reset":
+							if saveErr := a.store.SaveSettings(defaultSettings()); saveErr != nil {
+								state.message, state.messageType = saveErr.Error(), "error"
+							} else {
+								state.message, state.messageType = "Settings reset", "success"
+								a.beginTUIView(state, tuiViewSettings)
+							}
+						case "update":
+							suspend(func() int { return a.cmdUpdate(ctx, cliArgs{}) })
+						}
+					} else if key == "n" || key == "esc" {
+						state.mode, state.confirmAction, state.confirmTitle = tuiBrowse, "", ""
+						state.message, state.messageType = "Action canceled", "info"
+					}
+					a.renderTUI(state, outFile)
+					continue
+				}
+				if state.mode == tuiPalette {
+					switch key {
+					case "esc":
+						state.mode = tuiBrowse
+					case "up", "k":
+						state.movePalette(-1)
+					case "down", "j":
+						state.movePalette(1)
+					case "page-up":
+						state.movePalette(-5)
+					case "page-down":
+						state.movePalette(5)
+					case "backspace":
+						if len(state.paletteQuery) > 0 {
+							state.paletteQuery = state.paletteQuery[:len(state.paletteQuery)-1]
+							state.paletteIndex = 0
+						}
+					case "enter":
+						if action, ok := state.selectedPaletteAction(); ok {
+							state.mode = tuiBrowse
+							runAction(action.ID)
+							if state.quitRequested {
+								return 0
+							}
+						}
+					default:
+						if len(key) == 1 && key[0] >= 32 && key[0] != 127 {
+							state.paletteQuery += key
+							state.paletteIndex = 0
+						}
+					}
+					a.renderTUI(state, outFile)
+					continue
+				}
+				if state.mode == tuiForm {
+					submit, cancel := state.formKey(key)
+					if cancel {
+						previous := tuiViewDashboard
+						if state.form != nil {
+							previous = state.form.PreviousView
+						}
+						state.form, state.mode = nil, tuiBrowse
+						state.message, state.messageType = "Edit canceled", "info"
+						state.view = previous
+					} else if submit {
+						submitForm()
+					}
+					a.renderTUI(state, outFile)
+					armFrame()
+					continue
+				}
 
 				switch key {
 				case "q", "esc", "ctrl-c", "ctrl-d":
 					finish()
 					return 0
+				case "ctrl-k", ":":
+					state.beginPalette()
 				case "?":
 					state.mode = tuiHelp
 				case "/":
 					state.beginSearch()
 				case "up", "k":
-					state.move(-1)
+					switch state.view {
+					case tuiViewProfiles:
+						state.moveProfile(-1)
+					case tuiViewHistory:
+						state.moveHistory(-1)
+					case tuiViewDashboard, tuiViewQuota:
+						state.move(-1)
+					}
 				case "down", "j":
-					state.move(1)
+					switch state.view {
+					case tuiViewProfiles:
+						state.moveProfile(1)
+					case tuiViewHistory:
+						state.moveHistory(1)
+					case tuiViewDashboard, tuiViewQuota:
+						state.move(1)
+					}
 				case "page-up":
-					state.move(-maxInt(1, len(state.visibleEmails())/2))
+					if state.view == tuiViewProfiles {
+						state.moveProfile(-5)
+					} else if state.view == tuiViewHistory {
+						state.moveHistory(-5)
+					} else {
+						state.move(-maxInt(1, len(state.visibleEmails())/2))
+					}
 				case "page-down":
-					state.move(maxInt(1, len(state.visibleEmails())/2))
+					if state.view == tuiViewProfiles {
+						state.moveProfile(5)
+					} else if state.view == tuiViewHistory {
+						state.moveHistory(5)
+					} else {
+						state.move(maxInt(1, len(state.visibleEmails())/2))
+					}
 				case "home":
-					state.moveToBoundary(false)
+					if state.view == tuiViewProfiles {
+						state.profileIndex = 0
+					} else if state.view == tuiViewHistory {
+						state.historyIndex = 0
+					} else {
+						state.moveToBoundary(false)
+					}
 				case "end":
-					state.moveToBoundary(true)
+					if state.view == tuiViewProfiles {
+						state.profileIndex = maxInt(0, len(state.profileNames)-1)
+					} else if state.view == tuiViewHistory {
+						state.historyIndex = maxInt(0, len(state.history)-1)
+					} else {
+						state.moveToBoundary(true)
+					}
 				case "r":
-					state.message, state.messageType = "Refreshing quota…", "info"
-					startRefresh(true)
+					if state.view == tuiViewDoctor {
+						startDoctor(false)
+					} else if state.view == tuiViewDashboard || state.view == tuiViewQuota {
+						state.message, state.messageType = "Refreshing quota…", "info"
+						startRefresh(true)
+					}
 				case "a":
-					suspend(func() int { return a.addLoginFlow(ctx) })
+					if state.view == tuiViewSettings {
+						a.beginTUIForm(state, "alias")
+					} else {
+						suspend(func() int { return a.addLoginFlow(ctx) })
+					}
 				case "d", "delete", "backspace":
-					if email, _, ok := state.selectedAccount(); ok {
-						state.mode, state.confirmEmail = tuiConfirmDelete, email
+					if state.view == tuiViewProfiles && len(state.profileNames) > 0 {
+						beginConfirmAction("profile-remove", "Remove selected profile")
+					} else if (state.view == tuiViewDashboard || state.view == tuiViewQuota) && state.mode == tuiBrowse {
+						if email, _, ok := state.selectedAccount(); ok {
+							state.mode, state.confirmEmail = tuiConfirmDelete, email
+						}
 					}
 				case "t":
-					toggleTier()
+					if state.view == tuiViewSettings {
+						a.beginTUIForm(state, "target")
+					} else {
+						toggleTier()
+					}
 				case "n":
 					suspend(func() int { return a.cmdNext(ctx, cliArgs{}) })
 				case "l":
 					suspend(func() int { return a.cmdLogout(ctx) })
 				case "enter":
-					if email, account, ok := state.selectedAccount(); ok {
-						suspend(func() int {
-							fmt.Fprintf(a.Out, "Switching to %s%s%s %s<%s>%s…\n", a.p.Bold, getString(account, "name"), a.p.Reset, a.p.Gray, email, a.p.Reset)
-							if a.credentials.Apply(ctx, getString(account, "token_data"), email) {
-								return 0
-							}
-							return 1
-						})
+					if state.view == tuiViewDashboard || state.view == tuiViewQuota {
+						performSwitch()
+					} else if state.view == tuiViewProfiles {
+						if len(state.profileNames) > 0 {
+							a.beginTUIForm(state, "profile-edit")
+						}
+					} else if state.view == tuiViewSettings {
+						a.beginTUIForm(state, "settings")
+					} else if state.view == tuiViewDoctor {
+						startDoctor(false)
 					}
+				case "p":
+					setView(tuiViewProfiles)
+				case "h":
+					setView(tuiViewHistory)
+				case "s":
+					setView(tuiViewSettings)
+				case "o":
+					setView(tuiViewDoctor)
+					startDoctor(false)
+				case "b":
+					if state.view == tuiViewSettings {
+						a.beginTUIForm(state, "binding")
+					} else if state.view == tuiViewDashboard {
+						setView(tuiViewBackup)
+					} else {
+						setView(tuiViewDashboard)
+					}
+				case "v":
+					if state.view == tuiViewBackup {
+						a.beginTUIForm(state, "backup-verify")
+					} else {
+						setView(tuiViewQuota)
+					}
+				case "x":
+					if state.view == tuiViewBackup {
+						a.beginTUIForm(state, "backup-export")
+					} else if state.view == tuiViewHistory && len(state.history) > 0 {
+						a.beginTUIForm(state, "history-export")
+					}
+				case "i":
+					if state.view == tuiViewBackup {
+						a.beginTUIForm(state, "backup-import")
+					}
+				case "e":
+					if state.view == tuiViewSettings {
+						a.beginTUIForm(state, "settings")
+					} else if state.view == tuiViewProfiles {
+						if len(state.profileNames) > 0 {
+							a.beginTUIForm(state, "profile-edit")
+						}
+					} else if state.view == tuiViewDashboard || state.view == tuiViewQuota {
+						a.beginTUIForm(state, "tags")
+					}
+				case "c":
+					if state.view == tuiViewProfiles {
+						a.beginTUIForm(state, "profile-create")
+					} else if state.view == tuiViewHistory && len(state.history) > 0 {
+						beginConfirmAction("history-clear", "Clear local history")
+					}
+				case "m":
+					suspend(func() int { return a.cmdAccount(ctx, extendedOptions{Force: true}, []string{"migrate"}) })
+				case "u":
+					beginConfirmAction("update", "Download and install the latest release")
 				default:
 					if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
 						index := int(key[0] - '1')
@@ -468,6 +978,9 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 				}
 				a.renderTUI(state, outFile)
 				armFrame()
+				if state.quitRequested {
+					return 0
+				}
 			}
 		}
 	}

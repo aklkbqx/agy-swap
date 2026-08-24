@@ -14,6 +14,9 @@ const (
 	logScanBytes     = 8 * 1024 * 1024
 	logTotalBytes    = 64 * 1024 * 1024
 	quotaSchema      = 2
+	stateSchema      = 1
+	historySchema    = 1
+	maxHistoryBytes  = 8 * 1024 * 1024
 	quotaCache       = 60 * time.Second
 	tuiAutoRefresh   = 60 * time.Second
 	cloudCodeAPI     = "https://daily-cloudcode-pa.googleapis.com/v1internal:"
@@ -43,6 +46,10 @@ type Paths struct {
 	AccountsLock     string
 	SessionLock      string
 	LogCache         string
+	Settings         string
+	History          string
+	RuntimeState     string
+	JournalDir       string
 	OAuthToken       string
 	OAuthCredentials string
 	GoogleAccounts   string
@@ -62,6 +69,10 @@ func defaultPaths() (Paths, error) {
 		AccountsLock:     filepath.Join(config, ".accounts.lock"),
 		SessionLock:      filepath.Join(config, ".session.lock"),
 		LogCache:         filepath.Join(config, "log-cache-v1.json"),
+		Settings:         filepath.Join(config, "config.json"),
+		History:          filepath.Join(config, "history-v1.jsonl"),
+		RuntimeState:     filepath.Join(config, "runtime-state.json"),
+		JournalDir:       filepath.Join(config, "journals"),
 		OAuthToken:       filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"),
 		OAuthCredentials: filepath.Join(home, ".gemini", "oauth_creds.json"),
 		GoogleAccounts:   filepath.Join(home, ".gemini", "google_accounts.json"),

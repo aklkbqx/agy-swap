@@ -1,0 +1,24 @@
+name: agy-swap-site
+
+services:
+  agy-swap-site:
+    image: ${OPS_IMAGE:?set OPS_IMAGE to an immutable ghcr.io digest}
+    container_name: agy-swap-site
+    restart: always
+    env_file: .env.production
+    networks:
+      - edge-proxy
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
+      - "traefik.enable=true"
+      - "traefik.docker.network=edge-proxy"
+      - "traefik.http.routers.agy-swap-site.rule=Host(`agy-swap.aklkbqx.com`)"
+      - "traefik.http.routers.agy-swap-site.entrypoints=websecure"
+      - "traefik.http.routers.agy-swap-site.tls=true"
+      - "traefik.http.routers.agy-swap-site.middlewares=secure-headers@file,compress@file"
+      - "traefik.http.services.agy-swap-site-svc.loadbalancer.server.port=80"
+
+networks:
+  edge-proxy:
+    name: edge-proxy
+    external: true

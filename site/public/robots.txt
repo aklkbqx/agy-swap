@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://agy-swap.aklkbqx.com/sitemap.xml

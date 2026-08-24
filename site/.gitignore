@@ -1,0 +1,9 @@
+node_modules
+dist
+.lighthouse
+qa
+reports
+.DS_Store
+*.log
+src/generated/tui-fixtures.json
+

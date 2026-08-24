@@ -50,6 +50,8 @@ func readTerminalKey(reader io.Reader) string {
 		return "ctrl-u"
 	case 0x17:
 		return "ctrl-w"
+	case 0x0b:
+		return "ctrl-k"
 	default:
 		return string(first)
 	}

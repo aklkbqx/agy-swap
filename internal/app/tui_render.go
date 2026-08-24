@@ -129,13 +129,17 @@ func (a *Application) tuiLines(state *tuiState, width, height int) []string {
 	g := newTUIGeometry(width, height)
 	lines := a.tuiTopLines(state, g.innerWidth)
 	lines = append(lines, a.tuiActiveLine(state, g.innerWidth))
-	switch g.layout {
-	case tuiLayoutWide:
-		lines = append(lines, a.tuiWideBody(state, g.innerWidth, g.bodyRows)...)
-	case tuiLayoutStacked:
-		lines = append(lines, a.tuiStackedBody(state, g.innerWidth, g.bodyRows)...)
-	default:
-		lines = append(lines, a.tuiCompactBody(state, g.innerWidth, g.bodyRows)...)
+	if state.view != tuiViewDashboard {
+		lines = append(lines, a.tuiViewBody(state, g.innerWidth, g.bodyRows)...)
+	} else {
+		switch g.layout {
+		case tuiLayoutWide:
+			lines = append(lines, a.tuiWideBody(state, g.innerWidth, g.bodyRows)...)
+		case tuiLayoutStacked:
+			lines = append(lines, a.tuiStackedBody(state, g.innerWidth, g.bodyRows)...)
+		default:
+			lines = append(lines, a.tuiCompactBody(state, g.innerWidth, g.bodyRows)...)
+		}
 	}
 	lines = append(lines, a.tuiStatusLines(state, g.innerWidth)...)
 	lines = append(lines, a.tuiFooterLines(state, g.innerWidth)...)
@@ -144,6 +148,15 @@ func (a *Application) tuiLines(state *tuiState, width, height int) []string {
 		lines = a.tuiOverlay(lines, a.tuiHelpLines(g.innerWidth), g.innerWidth, g.frameHeight)
 	} else if state.mode == tuiConfirmDelete {
 		lines = a.tuiOverlay(lines, a.tuiDeleteLines(state, g.innerWidth), g.innerWidth, g.frameHeight)
+	} else if state.mode == tuiConfirmAction {
+		lines = a.tuiOverlay(lines, a.tuiConfirmActionLines(state, g.innerWidth), g.innerWidth, g.frameHeight)
+	} else if state.mode == tuiPalette {
+		lines = a.tuiOverlay(lines, a.tuiPaletteLines(state, g.innerWidth), g.innerWidth, g.frameHeight)
+	} else if state.mode == tuiForm {
+		lines = a.tuiOverlay(lines, a.tuiFormLines(state, g.innerWidth), g.innerWidth, g.frameHeight)
+	}
+	if state.toastActive(time.Now()) {
+		lines = a.tuiToastOverlay(lines, state, g.innerWidth, g.frameHeight)
 	}
 	return fitFrameLines(lines, g, a.p)
 }
@@ -333,7 +346,7 @@ func (a *Application) tuiStackedBody(state *tuiState, width, height int) []strin
 	rows := a.tuiAccountRows(state, g.contentWidth, listBudget)
 	if len(rows) == 0 {
 		if state.accounts == nil || state.accounts.Len() == 0 {
-			rows = []string{a.p.Yellow + "No accounts" + a.p.Reset + " · press " + a.p.Orange + "a" + a.p.Reset + " to add one"}
+			rows = a.tuiWelcomeRows(g.contentWidth, maxInt(1, g.bodyRows-1))
 		} else {
 			rows = []string{a.p.Gray + "No matching accounts" + a.p.Reset + " · press / to clear search"}
 		}
@@ -372,7 +385,7 @@ func (a *Application) tuiCompactBody(state *tuiState, width, height int) []strin
 	rows := a.tuiAccountRows(state, g.contentWidth, maxInt(0, g.bodyRows-1))
 	if len(rows) == 0 {
 		if state.accounts == nil || state.accounts.Len() == 0 {
-			rows = []string{a.p.Yellow + "No accounts" + a.p.Reset + " · press " + a.p.Orange + "a" + a.p.Reset + " to add one"}
+			rows = a.tuiWelcomeRows(g.contentWidth, maxInt(1, g.bodyRows-1))
 		} else {
 			rows = []string{a.p.Gray + "No matching accounts" + a.p.Reset + " · press / to clear search"}
 		}
@@ -451,7 +464,11 @@ func (a *Application) tuiAccountTableRows(state *tuiState, width, maxRows int) [
 
 	emails := state.visibleEmails()
 	if len(emails) == 0 {
-		return append(rows, fitVisible(a.p.Yellow+"No accounts"+a.p.Reset, width, a.p))
+		remaining := maxInt(0, maxRows-len(rows))
+		for _, welcome := range a.tuiWelcomeRows(width, remaining) {
+			rows = append(rows, fitVisible(welcome, width, a.p))
+		}
+		return rows
 	}
 	rowBudget := maxRows - len(rows)
 	start := 0
@@ -476,6 +493,22 @@ func (a *Application) tuiAccountTableRows(state *tuiState, width, maxRows int) [
 			fitVisible(health, healthWidth, a.p),
 		}
 		rows = append(rows, fitVisible(strings.Join(cells, " "), width, a.p))
+	}
+	return rows
+}
+
+func (a *Application) tuiWelcomeRows(width, maxRows int) []string {
+	rows := []string{
+		a.p.Bold + a.p.White + "Welcome to AGY SWAP" + a.p.Reset,
+		"No saved accounts yet.",
+		"Press " + a.p.Orange + "a" + a.p.Reset + " to sign in, or " + a.p.Cyan + "Ctrl-K" + a.p.Reset + " for every action.",
+		"Your tokens are stored in the OS vault after sign-in.",
+	}
+	if maxRows < len(rows) {
+		rows = rows[:maxRows]
+	}
+	for i := range rows {
+		rows[i] = fitVisible(rows[i], width, a.p)
 	}
 	return rows
 }
@@ -534,7 +567,9 @@ func (a *Application) tuiDetailTableLines(state *tuiState, width, maxRows int) [
 			}
 		}
 	}
-	if reset, ok := tokenResetInfo(tuiText(getString(account, "token_data"))); ok {
+	if getString(account, "secret_ref") != "" && getString(account, "token_data") == "" {
+		rows = append(rows, tuiDetailKV("SESSION TOKEN", "Stored in OS vault", width, labelWidth, a.p))
+	} else if reset, ok := tokenResetInfo(tuiText(getString(account, "token_data"))); ok {
 		rows = append(rows, tuiDetailKV("SESSION TOKEN", reset, width, labelWidth, a.p))
 	}
 	if reason := tuiText(state.quotaErrors[email]); reason != "" {
@@ -621,6 +656,14 @@ func (a *Application) tuiStatusLines(state *tuiState, width int) []string {
 		content = a.p.Cyan + "/" + cleanText(state.search) + "▌" + a.p.Reset
 	} else if state.mode == tuiConfirmDelete {
 		content = a.p.Yellow + "Delete " + cleanText(state.confirmEmail) + "?  [y] confirm  [n] cancel" + a.p.Reset
+	} else if state.mode == tuiConfirmAction {
+		content = a.p.Yellow + firstString(state.confirmTitle, "Confirm action") + "?  [y] confirm  [n] cancel" + a.p.Reset
+	} else if state.mode == tuiPalette {
+		content = a.p.Cyan + "Action palette · type to filter · Enter to run" + a.p.Reset
+	} else if state.mode == tuiForm {
+		content = a.p.Cyan + "Editing · choose a field, then Enter to save" + a.p.Reset
+	} else if state.job != nil && !state.job.Done {
+		content = a.p.Cyan + "◐ " + cleanText(state.job.Label) + "…" + a.p.Reset
 	} else if state.refreshing {
 		content = a.p.Cyan + "◐ Syncing usage…" + a.p.Reset
 	} else if state.resolvingToken != "" {
@@ -644,13 +687,66 @@ func (a *Application) tuiStatusLines(state *tuiState, width int) []string {
 	}
 }
 
+func (a *Application) tuiToastOverlay(base []string, state *tuiState, width, height int) []string {
+	g := newTUIGeometry(width, height)
+	if !state.toastActive(time.Now()) {
+		return fitFrameLines(base, g, a.p)
+	}
+
+	color, icon := a.p.Cyan, "›"
+	switch state.toastType {
+	case "success":
+		color, icon = a.p.Green, "✓"
+	case "error":
+		color, icon = a.p.Red, "✕"
+	}
+	plain := icon + " " + tuiText(state.toast)
+	boxWidth := minInt(maxInt(24, visibleWidth(plain)+4), maxInt(18, g.frameWidth-4))
+	innerWidth := maxInt(1, boxWidth-2)
+	top := color + "╭" + strings.Repeat("─", innerWidth) + "╮" + a.p.Reset
+	body := color + "│" + a.p.Reset + fitVisible(" "+color+plain+a.p.Reset, innerWidth, a.p) + color + "│" + a.p.Reset
+	bottom := color + "╰" + strings.Repeat("─", innerWidth) + "╯" + a.p.Reset
+	box := []string{top, body, bottom}
+	base = fitFrameLines(base, g, a.p)
+	rowStart := maxInt(1, g.frameHeight-len(box)-4)
+	left := maxInt(1, g.frameWidth-boxWidth-2)
+	for index, line := range box {
+		row := rowStart + index
+		if row >= 0 && row < len(base) {
+			base[row] = fitVisible(strings.Repeat(" ", left)+line, g.frameWidth, a.p)
+		}
+	}
+	return base
+}
+
 func (a *Application) tuiFooterLines(state *tuiState, width int) []string {
 	g := newTUIGeometry(width, 12)
-	footer := "↑↓/jk Navigate   Enter Switch   / Search   r Refresh   ? Help   q Quit"
+	footer := "↑↓/jk Navigate   Enter Switch   Ctrl-K/: Actions   ? Help   q Quit"
+	if state.view != tuiViewDashboard {
+		footer = "↑↓ Navigate   Enter Edit   b Dashboard   Ctrl-K/: Actions   ? Help"
+		switch state.view {
+		case tuiViewBackup:
+			footer = "x Export   i Import   v Verify   b Dashboard   Ctrl-K/: Actions"
+		case tuiViewHistory:
+			footer = "c Clear   x Export   b Dashboard   Ctrl-K/: Actions"
+		case tuiViewSettings:
+			footer = "e Edit   a Alias   b Binding   t Target   Ctrl-K/: Actions"
+		case tuiViewDoctor:
+			footer = "Enter/r Run again   b Dashboard   Ctrl-K/: Actions"
+		case tuiViewProfiles:
+			footer = "c Create   Enter/e Edit   d Delete   b Dashboard   Ctrl-K/: Actions"
+		}
+	}
 	if state.mode == tuiSearch {
 		footer = "Type to filter   Enter Apply   Esc Cancel   Backspace Erase"
 	} else if state.mode == tuiHelp {
 		footer = "Esc or any key · Close help"
+	} else if state.mode == tuiPalette {
+		footer = "↑↓ Move   Enter Run   Type Filter   Esc Close"
+	} else if state.mode == tuiForm {
+		footer = "↑↓ Field   ←→ Choice   Enter Next/Save   Esc Cancel"
+	} else if state.mode == tuiConfirmAction {
+		footer = "y Confirm   n / Esc Cancel"
 	}
 	return []string{
 		a.p.Gray + "├" + strings.Repeat("─", g.frameWidth-2) + "┤" + a.p.Reset,
@@ -666,12 +762,20 @@ func (a *Application) tuiHelpLines(width int) []string {
 		"↑ ↓ / j k   Move through accounts",
 		"Enter       Switch selected account",
 		"/           Search by name or email",
+		"Ctrl-K / :  Open action palette",
+		"p h s o b   Profiles, history, settings, doctor, backup",
 		"r           Refresh quota",
 		"a           Add account",
 		"d           Delete selected account",
 		"n           Choose next available account",
 		"t           Toggle manual tier",
+		"m           Migrate secrets to OS vault",
 		"l           Log out",
+		"e           Edit tags / selected item",
+		"x / i / v   Export, import, or verify in managers",
+		"c / x       Create/clear or export in managers",
+		"u           Download and install the latest release",
+		"b           Return to dashboard",
 		"Esc / any   Close help",
 		"",
 		a.p.Gray + "Actions keep the active session safe." + a.p.Reset,

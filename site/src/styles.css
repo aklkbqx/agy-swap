@@ -1,0 +1,89 @@
+:root {
+  --color-bg: #f7f7f7;
+  --color-text: #1a1a1a;
+  --color-text-light: #555555;
+  --color-accent-signal: #FF891A;
+  --color-accent-text: #7A3600; /* Darkened orange for accessible text, contrast >= 4.5:1 on #eee */
+  --color-terminal-bg: #0d0d0d;
+  --color-terminal-text: #e0e0e0;
+  --color-terminal-green: #33ff00;
+  
+  --font-editorial: "Helvetica Neue", Helvetica, -apple-system, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  
+  --radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-editorial);
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+a:focus-visible, button:focus-visible {
+  outline: 2px solid var(--color-accent-text);
+  outline-offset: 2px;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  font-family: inherit;
+}
+
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--color-accent-signal);
+  color: #111;
+  padding: 8px;
+  z-index: 100;
+}
+.skip-link:focus {
+  top: 0;
+}
+
+/* Base Terminal Colors for TUI */
+.tui-bg { background-color: #0d0d0d; color: #d0d0d0; }
+.tui-accent { color: #FF891A; }
+.tui-dim { color: #666; }
+.tui-highlight { background-color: #333; color: #fff; }
+.tui-green { color: #4ade80; }
+.tui-red { color: #f87171; }
+.tui-cyan { color: #22d3ee; }
+
+/* SR Only */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}

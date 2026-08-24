@@ -1,0 +1,12 @@
+node_modules/
+dist/server/
+!dist/client
+reports/
+qa/
+.env*
+!.env.production.example
+.git/
+.github/
+npm-debug.log
+yarn-error.log
+.DS_Store

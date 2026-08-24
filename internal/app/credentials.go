@@ -143,7 +143,17 @@ func (c *Credentials) applyUnlocked(ctx context.Context, tokenData, email string
 	if decodeToken(tokenData) == nil {
 		return false
 	}
+	email = normalizeEmail(email)
+	if email == "" {
+		return false
+	}
+	if !tokenMatchesEmail(tokenData, email) {
+		return false
+	}
 	previous := c.Secure(ctx)
+	if previous == tokenData {
+		return c.writeOAuthFiles(tokenData, email)
+	}
 	updated := c.Set(ctx, tokenData)
 	if !updated {
 		current := c.Secure(ctx)
@@ -169,6 +179,11 @@ func (c *Credentials) applyUnlocked(ctx context.Context, tokenData, email string
 		}
 	}
 	return false
+}
+
+func tokenMatchesEmail(tokenData, email string) bool {
+	claimed := extractVerifiedEmail(tokenData)
+	return claimed == "" || claimed == normalizeEmail(email)
 }
 
 func (c *Credentials) Apply(ctx context.Context, tokenData, email string) bool {

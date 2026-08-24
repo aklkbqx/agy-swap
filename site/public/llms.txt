@@ -1,0 +1,12 @@
+# agy-swap
+
+Native Terminal Account Switcher And Quota Monitor.
+
+- **Website**: [https://agy-swap.aklkbqx.com/](https://agy-swap.aklkbqx.com/)
+- **Repository**: [https://github.com/aklkbqx/agy-swap](https://github.com/aklkbqx/agy-swap)
+
+## Installs
+
+- **macOS Homebrew**: `brew install aklkbqx/agy-swap/agy-swap`
+- **macOS/Linux**: `curl -fsSL --proto "=https" --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash`
+- **Windows**: `irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex`

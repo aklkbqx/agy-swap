@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+      - name: Build release binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          suffix=""
+          if [ "$GOOS" = "windows" ]; then suffix=".exe"; fi
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v} -X main.buildID=${GITHUB_SHA}" -o "dist/agy-swap_${GITHUB_REF_NAME}_${GOOS}_${GOARCH}${suffix}" ./cmd/agy-swap
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agy-swap-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - run: go run ./cmd/releasetool verify-version "${GITHUB_REF_NAME#v}" install.sh
+      - run: go run ./cmd/releasetool verify-version "${GITHUB_REF_NAME#v}" install.ps1
+      - run: go run ./cmd/releasetool checksums dist
+      - run: go run ./cmd/releasetool verify-assets "${GITHUB_REF_NAME#v}" dist
+      - name: Verify release version command
+        run: |
+          chmod +x "dist/agy-swap_v${GITHUB_REF_NAME#v}_linux_amd64"
+          reported="$("dist/agy-swap_v${GITHUB_REF_NAME#v}_linux_amd64" version)"
+          case "$reported" in
+            "agy-swap v${GITHUB_REF_NAME#v}"*) ;;
+            *) echo "unexpected version output: $reported" >&2; exit 1 ;;
+          esac
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/agy-swap_*
+            dist/checksums.txt
