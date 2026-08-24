@@ -1,0 +1,17 @@
+{
+  "name": "agy-swap: Google Antigravity Account Switcher",
+  "short_name": "agy-swap",
+  "description": "Native terminal account switcher and real-time quota monitor for Google Antigravity CLI (agy).",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0B0F14",
+  "theme_color": "#FF891A",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

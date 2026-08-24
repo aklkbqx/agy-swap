@@ -3,18 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>agy-swap | Native Terminal Account Switcher</title>
-    <meta name="description" content="Native terminal account switcher and quota monitor for agy-swap. Instant switching, remaining capacity visibility, local safety, and backups." />
-    <meta name="keywords" content="Google Antigravity, Antigravity CLI, agy, agy-swap, account switcher, quota monitor, terminal UI, TUI, developer tools, Gemini quota, rate limit tracker" />
+    <title>agy-swap — Google Antigravity CLI Account Switcher & Quota Monitor</title>
+    <meta name="description" content="Official high-performance native account switcher and real-time quota monitor for Google Antigravity CLI (agy). 0ms switching, Gemini quota tracking, OS keychain vault, and 3D terminal emulation." />
+    <meta name="keywords" content="agy swap, agy-swap, agyswap, google antigravity, antigravity cli, account switcher, quota monitor, gemini quota, antigravity 2.0, developer tools, terminal ui, tui" />
     <meta name="theme-color" content="#FF891A" />
     <link rel="canonical" href="https://agy-swap.aklkbqx.com/" />
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://agy-swap.aklkbqx.com/" />
-    <meta property="og:title" content="agy-swap | Native Terminal Account Switcher & Quota Monitor" />
-    <meta property="og:description" content="Native terminal account switcher and quota monitor for Google Antigravity. Instant switching, live capacity visibility, OS vault integration, and 3D terminal emulation." />
+    <meta property="og:title" content="agy-swap — Google Antigravity CLI Account Switcher & Quota Monitor" />
+    <meta property="og:description" content="Official high-performance native account switcher and real-time quota monitor for Google Antigravity CLI (agy). 0ms switching, Gemini quota tracking, OS keychain vault, and 3D terminal emulation." />
     <meta property="og:image" content="https://agy-swap.aklkbqx.com/fallback/credential-relay.jpg" />
     <meta property="og:image:width" content="1600" />
     <meta property="og:image:height" content="900" />
@@ -23,44 +24,148 @@
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image" />
     <meta property="twitter:url" content="https://agy-swap.aklkbqx.com/" />
-    <meta property="twitter:title" content="agy-swap | Native Terminal Account Switcher & Quota Monitor" />
-    <meta property="twitter:description" content="Native terminal account switcher and quota monitor for Google Antigravity. Instant switching, live capacity visibility, OS vault integration, and 3D terminal emulation." />
+    <meta property="twitter:title" content="agy-swap — Google Antigravity CLI Account Switcher & Quota Monitor" />
+    <meta property="twitter:description" content="Official high-performance native account switcher and real-time quota monitor for Google Antigravity CLI (agy). 0ms switching, Gemini quota tracking, OS keychain vault, and 3D terminal emulation." />
     <meta property="twitter:image" content="https://agy-swap.aklkbqx.com/fallback/credential-relay.jpg" />
 
-    <!-- JSON-LD -->
+    <!-- JSON-LD: SoftwareApplication & WebSite -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "SoftwareApplication",
-        "name": "agy-swap",
-        "operatingSystem": "macOS, Linux, Windows",
-        "applicationCategory": "DeveloperApplication",
-        "downloadUrl": "https://github.com/aklkbqx/agy-swap",
-        "description": "Native terminal account switcher and quota monitor for Google Antigravity CLI.",
-        "url": "https://agy-swap.aklkbqx.com/",
-        "softwareVersion": "v2.1.2",
-        "featureList": [
-          "Instant Multi-Account Switching",
-          "Real-Time Quota & Cooldown Tracking",
-          "Native OS Keychain & Vault Security",
-          "Responsive Terminal UI (TUI) with 3D Preview",
-          "Automated System Doctor Diagnostics"
-        ],
-        "offers": {
-          "@type": "Offer",
-          "price": "0",
-          "priceCurrency": "USD"
-        },
-        "author": {
-          "@type": "Person",
-          "name": "aklkbqx",
-          "url": "https://github.com/aklkbqx"
-        }
+        "@graph": [
+          {
+            "@type": "SoftwareApplication",
+            "name": "agy-swap",
+            "alternateName": ["agy swap", "agyswap", "Antigravity Swap", "Google Antigravity Account Switcher"],
+            "operatingSystem": "macOS, Linux, Windows",
+            "applicationCategory": "DeveloperApplication",
+            "downloadUrl": "https://github.com/aklkbqx/agy-swap",
+            "description": "High-performance native account switcher and real-time quota monitor for Google Antigravity CLI (agy).",
+            "url": "https://agy-swap.aklkbqx.com/",
+            "softwareVersion": "v2.1.2",
+            "featureList": [
+              "Instant Multi-Account Switching",
+              "Real-Time Quota & Cooldown Tracking",
+              "Native OS Keychain & Vault Security",
+              "Responsive Terminal UI (TUI) with 3D Preview",
+              "Automated System Doctor Diagnostics"
+            ],
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            },
+            "author": {
+              "@type": "Person",
+              "name": "aklkbqx",
+              "url": "https://github.com/aklkbqx"
+            }
+          },
+          {
+            "@type": "WebSite",
+            "name": "agy-swap",
+            "alternateName": "agy swap",
+            "url": "https://agy-swap.aklkbqx.com/"
+          },
+          {
+            "@type": "FAQPage",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "What is agy-swap?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "agy-swap is a fast, native CLI tool and terminal account switcher for Google Antigravity (agy), rewritten in Go to manage multiple accounts, monitor Gemini quota in real-time, and store credentials securely in native OS keyrings."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "How do I install agy-swap on macOS, Linux, and Windows?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "On macOS: brew install aklkbqx/agy-swap/agy-swap. On macOS/Linux: curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash. On Windows PowerShell: irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "How to switch Google Antigravity accounts in terminal?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Run 'agy-swap' to launch the interactive terminal UI with keyboard shortcuts, or run 'agy-swap switch <email>' or 'agy-swap next' to rotate accounts automatically."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Is agy-swap safe and private?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. agy-swap stores credentials directly inside your operating system keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service), performs atomic file writes with rollback protection, and contains zero remote telemetry or tracking."
+                }
+              }
+            ]
+          }
+        ]
       }
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Pre-rendered Semantic HTML Shell for Search Engines & Initial Crawl Wave -->
+      <header style="padding: 2rem 1rem; max-width: 1200px; margin: 0 auto; text-align: center;">
+        <h1 style="font-size: 2.25rem; font-weight: 800; color: #f0f6fc; margin-bottom: 0.5rem;">
+          agy-swap — Google Antigravity CLI Account Switcher & Quota Monitor
+        </h1>
+        <p style="font-size: 1.125rem; color: #8b949e; max-width: 800px; margin: 0 auto;">
+          High-performance native account switcher and real-time quota monitor for Google Antigravity CLI (<code>agy</code>). Built in Go with instant sub-millisecond execution and native OS vault security.
+        </p>
+      </header>
+
+      <main style="max-width: 1200px; margin: 0 auto; padding: 0 1rem;">
+        <section id="installation" style="margin-bottom: 2rem;">
+          <h2 style="font-size: 1.5rem; color: #f0f6fc; border-bottom: 1px solid #30363d; padding-bottom: 0.5rem;">Quick Installation</h2>
+          <p style="color: #c9d1d9;">Install <code>agy-swap</code> on macOS, Linux, or Windows with a single command:</p>
+          <pre style="background: #161b22; padding: 1rem; border-radius: 6px; color: #58a6ff; overflow-x: auto;"><code># Homebrew (macOS)
+brew install aklkbqx/agy-swap/agy-swap
+
+# macOS / Linux
+curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash
+
+# Windows PowerShell
+irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex</code></pre>
+        </section>
+
+        <section id="features" style="margin-bottom: 2rem;">
+          <h2 style="font-size: 1.5rem; color: #f0f6fc; border-bottom: 1px solid #30363d; padding-bottom: 0.5rem;">Key Features & Architecture</h2>
+          <ul style="color: #c9d1d9; line-height: 1.8;">
+            <li><strong>Instant Account Switching:</strong> Zero-latency session rotation between multiple Google Antigravity accounts.</li>
+            <li><strong>Live Quota & Cooldown Tracking:</strong> Proactive tracking for Gemini and third-party model limits and reset countdowns.</li>
+            <li><strong>Hardware-Backed OS Vault:</strong> Secure token storage in macOS Keychain, Windows Credential Manager, and Linux Secret Service.</li>
+            <li><strong>Adaptive Terminal UI (TUI):</strong> Full interactive terminal interface with Command Palette (<code>Ctrl-K</code> / <code>:</code>).</li>
+            <li><strong>System Doctor Diagnostics:</strong> <code>agy-swap doctor</code> automated health verification in one command.</li>
+          </ul>
+        </section>
+
+        <section id="cli-reference" style="margin-bottom: 2rem;">
+          <h2 style="font-size: 1.5rem; color: #f0f6fc; border-bottom: 1px solid #30363d; padding-bottom: 0.5rem;">CLI Quick Reference</h2>
+          <pre style="background: #161b22; padding: 1rem; border-radius: 6px; color: #7ee787; overflow-x: auto;"><code>agy-swap                   # Launch interactive TUI
+agy-swap add               # Connect a new account via OAuth browser flow
+agy-swap switch dev@me.com # Switch active account by email or number
+agy-swap next              # Auto-switch to next account with available quota
+agy-swap limits            # View real-time quota and cooldown breakdown
+agy-swap doctor            # Run comprehensive system diagnostics</code></pre>
+        </section>
+
+        <section id="faq" style="margin-bottom: 2rem;">
+          <h2 style="font-size: 1.5rem; color: #f0f6fc; border-bottom: 1px solid #30363d; padding-bottom: 0.5rem;">Frequently Asked Questions</h2>
+          <div style="margin-top: 1rem; color: #c9d1d9;">
+            <h3 style="font-size: 1.125rem; color: #f0f6fc;">What is agy-swap?</h3>
+            <p>agy-swap is a lightweight, high-performance Go CLI utility designed for developers using Google Antigravity CLI (<code>agy</code>) to seamlessly switch developer accounts, monitor model quotas, and manage API sessions securely.</p>
+            <h3 style="font-size: 1.125rem; color: #f0f6fc;">How do I switch Google Antigravity accounts?</h3>
+            <p>You can run <code>agy-swap</code> to open the interactive terminal UI, or execute <code>agy-swap switch &lt;email&gt;</code> directly from your terminal or shell scripts.</p>
+          </div>
+        </section>
+      </main>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
