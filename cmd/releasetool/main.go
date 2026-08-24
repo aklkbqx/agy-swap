@@ -22,7 +22,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: releasetool <checksums|formula|verify-version> ...")
+		return errors.New("usage: releasetool <checksums|formula|verify-version|verify-assets> ...")
 	}
 	switch args[0] {
 	case "checksums":
@@ -40,9 +40,34 @@ func run(args []string) error {
 			return errors.New("usage: releasetool verify-version VERSION INSTALLER")
 		}
 		return verifyVersion(args[1], args[2])
+	case "verify-assets":
+		if len(args) != 3 {
+			return errors.New("usage: releasetool verify-assets VERSION DIST_DIR")
+		}
+		return verifyAssets(args[1], args[2])
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func verifyAssets(version, dir string) error {
+	checksums, err := readChecksums(filepath.Join(dir, "checksums.txt"))
+	if err != nil {
+		return err
+	}
+	for _, target := range []string{
+		"darwin_amd64", "darwin_arm64", "linux_amd64", "linux_arm64",
+		"windows_amd64.exe", "windows_arm64.exe",
+	} {
+		name := "agy-swap_v" + version + "_" + target
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			return fmt.Errorf("release asset missing: %s", name)
+		}
+		if _, ok := checksums[name]; !ok {
+			return fmt.Errorf("release checksum missing: %s", name)
+		}
+	}
+	return nil
 }
 
 func writeChecksums(dir, output string) error {
@@ -134,9 +159,18 @@ func verifyVersion(version, installerPath string) error {
 	if err != nil {
 		return err
 	}
-	expected := `VERSION="` + version + `"`
-	if !strings.Contains(string(installer), expected) {
-		return fmt.Errorf("%s does not contain %s", installerPath, expected)
+	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
+	text := string(installer)
+	patterns := []string{
+		`VERSION="` + version + `"`,
+		`VERSION="${AGY_SWAP_VERSION:-` + version + `}"`,
+		`$Version = '` + version + `'`,
+		`$Version = "` + version + `"`,
 	}
-	return nil
+	for _, pattern := range patterns {
+		if strings.Contains(text, pattern) {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s does not contain the expected installer version %s", installerPath, version)
 }
