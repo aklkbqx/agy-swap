@@ -1,9 +1,16 @@
-:root {
-  --color-bg: #f7f7f7;
-  --color-text: #1a1a1a;
-  --color-text-light: #555555;
+:root,
+:root[data-theme="dark"] {
+  --color-bg: #090c10;
+  --color-surface: #0b0d10;
+  --color-card-bg: #161b22;
+  --color-text: #f0f6fc;
+  --color-text-light: #8b949e;
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-hover: rgba(255, 255, 255, 0.2);
   --color-accent-signal: #FF891A;
-  --color-accent-text: #7A3600; /* Darkened orange for accessible text, contrast >= 4.5:1 on #eee */
+  --color-accent-text: #FF891A;
+  --color-nav-bg: rgba(9, 12, 16, 0.88);
+  --color-code-bg: #161b22;
   --color-terminal-bg: #0d0d0d;
   --color-terminal-text: #e0e0e0;
   --color-terminal-green: #33ff00;
@@ -12,6 +19,20 @@
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   
   --radius: 8px;
+}
+
+:root[data-theme="light"] {
+  --color-bg: #f7f7f7;
+  --color-surface: #ffffff;
+  --color-card-bg: #ffffff;
+  --color-text: #1a1a1a;
+  --color-text-light: #555555;
+  --color-border: rgba(0, 0, 0, 0.08);
+  --color-border-hover: rgba(0, 0, 0, 0.2);
+  --color-accent-signal: #FF891A;
+  --color-accent-text: #7A3600;
+  --color-nav-bg: rgba(247, 247, 247, 0.88);
+  --color-code-bg: #eaeef2;
 }
 
 @media (prefers-reduced-motion: reduce) {

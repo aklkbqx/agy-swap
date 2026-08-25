@@ -1091,3 +1091,21 @@ test("History clear confirm results in empty history", () => {
   assert.equal(next.historyIndex, 0, "History index should be reset");
   assert.equal(next.postHistoryClear, true, "Should set postHistoryClear flag");
 });
+
+test("i18n translations dictionary contains all 4 supported languages with complete keys", async () => {
+  const { translations } = await import("../src/i18n/translations.js");
+  const languages = ["en", "th", "ja", "zh"];
+  for (const lang of languages) {
+    assert.ok(translations[lang], `translations for ${lang} must exist`);
+    assert.ok(translations[lang].nav?.overview, `nav.overview missing in ${lang}`);
+    assert.ok(translations[lang].nav?.flow, `nav.flow missing in ${lang}`);
+    assert.ok(translations[lang].nav?.features, `nav.features missing in ${lang}`);
+    assert.ok(translations[lang].nav?.install, `nav.install missing in ${lang}`);
+    assert.ok(translations[lang].hero?.headlinePart1, `hero.headlinePart1 missing in ${lang}`);
+    assert.ok(translations[lang].features?.card1Title, `features.card1Title missing in ${lang}`);
+    assert.ok(translations[lang].install?.headline, `install.headline missing in ${lang}`);
+    assert.ok(translations[lang].faq?.headline, `faq.headline missing in ${lang}`);
+    assert.ok(translations[lang].footer?.tagline, `footer.tagline missing in ${lang}`);
+  }
+});
+

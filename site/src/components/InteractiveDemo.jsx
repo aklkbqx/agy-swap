@@ -2,6 +2,7 @@ import React, { useState, useReducer, useRef, Suspense, useMemo, useCallback, us
 import styles from '../App.module.css';
 import TuiTerminal from './TuiTerminal';
 import AmbientDust from './AmbientDust';
+import { useTranslation } from '../i18n/I18nContext';
 import { VIEWS, ACCOUNTS, PROFILES, HISTORY_EVENTS, FORM_FIELD_COUNTS, resolveFixture, setGlobalTuiFixture } from './fixtures.js';
 import { createInitialTuiState, transitionTuiState, routeKeyAction } from './tuiState.js';
 import { createShardManager } from './shardManager.js';
@@ -14,18 +15,24 @@ const FEATURED_BEATS = [
   {
     view: 'Dashboard',
     num: '01',
+    titleKey: 'demo.storyBeats.beat1Title',
+    descKey: 'demo.storyBeats.beat1Desc',
     title: 'Multi-Account Switcher',
     desc: 'Sub-millisecond rotation across unlimited Google Antigravity accounts.',
   },
   {
     view: 'Quota',
     num: '02',
+    titleKey: 'demo.storyBeats.beat2Title',
+    descKey: 'demo.storyBeats.beat2Desc',
     title: 'Real-Time Quota Monitor',
     desc: 'Live Gemini & model limits countdown to eliminate surprise rate-limits.',
   },
   {
     view: 'Profiles',
     num: '03',
+    titleKey: 'demo.storyBeats.beat3Title',
+    descKey: 'demo.storyBeats.beat3Desc',
     title: 'Secure Profiles & OS Vault',
     desc: 'Hardware-backed OS Keychain security with per-workspace directory isolation.',
   },
@@ -51,6 +58,7 @@ class ErrorBoundary extends React.Component {
 }
 
 export default function InteractiveDemo({ is3DEnabled, on3DError }) {
+  const { t } = useTranslation();
   const shardManagerRef = useRef(null);
   if (!shardManagerRef.current) {
     shardManagerRef.current = createShardManager();
@@ -345,10 +353,10 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
         </div>
         <div className={styles.apparatusMeta}>
           <span className={styles.statusDot} aria-hidden="true" />
-          <span className={styles.statusLabel}>Live TUI Emulation</span>
+          <span className={styles.statusLabel}>{t('demo.liveEmulation', 'Live TUI Emulation')}</span>
           {pendingView && (
             <span className={styles.loadingLabel}>
-              Loading {pendingView}…
+              {t('demo.loading', 'Loading')} {pendingView}…
             </span>
           )}
         </div>
@@ -371,7 +379,7 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
             fixture={currentFixture}
             mode={state.mode}
             isModal={isModal}
-            ariaLabel="Interactive agy-swap terminal. Use arrow keys or numbers to select account, Enter to switch, ? for help."
+            ariaLabel={t('demo.terminalAria', 'Interactive agy-swap terminal. Use arrow keys or numbers to select account, Enter to switch, ? for help.')}
             ariaBusy={pendingView ? 'true' : 'false'}
             onAction={dispatch}
             onKeyDown={handleKeyDown}
@@ -393,8 +401,8 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
               aria-pressed={isActive}
             >
               <div className={styles.storyBeatNum}>{beat.num}</div>
-              <div className={styles.storyBeatTitle}>{beat.title}</div>
-              <p className={styles.storyBeatDesc}>{beat.desc}</p>
+              <div className={styles.storyBeatTitle}>{t(beat.titleKey, beat.title)}</div>
+              <p className={styles.storyBeatDesc}>{t(beat.descKey, beat.desc)}</p>
             </button>
           );
         })}
