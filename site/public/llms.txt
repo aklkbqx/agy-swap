@@ -15,8 +15,8 @@
 - **Diagnostics**: Built-in `agy-swap doctor` health check for permissions, OAuth tokens, and network endpoints.
 
 ## Installation
-- **macOS Homebrew**: `brew install aklkbqx/agy-swap/agy-swap`
 - **macOS / Linux**: `curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash`
+- **Go (Any Platform)**: `go install github.com/aklkbqx/agy-swap/cmd/agy-swap@latest`
 - **Windows PowerShell**: `irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex`
 
 ## CLI Quick Reference

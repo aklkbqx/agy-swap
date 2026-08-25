@@ -8,8 +8,8 @@
 }
 
 .nav {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   padding: 0.75rem clamp(1.25rem, 4vw, 4rem);
   border-bottom: 1px solid var(--color-border);
@@ -29,12 +29,14 @@
   letter-spacing: -0.02em;
   font-size: 1.125rem;
   color: var(--color-text);
+  justify-self: start;
 }
 
 .navLinks {
   display: flex;
   gap: clamp(0.9rem, 2vw, 2rem);
   align-items: center;
+  justify-self: center;
 }
 
 .navLinks a {
@@ -56,6 +58,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  justify-self: end;
 }
 
 /* Language Selector */
@@ -85,9 +88,14 @@
   background: rgba(255, 255, 255, 0.04);
 }
 
-.langGlobeIcon {
-  font-size: 0.875rem;
-  line-height: 1;
+.langGlobeSvg {
+  flex-shrink: 0;
+  color: var(--color-text-light);
+  transition: color 0.2s ease;
+}
+
+.langTriggerBtn:hover .langGlobeSvg {
+  color: var(--color-text);
 }
 
 .langCurrentCode {
@@ -146,9 +154,28 @@
   background-color: rgba(255, 137, 26, 0.08);
 }
 
-.langItemFlag {
-  font-size: 0.875rem;
-  line-height: 1;
+.langItemBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 18px;
+  padding: 0 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text-light);
+  border: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.langItemSelected .langItemBadge {
+  background: rgba(255, 137, 26, 0.15);
+  border-color: rgba(255, 137, 26, 0.35);
+  color: var(--color-accent-signal);
 }
 
 .langItemLabel {
@@ -287,7 +314,7 @@
 .fullscreenPinTrack {
   position: relative;
   width: 100%;
-  height: 280vh;
+  height: 480vh;
 }
 
 .stickyPinStage {
@@ -360,23 +387,33 @@
 .storyStepDots {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  justify-content: center;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
 }
 
 .stepDot {
   width: 24px;
   height: 4px;
-  border-radius: 2px;
+  border-radius: 999px;
   background-color: var(--color-border);
+  opacity: 0.4;
   border: none;
-  cursor: pointer;
-  transition: all 0.25s ease;
   padding: 0;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.activeDot {
+.stepDot:hover {
+  opacity: 0.8;
+  background-color: var(--color-brand);
+}
+
+.stepDot.activeDot {
   width: 44px;
-  background-color: var(--color-accent-signal);
+  opacity: 1;
+  background-color: var(--color-brand);
+  box-shadow: 0 0 12px rgba(255, 137, 26, 0.4);
 }
 
 .deviceFrame {
@@ -693,6 +730,8 @@
 
 @media (max-width: 600px) {
   .nav {
+    display: flex;
+    justify-content: space-between;
     padding-inline: 1rem;
   }
 

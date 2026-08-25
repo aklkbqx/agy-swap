@@ -33,7 +33,7 @@ test("Canonical install strings exist in App source", () => {
   const appPath = join(__dirname, "../src/App.jsx");
   const appCode = readFileSync(appPath, "utf-8");
 
-  assert.ok(appCode.includes("brew install aklkbqx/agy-swap/agy-swap"));
+  assert.ok(appCode.includes("go install github.com/aklkbqx/agy-swap/cmd/agy-swap@latest"));
   assert.ok(appCode.includes("install.sh"));
   assert.ok(appCode.includes("install.ps1"));
 });

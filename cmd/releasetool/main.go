@@ -22,7 +22,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: releasetool <checksums|formula|verify-version|verify-assets> ...")
+		return errors.New("usage: releasetool <checksums|verify-version|verify-assets> ...")
 	}
 	switch args[0] {
 	case "checksums":
@@ -30,11 +30,6 @@ func run(args []string) error {
 			return errors.New("usage: releasetool checksums DIST_DIR")
 		}
 		return writeChecksums(args[1], filepath.Join(args[1], "checksums.txt"))
-	case "formula":
-		if len(args) != 5 {
-			return errors.New("usage: releasetool formula VERSION CHECKSUMS TEMPLATE OUTPUT")
-		}
-		return renderFormula(args[1], args[2], args[3], args[4])
 	case "verify-version":
 		if len(args) != 3 {
 			return errors.New("usage: releasetool verify-version VERSION INSTALLER")
@@ -122,36 +117,6 @@ func readChecksums(path string) (map[string]string, error) {
 		checksums[strings.TrimPrefix(fields[1], "*")] = strings.ToLower(fields[0])
 	}
 	return checksums, scanner.Err()
-}
-
-func renderFormula(version, checksumPath, templatePath, outputPath string) error {
-	checksums, err := readChecksums(checksumPath)
-	if err != nil {
-		return err
-	}
-	template, err := os.ReadFile(templatePath)
-	if err != nil {
-		return err
-	}
-	result := strings.ReplaceAll(string(template), "__VERSION__", version)
-	targets := map[string]string{
-		"__DARWIN_AMD64_SHA256__": "darwin_amd64",
-		"__DARWIN_ARM64_SHA256__": "darwin_arm64",
-		"__LINUX_AMD64_SHA256__":  "linux_amd64",
-		"__LINUX_ARM64_SHA256__":  "linux_arm64",
-	}
-	for placeholder, target := range targets {
-		asset := "agy-swap_v" + version + "_" + target
-		digest := checksums[asset]
-		if digest == "" {
-			return fmt.Errorf("checksum missing for %s", asset)
-		}
-		result = strings.ReplaceAll(result, placeholder, digest)
-	}
-	if strings.Contains(result, "__") {
-		return errors.New("formula contains unresolved placeholders")
-	}
-	return os.WriteFile(outputPath, []byte(result), 0o644)
 }
 
 func verifyVersion(version, installerPath string) error {

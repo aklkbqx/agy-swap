@@ -28,10 +28,11 @@
 - [🌐 Live Web Demo](#-live-web-demo)
 - [✨ Key Features](#-key-features)
 - [🚀 Quick Start & Installation](#-quick-start--installation)
-  - [Homebrew (macOS)](#homebrew-macos)
   - [macOS / Linux Automated Installer](#macos--linux-automated-installer)
+  - [Go Install (`go install`)](#go-install-go-install)
   - [Windows PowerShell](#windows-powershell)
   - [Build from Source](#build-from-source)
+  - [Corporate Networks & SSL Proxy Troubleshooting](#corporate-networks--ssl-proxy-troubleshooting)
 - [🖥️ Interactive Terminal UI (TUI)](#️-interactive-terminal-ui-tui)
   - [Keyboard Shortcuts Cheat Sheet](#keyboard-shortcuts-cheat-sheet)
 - [⌨️ CLI Command Reference](#️-cli-command-reference)
@@ -73,13 +74,11 @@ Experience `agy-swap` directly in your browser without installing anything:
 
 ## 🚀 Quick Start & Installation
 
-### Homebrew (macOS)
-
-```bash
-brew install aklkbqx/agy-swap/agy-swap
-```
+Every installation method is cryptographically verified against official SHA-256 checksums before binary execution.
 
 ### macOS / Linux Automated Installer
+
+Single command installer with intelligent System CA certificate auto-detection:
 
 ```bash
 curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash
@@ -87,17 +86,25 @@ curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/
 
 ### Windows PowerShell
 
-Run in PowerShell (verifies SHA-256 integrity before installing):
+Run in PowerShell (enforces TLS 1.2+ and verifies SHA-256 integrity before installation):
 
 ```powershell
 irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex
 ```
 
-*Pre-built standalone binaries for all architectures (`darwin/amd64`, `darwin/arm64`, `linux/amd64`, `linux/arm64`, `windows/amd64`, `windows/arm64`) are also available directly on [GitHub Releases](https://github.com/aklkbqx/agy-swap/releases).*
+### Go Install (`go install`)
+
+If you already have Go installed (Go 1.22+):
+
+```bash
+go install github.com/aklkbqx/agy-swap/cmd/agy-swap@latest
+```
+
+*Pre-built standalone binaries for all architectures (`darwin/amd64`, `darwin/arm64`, `linux/amd64`, `linux/arm64`, `windows/amd64`, `windows/arm64`) with checksums are also available directly on [GitHub Releases](https://github.com/aklkbqx/agy-swap/releases).*
 
 ### Build from Source
 
-Requirements: Go 1.26 or later.
+Requirements: Go 1.22 or later.
 
 ```bash
 # Clone repository
@@ -110,6 +117,17 @@ go build -trimpath -ldflags "-s -w -X main.version=2.1.2 -X main.buildID=local" 
 # Verify installation
 ./agy-swap version
 ```
+
+### Corporate Networks & SSL Proxy Troubleshooting
+
+If you are behind an enterprise firewall, VPN, or corporate proxy (e.g. Zscaler, Fortinet, Netskope) performing TLS inspection, `curl` may report `SSL certificate problem: self signed certificate`:
+
+- **Automated Installer with Proxy Tolerance** (SHA-256 cryptographic verification remains strictly active):
+  ```bash
+  curl -k -fsSL https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | AGY_SWAP_INSECURE=1 bash
+  ```
+- **Alternative (Offline / Direct Go Build)**:
+  Install directly via `go install` or build from source using the instructions above.
 
 ---
 

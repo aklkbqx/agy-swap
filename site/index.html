@@ -83,7 +83,7 @@
                 "name": "How do I install agy-swap on macOS, Linux, and Windows?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "On macOS: brew install aklkbqx/agy-swap/agy-swap. On macOS/Linux: curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash. On Windows PowerShell: irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex."
+                  "text": "On macOS/Linux: curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash. On Go: go install github.com/aklkbqx/agy-swap/cmd/agy-swap@latest. On Windows PowerShell: irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex."
                 }
               },
               {
@@ -124,11 +124,11 @@
         <section id="installation" style="margin-bottom: 2rem;">
           <h2 style="font-size: 1.5rem; color: #f0f6fc; border-bottom: 1px solid #30363d; padding-bottom: 0.5rem;">Quick Installation</h2>
           <p style="color: #c9d1d9;">Install <code>agy-swap</code> on macOS, Linux, or Windows with a single command:</p>
-          <pre style="background: #161b22; padding: 1rem; border-radius: 6px; color: #58a6ff; overflow-x: auto;"><code># Homebrew (macOS)
-brew install aklkbqx/agy-swap/agy-swap
-
-# macOS / Linux
+          <pre style="background: #161b22; padding: 1rem; border-radius: 6px; color: #58a6ff; overflow-x: auto;"><code># macOS / Linux
 curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash
+
+# Go (Any Platform)
+go install github.com/aklkbqx/agy-swap/cmd/agy-swap@latest
 
 # Windows PowerShell
 irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex</code></pre>

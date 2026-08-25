@@ -88,13 +88,13 @@ export function App() {
               {t('hero.subtitle', 'Instant account rotation and live Gemini quota monitoring for Google Antigravity.')}
             </p>
             <div className={`${styles.copyCode} ${styles.heroCommand}`}>
-              <span><b aria-hidden="true">›</b> brew install aklkbqx/agy-swap/agy-swap</span>
+              <span><b aria-hidden="true">›</b> curl -fsSL https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash</span>
               <button
                 className={styles.copyBtn}
-                onClick={() => handleCopy('brew install aklkbqx/agy-swap/agy-swap', setCopiedMac)}
-                aria-label={t('hero.copyCommand', 'Copy Homebrew install command')}
+                onClick={() => handleCopy("curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash", setCopiedLinux)}
+                aria-label={t('hero.copyCommand', 'Copy install command')}
               >
-                {copiedMac ? t('hero.copied', 'Copied') : 'Copy'}
+                {copiedLinux ? t('hero.copied', 'Copied') : 'Copy'}
               </button>
             </div>
             <a href="#demo" className={styles.demoLink} onClick={scrollToDemo}>
@@ -135,21 +135,21 @@ export function App() {
           <div className={styles.installGrid}>
             
             <div className={styles.installBlock}>
-              <h3>{t('install.macTab', 'macOS (Homebrew)')}</h3>
+              <h3>{t('install.linuxTab', 'macOS / Linux (Shell)')}</h3>
               <div className={styles.copyCode}>
-                <span>brew install aklkbqx/agy-swap/agy-swap</span>
-                <button className={styles.copyBtn} onClick={() => handleCopy('brew install aklkbqx/agy-swap/agy-swap', setCopiedMac)} aria-label="Copy macOS Homebrew install command">
-                  {copiedMac ? t('hero.copied', 'Copied') : 'Copy'}
+                <span>curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash</span>
+                <button className={styles.copyBtn} onClick={() => handleCopy("curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash", setCopiedLinux)} aria-label="Copy macOS/Linux script install command">
+                  {copiedLinux ? t('hero.copied', 'Copied') : 'Copy'}
                 </button>
               </div>
             </div>
 
             <div className={styles.installBlock}>
-              <h3>{t('install.linuxTab', 'macOS / Linux (Binary)')}</h3>
+              <h3>{t('install.manualTab', 'Go (Any Platform)')}</h3>
               <div className={styles.copyCode}>
-                <span>curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash</span>
-                <button className={styles.copyBtn} onClick={() => handleCopy("curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash", setCopiedLinux)} aria-label="Copy macOS/Linux script install command">
-                  {copiedLinux ? t('hero.copied', 'Copied') : 'Copy'}
+                <span>go install github.com/aklkbqx/agy-swap/cmd/agy-swap@latest</span>
+                <button className={styles.copyBtn} onClick={() => handleCopy('go install github.com/aklkbqx/agy-swap/cmd/agy-swap@latest', setCopiedMac)} aria-label="Copy Go install command">
+                  {copiedMac ? t('hero.copied', 'Copied') : 'Copy'}
                 </button>
               </div>
             </div>

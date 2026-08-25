@@ -165,11 +165,11 @@ function Scene({ fixture, scrollProgress }) {
       const p = typeof scrollProgress === 'number' ? scrollProgress : 0.5;
       const scrollOffset = p - 0.5;
       
-      // Apple-grade dynamic 3D tilt & camera motion
-      const scrollTiltX = -scrollOffset * 0.42;
-      const scrollTiltY = Math.sin(scrollOffset * Math.PI) * 0.12;
-      const scrollShiftY = -scrollOffset * 0.45;
-      const scrollScale = 1 - Math.abs(scrollOffset) * 0.08;
+      // Apple-grade dynamic 3D tilt & camera motion for 7 features
+      const scrollTiltX = -scrollOffset * 0.38;
+      const scrollTiltY = Math.sin(scrollOffset * Math.PI * 3.5) * 0.14;
+      const scrollShiftY = -scrollOffset * 0.40;
+      const scrollScale = 1 - Math.abs(scrollOffset) * 0.06;
 
       // Pointer micro-parallax
       const pointerRotX = (state.pointer.y * Math.PI) / 20;

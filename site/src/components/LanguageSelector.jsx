@@ -50,7 +50,22 @@ export default function LanguageSelector() {
         aria-label={`Language selector. Current language: ${currentLangObj.label}`}
         title={`Change language (${currentLangObj.label})`}
       >
-        <span className={styles.langGlobeIcon} aria-hidden="true">🌐</span>
+        <svg
+          className={styles.langGlobeSvg}
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <line x1="2" y1="12" x2="22" y2="12" />
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+        </svg>
         <span className={styles.langCurrentCode}>{currentLangObj.shortLabel}</span>
         <svg
           className={`${styles.langChevron} ${isOpen ? styles.langChevronOpen : ''}`}
@@ -80,7 +95,7 @@ export default function LanguageSelector() {
                 className={`${styles.langDropdownItem} ${isSelected ? styles.langItemSelected : ''}`}
                 onClick={() => handleSelect(item.code)}
               >
-                <span className={styles.langItemFlag}>{item.flag}</span>
+                <span className={styles.langItemBadge}>{item.shortLabel}</span>
                 <span className={styles.langItemLabel}>{item.label}</span>
                 {isSelected && (
                   <svg

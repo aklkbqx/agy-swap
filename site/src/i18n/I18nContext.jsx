@@ -2,10 +2,10 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { translations } from './translations.js';
 
 export const SUPPORTED_LANGUAGES = [
-  { code: 'en', label: 'English', flag: '🇺🇸', shortLabel: 'EN' },
-  { code: 'th', label: 'ไทย', flag: '🇹🇭', shortLabel: 'TH' },
-  { code: 'ja', label: '日本語', flag: '🇯🇵', shortLabel: 'JA' },
-  { code: 'zh', label: '简体中文', flag: '🇨🇳', shortLabel: 'ZH' },
+  { code: 'en', label: 'English', shortLabel: 'EN' },
+  { code: 'th', label: 'ไทย', shortLabel: 'TH' },
+  { code: 'ja', label: '日本語', shortLabel: 'JA' },
+  { code: 'zh', label: '简体中文', shortLabel: 'ZH' },
 ];
 
 const I18nContext = createContext(null);

@@ -309,6 +309,30 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
       title: t('demo.stage3Title', 'Hardware OS Keychain Security'),
       desc: t('demo.stage3Desc', 'Credentials stay encrypted in local OS Enclave with directory isolation.'),
     },
+    {
+      view: 'History',
+      step: '04',
+      title: t('demo.stage4Title', 'Audit Trail & Event Logging'),
+      desc: t('demo.stage4Desc', 'Immutable chronological record of every account switch with JSON export.'),
+    },
+    {
+      view: 'Settings',
+      step: '05',
+      title: t('demo.stage5Title', 'Directory Binding & Auto-Switch'),
+      desc: t('demo.stage5Desc', 'Bind accounts to Git repos and project folders with custom aliases.'),
+    },
+    {
+      view: 'Doctor',
+      step: '06',
+      title: t('demo.stage6Title', 'Automated System Diagnostics'),
+      desc: t('demo.stage6Desc', 'Built-in self-diagnostic engine checking tokens, locks, and network latency.'),
+    },
+    {
+      view: 'Backup',
+      step: '07',
+      title: t('demo.stage7Title', 'Cryptographic Backup & Restore'),
+      desc: t('demo.stage7Desc', 'Encrypted archive migration with SHA-256 integrity verification.'),
+    },
   ];
 
   const trackRef = useRef(null);
@@ -326,14 +350,8 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
       const rawProgress = totalScrollable > 0 ? currentScroll / totalScrollable : 0;
       const clamped = Math.max(0, Math.min(1, rawProgress));
 
-      let nextStage = 0;
-      if (clamped >= 0.66) {
-        nextStage = 2;
-      } else if (clamped >= 0.33) {
-        nextStage = 1;
-      } else {
-        nextStage = 0;
-      }
+      const numStages = STAGES.length;
+      const nextStage = Math.min(numStages - 1, Math.max(0, Math.floor(clamped * numStages)));
 
       setActiveStageIndex(nextStage);
     };
@@ -361,6 +379,15 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
     }
   }, [activeStageIndex, openView, state.view]);
 
+  const jumpToStage = (idx) => {
+    if (!trackRef.current) return;
+    const rect = trackRef.current.getBoundingClientRect();
+    const windowHeight = window.innerHeight || document.documentElement.clientHeight;
+    const totalScrollable = rect.height - windowHeight;
+    const targetScrollTop = window.scrollY + rect.top + (totalScrollable * (idx + 0.1) / STAGES.length);
+    window.scrollTo({ top: targetScrollTop, behavior: 'smooth' });
+  };
+
   const currentStage = STAGES[activeStageIndex] || STAGES[0];
 
   return (
@@ -368,21 +395,19 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
       <div className={styles.stickyPinStage} ref={containerRef}>
         {/* Apple-Style Floating Story Headline */}
         <div className={styles.floatingStoryBadge} role="region" aria-label="Showcase view">
-          <div className={styles.storyBadgeHeader}>
-            <span className={styles.storyStepNum}>{currentStage.step}</span>
-            <span className={styles.storyStepDivider}>/</span>
-            <span className={styles.storyStepView}>{currentStage.view}</span>
-          </div>
-          <h3 className={styles.storyStepTitle}>{currentStage.title}</h3>
-          <p className={styles.storyStepDesc}>{currentStage.desc}</p>
-          <div className={styles.storyStepDots} aria-hidden="true">
+          <span className={styles.storyStepNum}>{currentStage.step} / {currentStage.view.toUpperCase()}</span>
+          <h3 className={styles.storyTitle}>{currentStage.title}</h3>
+          <p className={styles.storyDesc}>{currentStage.desc}</p>
+          <div className={styles.storyStepDots} role="tablist" aria-label="Features navigation">
             {STAGES.map((s, idx) => (
               <button
-                key={s.view}
+                key={s.step}
                 type="button"
-                className={`${styles.stepDot} ${activeStageIndex === idx ? styles.activeDot : ''}`}
-                onClick={() => openView(s.view)}
+                className={`${styles.stepDot} ${idx === activeStageIndex ? styles.activeDot : ''}`}
+                onClick={() => jumpToStage(idx)}
                 aria-label={`Go to ${s.title}`}
+                role="tab"
+                aria-selected={idx === activeStageIndex}
               />
             ))}
           </div>
