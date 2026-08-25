@@ -1,6 +1,7 @@
 import React, { useState, useReducer, useRef, Suspense, useMemo, useCallback, useEffect } from 'react';
 import styles from '../App.module.css';
 import TuiTerminal from './TuiTerminal';
+import AmbientDust from './AmbientDust';
 import { VIEWS, ACCOUNTS, PROFILES, HISTORY_EVENTS, FORM_FIELD_COUNTS, resolveFixture, setGlobalTuiFixture } from './fixtures.js';
 import { createInitialTuiState, transitionTuiState, routeKeyAction } from './tuiState.js';
 import { createShardManager } from './shardManager.js';
@@ -8,6 +9,27 @@ import initialFixturesData from '../generated/tui-initial-fixtures.json';
 
 export { VIEWS, ACCOUNTS, PROFILES, HISTORY_EVENTS, FORM_FIELD_COUNTS, resolveFixture } from './fixtures.js';
 export { createInitialTuiState, transitionTuiState, routeKeyAction } from './tuiState.js';
+
+const FEATURED_BEATS = [
+  {
+    view: 'Dashboard',
+    num: '01',
+    title: 'Multi-Account Switcher',
+    desc: 'Sub-millisecond rotation across unlimited Google Antigravity accounts.',
+  },
+  {
+    view: 'Quota',
+    num: '02',
+    title: 'Real-Time Quota Monitor',
+    desc: 'Live Gemini & model limits countdown to eliminate surprise rate-limits.',
+  },
+  {
+    view: 'Profiles',
+    num: '03',
+    title: 'Secure Profiles & OS Vault',
+    desc: 'Hardware-backed OS Keychain security with per-workspace directory isolation.',
+  },
+];
 
 const TerminalScene = React.lazy(() => import('./TerminalScene'));
 
@@ -333,6 +355,8 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
       </div>
 
       <div className={styles.deviceFrame} data-layout={layout} data-3d-enabled={is3DEnabled ? 'true' : 'false'}>
+        <AmbientDust />
+
         {is3DEnabled && (
           <ErrorBoundary onError={on3DError}>
             <Suspense fallback={null}>
@@ -354,6 +378,26 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
             onApertureCapacity={handleApertureCapacity}
           />
         </div>
+      </div>
+
+      {/* Featured 1-3 Story Beats Parallax Track */}
+      <div className={styles.storyBeatsTrack} role="region" aria-label="Featured showcase views">
+        {FEATURED_BEATS.map((beat) => {
+          const isActive = state.view === beat.view;
+          return (
+            <button
+              key={beat.view}
+              type="button"
+              className={`${styles.storyBeatCard} ${isActive ? styles.activeBeatCard : ''}`}
+              onClick={() => openView(beat.view)}
+              aria-pressed={isActive}
+            >
+              <div className={styles.storyBeatNum}>{beat.num}</div>
+              <div className={styles.storyBeatTitle}>{beat.title}</div>
+              <p className={styles.storyBeatDesc}>{beat.desc}</p>
+            </button>
+          );
+        })}
       </div>
 
       <div className={styles.srOnly} aria-live="polite">

@@ -108,25 +108,28 @@
 
 /* TUI Demo Section */
 .demoSection {
-  background-color: #f4f6f7;
-  padding: 0 0 1rem;
-  border-bottom: 1px solid rgba(0,0,0,0.05);
+  background-color: #0b0d10;
+  padding: 0 0 2.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  position: relative;
+  overflow: hidden;
 }
 
 .demoSection:focus {
-  outline: 2px solid var(--color-accent-signal);
-  outline-offset: -2px;
+  outline: none;
 }
 
 .demoHeader {
   min-height: 44px;
-  padding: 0.35rem clamp(1.25rem, 4vw, 4rem);
+  padding: 0.75rem clamp(1.25rem, 4vw, 4rem);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
   max-width: 1536px;
   margin: 0 auto;
+  position: relative;
+  z-index: 10;
 }
 
 .demoHeader .eyebrow {
@@ -137,15 +140,17 @@
   margin: 0;
   font-size: 1rem;
   font-weight: 650;
+  color: #f0f6fc;
 }
 
 .demoHeader h2 span {
-  color: var(--color-text-light);
+  color: #8b949e;
   font-weight: 450;
 }
 
 .demoWrapper {
   position: relative;
+  width: 100%;
 }
 
 .demoContainer {
@@ -160,6 +165,7 @@
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
+  min-height: min(60vh, 580px);
   max-width: 100%;
   min-width: 0;
   border-radius: 0;
@@ -167,6 +173,9 @@
   box-shadow: none;
   background-color: #0b0d10;
   box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .deviceFrame[data-layout="compact"] {
@@ -194,37 +203,34 @@
 }
 
 .terminalOverlay {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: min(92%, 860px);
+  position: relative;
+  width: min(94%, 880px);
   height: auto;
-  max-height: 88%;
+  max-height: 90%;
   background-color: #090c10;
-  border-radius: 4px;
+  border-radius: 6px;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 30;
+  z-index: 10;
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
 }
 
 .deviceFrame[data-layout="wide"] .terminalOverlay {
-  width: min(92%, 860px);
-  aspect-ratio: 100 / 48;
+  aspect-ratio: 2 / 1;
 }
 
 .deviceFrame[data-layout="stacked"] .terminalOverlay {
-  width: min(92%, 860px);
   aspect-ratio: 80 / 48;
 }
 
 .deviceFrame[data-layout="compact"] .terminalOverlay {
-  width: min(96%, 860px);
   aspect-ratio: 376 / 228;
 }
 
@@ -236,17 +242,8 @@
 
 @media (max-width: 960px) {
   .terminalOverlay {
-    width: min(92%, 860px);
+    width: min(94%, 880px);
     max-height: 92%;
-  }
-
-  .deviceFrame[data-layout="wide"] .terminalOverlay,
-  .deviceFrame[data-layout="stacked"] .terminalOverlay {
-    width: min(92%, 860px);
-  }
-
-  .deviceFrame[data-layout="compact"] .terminalOverlay {
-    width: 94%;
   }
 }
 
@@ -254,12 +251,7 @@
   .terminalOverlay {
     width: 96%;
     max-height: 94%;
-  }
-
-  .deviceFrame[data-layout="wide"] .terminalOverlay,
-  .deviceFrame[data-layout="stacked"] .terminalOverlay,
-  .deviceFrame[data-layout="compact"] .terminalOverlay {
-    width: 96%;
+    padding: 6px;
   }
 }
 
@@ -272,6 +264,7 @@
   overflow: hidden;
   outline: 2px solid transparent;
   outline-offset: -2px;
+  border-radius: 4px;
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
@@ -279,6 +272,84 @@
 
 .tuiContainer:focus-visible {
   outline-color: var(--color-accent-signal);
+}
+
+.ambientDustCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.storyBeatsTrack {
+  display: flex;
+  gap: 1rem;
+  max-width: 1536px;
+  margin: 1.25rem auto 0;
+  padding: 0 clamp(1.25rem, 4vw, 4rem);
+  width: 100%;
+  box-sizing: border-box;
+  position: relative;
+  z-index: 10;
+}
+
+.storyBeatCard {
+  flex: 1;
+  min-width: 0;
+  background: rgba(22, 27, 34, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 0.85rem 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  color: #8b949e;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.storyBeatCard:hover {
+  background: rgba(22, 27, 34, 0.95);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #f0f6fc;
+}
+
+.activeBeatCard {
+  background: #161b22;
+  border-color: var(--color-accent-signal);
+  color: #f0f6fc;
+  box-shadow: 0 0 16px rgba(255, 137, 26, 0.12);
+}
+
+.storyBeatNum {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--color-accent-signal);
+  margin-bottom: 0.25rem;
+}
+
+.storyBeatTitle {
+  font-size: 0.875rem;
+  font-weight: 650;
+  margin-bottom: 0.25rem;
+  color: #f0f6fc;
+}
+
+.storyBeatDesc {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: #8b949e;
+  margin: 0;
+}
+
+@media (max-width: 768px) {
+  .storyBeatsTrack {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
 }
 
 .srOnly {
@@ -505,9 +576,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  background-color: var(--color-background, #f4f6f7);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-  margin-bottom: 2rem;
+  background-color: transparent;
   width: 100%;
 }
 
@@ -521,7 +590,9 @@
   width: 100%;
   margin: 0 auto;
   gap: 1rem;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  position: relative;
+  z-index: 10;
 }
 
 .viewTabs {
@@ -548,7 +619,7 @@
   padding: 0 1.25rem;
   font-size: 0.875rem;
   font-weight: 500;
-  color: var(--color-text-light);
+  color: #8b949e;
   background: transparent;
   border-radius: 6px;
   white-space: nowrap;
@@ -558,20 +629,20 @@
 }
 
 .viewTab:hover {
-  color: var(--color-text);
-  background-color: rgba(0, 0, 0, 0.04);
+  color: #f0f6fc;
+  background-color: rgba(255, 255, 255, 0.06);
 }
 
 .viewTab:focus-visible {
-  outline: 2px solid var(--color-accent-signal, #34C759);
+  outline: 2px solid var(--color-accent-signal);
   outline-offset: 2px;
 }
 
 .activeTab {
-  color: var(--color-text);
-  background-color: #fff;
-  border-color: rgba(0, 0, 0, 0.08);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  color: #f0f6fc;
+  background-color: #161b22;
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 @media (max-width: 600px) {
@@ -597,7 +668,7 @@
   align-items: center;
   gap: 0.6rem;
   font-size: 0.8125rem;
-  color: var(--color-text-light);
+  color: #8b949e;
   min-height: 44px;
 }
 
@@ -605,7 +676,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background-color: var(--color-accent-signal, #34C759);
+  background-color: var(--color-accent-signal);
 }
 
 .statusLabel {
