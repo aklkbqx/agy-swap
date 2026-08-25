@@ -12,30 +12,8 @@ export function App() {
   const [copiedLinux, setCopiedLinux] = useState(false);
   const [copiedWin, setCopiedWin] = useState(false);
   
-  const [is3DEnabled, setIs3DEnabled] = useState(false);
-  const [canEnable3D, setCanEnable3D] = useState(true);
+  const [is3DEnabled, setIs3DEnabled] = useState(true);
   const [ariaLiveMsg, setAriaLiveMsg] = useState('');
-
-  useEffect(() => {
-    const checkCapabilities = () => {
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        return false;
-      }
-      if (navigator.connection && navigator.connection.saveData) {
-        return false;
-      }
-      try {
-        const canvas = document.createElement('canvas');
-        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-        if (!gl) return false;
-      } catch (e) {
-        return false;
-      }
-      return true;
-    };
-    
-    setCanEnable3D(checkCapabilities());
-  }, []);
 
   const handleCopy = async (text, setter) => {
     try {
@@ -60,15 +38,9 @@ export function App() {
     }
   };
 
-  const enable3D = () => {
-    setIs3DEnabled(true);
-    setAriaLiveMsg('Live 3D enabled.');
-  };
-
   const handle3DError = () => {
     setIs3DEnabled(false);
-    setCanEnable3D(false);
-    setAriaLiveMsg('3D mode failed. Falling back to static mode.');
+    setAriaLiveMsg('3D mode unavailable. Falling back to 2D.');
   };
 
   const scrollToDemo = (e) => {
@@ -137,21 +109,6 @@ export function App() {
               <span className={styles.eyebrow}>{t('demo.eyebrow', 'LIVE PRODUCT FLOW')}</span>
               <h2 id="demo-heading">{t('demo.headline', 'Interactive demo')} <span>· {t('demo.subhead', 'sample data')}</span></h2>
             </div>
-            {canEnable3D && (
-              <button
-                className={styles.enable3dBtn}
-                onClick={() => {
-                  if (is3DEnabled) {
-                    setIs3DEnabled(false);
-                    setAriaLiveMsg('3D mode disabled.');
-                  } else {
-                    enable3D();
-                  }
-                }}
-              >
-                {is3DEnabled ? 'Switch to 2D' : 'Enable live 3D'}
-              </button>
-            )}
           </div>
           
           <div className={styles.demoWrapper}>

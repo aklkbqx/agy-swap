@@ -11,33 +11,6 @@ import initialFixturesData from '../generated/tui-initial-fixtures.json';
 export { VIEWS, ACCOUNTS, PROFILES, HISTORY_EVENTS, FORM_FIELD_COUNTS, resolveFixture } from './fixtures.js';
 export { createInitialTuiState, transitionTuiState, routeKeyAction } from './tuiState.js';
 
-const FEATURED_BEATS = [
-  {
-    view: 'Dashboard',
-    num: '01',
-    titleKey: 'demo.storyBeats.beat1Title',
-    descKey: 'demo.storyBeats.beat1Desc',
-    title: 'Multi-Account Switcher',
-    desc: 'Sub-millisecond rotation across unlimited Google Antigravity accounts.',
-  },
-  {
-    view: 'Quota',
-    num: '02',
-    titleKey: 'demo.storyBeats.beat2Title',
-    descKey: 'demo.storyBeats.beat2Desc',
-    title: 'Real-Time Quota Monitor',
-    desc: 'Live Gemini & model limits countdown to eliminate surprise rate-limits.',
-  },
-  {
-    view: 'Profiles',
-    num: '03',
-    titleKey: 'demo.storyBeats.beat3Title',
-    descKey: 'demo.storyBeats.beat3Desc',
-    title: 'Secure Profiles & OS Vault',
-    desc: 'Hardware-backed OS Keychain security with per-workspace directory isolation.',
-  },
-];
-
 const TerminalScene = React.lazy(() => import('./TerminalScene'));
 
 class ErrorBoundary extends React.Component {
@@ -386,26 +359,6 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
             onApertureCapacity={handleApertureCapacity}
           />
         </div>
-      </div>
-
-      {/* Featured 1-3 Story Beats Parallax Track */}
-      <div className={styles.storyBeatsTrack} role="region" aria-label="Featured showcase views">
-        {FEATURED_BEATS.map((beat) => {
-          const isActive = state.view === beat.view;
-          return (
-            <button
-              key={beat.view}
-              type="button"
-              className={`${styles.storyBeatCard} ${isActive ? styles.activeBeatCard : ''}`}
-              onClick={() => openView(beat.view)}
-              aria-pressed={isActive}
-            >
-              <div className={styles.storyBeatNum}>{beat.num}</div>
-              <div className={styles.storyBeatTitle}>{t(beat.titleKey, beat.title)}</div>
-              <p className={styles.storyBeatDesc}>{t(beat.descKey, beat.desc)}</p>
-            </button>
-          );
-        })}
       </div>
 
       <div className={styles.srOnly} aria-live="polite">

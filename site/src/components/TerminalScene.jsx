@@ -82,7 +82,43 @@ function drawTuiScreenToCanvas(canvas, fixture) {
   ctx.shadowBlur = 0;
 }
 
-function Scene({ fixture }) {
+function useScrollProgress(containerRef) {
+  const [progress, setProgress] = useState(0.5);
+
+  useEffect(() => {
+    let animationFrameId = null;
+
+    const calculateProgress = () => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const windowHeight = window.innerHeight || document.documentElement.clientHeight;
+      const totalDist = windowHeight + rect.height;
+      const currentDist = windowHeight - rect.top;
+      const rawProgress = totalDist > 0 ? currentDist / totalDist : 0.5;
+      const clamped = Math.max(0, Math.min(1, rawProgress));
+      setProgress(clamped);
+    };
+
+    const handleScroll = () => {
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      animationFrameId = requestAnimationFrame(calculateProgress);
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('resize', handleScroll, { passive: true });
+    calculateProgress();
+
+    return () => {
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleScroll);
+    };
+  }, [containerRef]);
+
+  return progress;
+}
+
+function Scene({ fixture, scrollProgress }) {
   const meshRef = useRef(null);
   const [screenCanvas] = useState(() => {
     const c = document.createElement('canvas');
@@ -115,13 +151,27 @@ function Scene({ fixture }) {
 
   useFrame((state) => {
     if (meshRef.current) {
-      const targetRotX = (state.pointer.y * Math.PI) / 16;
-      const targetRotY = (state.pointer.x * Math.PI) / 16;
+      // Scroll parallax tilt: entrance and exit angles
+      const scrollOffset = scrollProgress - 0.5;
+      const scrollTiltX = -scrollOffset * 0.45;
+      const scrollShiftY = -scrollOffset * 0.55;
+      const scrollScale = 1 - Math.abs(scrollOffset) * 0.07;
+
+      // Pointer micro-parallax
+      const pointerRotX = (state.pointer.y * Math.PI) / 18;
+      const pointerRotY = (state.pointer.x * Math.PI) / 18;
+
+      const targetRotX = pointerRotX + scrollTiltX;
+      const targetRotY = pointerRotY;
+
       meshRef.current.rotation.x = THREE.MathUtils.lerp(meshRef.current.rotation.x, targetRotX, 0.08);
       meshRef.current.rotation.y = THREE.MathUtils.lerp(meshRef.current.rotation.y, targetRotY, 0.08);
 
+      // Weightless antigravity floating levitation
       const time = state.clock.getElapsedTime();
-      meshRef.current.position.y = Math.sin(time * 1.2) * 0.04;
+      const floatY = Math.sin(time * 1.3) * 0.045;
+      meshRef.current.position.y = THREE.MathUtils.lerp(meshRef.current.position.y, floatY + scrollShiftY, 0.08);
+      meshRef.current.scale.setScalar(THREE.MathUtils.lerp(meshRef.current.scale.x, scrollScale, 0.08));
     }
   });
 
@@ -183,6 +233,7 @@ export default function TerminalScene({ active }) {
   const [visible, setVisible] = useState(false);
   const [docHidden, setDocHidden] = useState(document.hidden);
   const [currentFixture, setCurrentFixture] = useState(() => getGlobalTuiFixture());
+  const scrollProgress = useScrollProgress(containerRef);
 
   useEffect(() => {
     const unsub = subscribeTuiFixture((fix) => {
@@ -218,7 +269,7 @@ export default function TerminalScene({ active }) {
           gl.setClearColor(0x000000, 0);
         }}
       >
-        <Scene fixture={currentFixture} />
+        <Scene fixture={currentFixture} scrollProgress={scrollProgress} />
       </Canvas>
     </div>
   );
