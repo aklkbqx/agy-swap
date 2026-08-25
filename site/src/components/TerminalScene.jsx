@@ -13,10 +13,10 @@ function drawTuiScreenToCanvas(canvas, fixture) {
   const width = canvas.width;
   const height = canvas.height;
 
-  // Background: Deep obsidian terminal screen
+  // Background: Deep AGY obsidian terminal screen
   const bgGrad = ctx.createLinearGradient(0, 0, 0, height);
-  bgGrad.addColorStop(0, '#0c1017');
-  bgGrad.addColorStop(1, '#06080b');
+  bgGrad.addColorStop(0, '#0a0d14');
+  bgGrad.addColorStop(1, '#06080c');
   ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, width, height);
 
@@ -36,7 +36,7 @@ function drawTuiScreenToCanvas(canvas, fixture) {
     width * 0.68
   );
   vignette.addColorStop(0, 'rgba(0,0,0,0)');
-  vignette.addColorStop(1, 'rgba(0,0,0,0.45)');
+  vignette.addColorStop(1, 'rgba(0,0,0,0.5)');
   ctx.fillStyle = vignette;
   ctx.fillRect(0, 0, width, height);
 
@@ -53,8 +53,8 @@ function drawTuiScreenToCanvas(canvas, fixture) {
   const lineHeight = availH / totalRows;
   const fontSize = Math.floor(lineHeight * 0.78);
 
-  const baseFont = `${fontSize}px "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace`;
-  const boldFont = `bold ${fontSize}px "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace`;
+  const baseFont = `${fontSize}px "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace`;
+  const boldFont = `bold ${fontSize}px "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace`;
 
   ctx.textBaseline = 'middle';
   ctx.font = baseFont;
@@ -67,11 +67,11 @@ function drawTuiScreenToCanvas(canvas, fixture) {
     let currentX = paddingX;
     for (const tok of tokens) {
       ctx.font = tok.bold ? boldFont : baseFont;
-      ctx.fillStyle = tok.color || '#b0b5bd';
+      ctx.fillStyle = tok.color || '#e0e6ed';
 
       if (tok.bold || (tok.color && tok.color !== '#7f7f7f' && tok.color !== '#000000')) {
-        ctx.shadowColor = tok.color || '#4fc1ff';
-        ctx.shadowBlur = 6;
+        ctx.shadowColor = tok.color || '#38bdf8';
+        ctx.shadowBlur = 4;
       } else {
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
