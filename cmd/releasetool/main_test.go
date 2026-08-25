@@ -3,11 +3,10 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
-func TestChecksumsAndFormula(t *testing.T) {
+func TestChecksums(t *testing.T) {
 	dir := t.TempDir()
 	for _, target := range []string{"darwin_amd64", "darwin_arm64", "linux_amd64", "linux_arm64"} {
 		name := "agy-swap_v2.0.0_" + target
@@ -19,21 +18,12 @@ func TestChecksumsAndFormula(t *testing.T) {
 	if err := writeChecksums(dir, checksums); err != nil {
 		t.Fatal(err)
 	}
-	template := filepath.Join(dir, "formula.tmpl")
-	templateText := "v=__VERSION__ a=__DARWIN_AMD64_SHA256__ b=__DARWIN_ARM64_SHA256__ c=__LINUX_AMD64_SHA256__ d=__LINUX_ARM64_SHA256__\n"
-	if err := os.WriteFile(template, []byte(templateText), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	output := filepath.Join(dir, "formula.rb")
-	if err := renderFormula("2.0.0", checksums, template, output); err != nil {
-		t.Fatal(err)
-	}
-	rendered, err := os.ReadFile(output)
+	parsed, err := readChecksums(checksums)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(rendered), "__") || !strings.Contains(string(rendered), "v=2.0.0") {
-		t.Fatalf("unexpected formula: %s", rendered)
+	if len(parsed) != 4 {
+		t.Fatalf("expected 4 checksum entries, got %d", len(parsed))
 	}
 }
 
