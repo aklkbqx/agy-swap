@@ -151,6 +151,15 @@ function Scene({ fixture, scrollProgress }) {
     }
   }, [fixture, screenCanvas]);
 
+  useEffect(() => {
+    return () => {
+      if (textureRef.current) {
+        textureRef.current.dispose();
+        textureRef.current = null;
+      }
+    };
+  }, []);
+
   useFrame((state) => {
     if (meshRef.current) {
       const p = typeof scrollProgress === 'number' ? scrollProgress : 0.5;
@@ -233,7 +242,7 @@ function Scene({ fixture, scrollProgress }) {
   );
 }
 
-export default function TerminalScene({ active, scrollProgress: propScrollProgress }) {
+export default function TerminalScene({ active, scrollProgress: propScrollProgress, onContextLost }) {
   const containerRef = useRef(null);
   const [visible, setVisible] = useState(false);
   const [docHidden, setDocHidden] = useState(document.hidden);
@@ -271,11 +280,31 @@ export default function TerminalScene({ active, scrollProgress: propScrollProgre
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'absolute', inset: 0, zIndex: 10 }}>
       <Canvas
+        gl={{
+          alpha: true,
+          antialias: true,
+          powerPreference: 'default',
+          failIfMajorPerformanceCaveat: false,
+          preserveDrawingBuffer: false,
+        }}
         dpr={window.devicePixelRatio > 1.5 ? 1.5 : window.devicePixelRatio}
         frameloop={isActive ? 'always' : 'demand'}
         camera={{ position: [0, 0, 9.2], fov: 36 }}
         onCreated={({ gl }) => {
           gl.setClearColor(0x000000, 0);
+          const canvas = gl.domElement;
+          if (canvas) {
+            const handleContextLost = (e) => {
+              e.preventDefault();
+              if (onContextLost) {
+                onContextLost();
+              }
+              try {
+                window.dispatchEvent(new CustomEvent('agy-swap-3d-error'));
+              } catch (err) {}
+            };
+            canvas.addEventListener('webglcontextlost', handleContextLost, false);
+          }
         }}
       >
         <Scene fixture={currentFixture} scrollProgress={effectiveProgress} />

@@ -40,10 +40,15 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
   const isMountedRef = useRef(true);
   useEffect(() => {
     isMountedRef.current = true;
+    const handle3DErrorEvent = () => {
+      if (on3DError) on3DError();
+    };
+    window.addEventListener('agy-swap-3d-error', handle3DErrorEvent);
     return () => {
       isMountedRef.current = false;
+      window.removeEventListener('agy-swap-3d-error', handle3DErrorEvent);
     };
-  }, []);
+  }, [on3DError]);
 
   const [shardRevision, setShardRevision] = useState(0);
   const [pendingView, setPendingView] = useState(null);
