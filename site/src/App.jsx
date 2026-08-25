@@ -103,14 +103,7 @@ export function App() {
           </div>
         </section>
 
-        <section id="demo" tabIndex={-1} className={styles.demoSection} aria-labelledby="demo-heading">
-          <div className={styles.demoHeader}>
-            <div>
-              <span className={styles.eyebrow}>{t('demo.eyebrow', 'LIVE PRODUCT FLOW')}</span>
-              <h2 id="demo-heading">{t('demo.headline', 'Interactive demo')} <span>· {t('demo.subhead', 'sample data')}</span></h2>
-            </div>
-          </div>
-          
+        <section id="demo" tabIndex={-1} className={styles.demoSection} aria-label={t('demo.headline', 'Interactive demo')}>
           <div className={styles.demoWrapper}>
             <InteractiveDemo is3DEnabled={is3DEnabled} on3DError={handle3DError} />
           </div>

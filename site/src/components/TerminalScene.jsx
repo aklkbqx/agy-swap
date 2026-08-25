@@ -3,6 +3,7 @@ import { Canvas, useFrame, useLoader } from '@react-three/fiber';
 import * as THREE from 'three';
 import { parseAnsi } from './ansi.js';
 import { getGlobalTuiFixture, subscribeTuiFixture } from './fixtures.js';
+import initialFixturesData from '../generated/tui-initial-fixtures.json';
 
 function drawTuiScreenToCanvas(canvas, fixture) {
   if (!canvas) return;
@@ -39,7 +40,8 @@ function drawTuiScreenToCanvas(canvas, fixture) {
   ctx.fillStyle = vignette;
   ctx.fillRect(0, 0, width, height);
 
-  const lines = fixture?.lines || [];
+  const activeFix = fixture || getGlobalTuiFixture() || initialFixturesData.fixtures?.[0];
+  const lines = activeFix?.lines || [];
   if (lines.length === 0) return;
 
   const totalRows = Math.max(lines.length, 24);
@@ -82,7 +84,7 @@ function drawTuiScreenToCanvas(canvas, fixture) {
   ctx.shadowBlur = 0;
 }
 
-function useScrollProgress(containerRef) {
+function useInternalScrollProgress(containerRef) {
   const [progress, setProgress] = useState(0.5);
 
   useEffect(() => {
@@ -151,25 +153,28 @@ function Scene({ fixture, scrollProgress }) {
 
   useFrame((state) => {
     if (meshRef.current) {
-      // Scroll parallax tilt: entrance and exit angles
-      const scrollOffset = scrollProgress - 0.5;
-      const scrollTiltX = -scrollOffset * 0.45;
-      const scrollShiftY = -scrollOffset * 0.55;
-      const scrollScale = 1 - Math.abs(scrollOffset) * 0.07;
+      const p = typeof scrollProgress === 'number' ? scrollProgress : 0.5;
+      const scrollOffset = p - 0.5;
+      
+      // Apple-grade dynamic 3D tilt & camera motion
+      const scrollTiltX = -scrollOffset * 0.42;
+      const scrollTiltY = Math.sin(scrollOffset * Math.PI) * 0.12;
+      const scrollShiftY = -scrollOffset * 0.45;
+      const scrollScale = 1 - Math.abs(scrollOffset) * 0.08;
 
       // Pointer micro-parallax
-      const pointerRotX = (state.pointer.y * Math.PI) / 18;
-      const pointerRotY = (state.pointer.x * Math.PI) / 18;
+      const pointerRotX = (state.pointer.y * Math.PI) / 20;
+      const pointerRotY = (state.pointer.x * Math.PI) / 20;
 
       const targetRotX = pointerRotX + scrollTiltX;
-      const targetRotY = pointerRotY;
+      const targetRotY = pointerRotY + scrollTiltY;
 
       meshRef.current.rotation.x = THREE.MathUtils.lerp(meshRef.current.rotation.x, targetRotX, 0.08);
       meshRef.current.rotation.y = THREE.MathUtils.lerp(meshRef.current.rotation.y, targetRotY, 0.08);
 
-      // Weightless antigravity floating levitation
+      // Weightless floating levitation
       const time = state.clock.getElapsedTime();
-      const floatY = Math.sin(time * 1.3) * 0.045;
+      const floatY = Math.sin(time * 1.3) * 0.04;
       meshRef.current.position.y = THREE.MathUtils.lerp(meshRef.current.position.y, floatY + scrollShiftY, 0.08);
       meshRef.current.scale.setScalar(THREE.MathUtils.lerp(meshRef.current.scale.x, scrollScale, 0.08));
     }
@@ -228,14 +233,18 @@ function Scene({ fixture, scrollProgress }) {
   );
 }
 
-export default function TerminalScene({ active }) {
+export default function TerminalScene({ active, scrollProgress: propScrollProgress }) {
   const containerRef = useRef(null);
   const [visible, setVisible] = useState(false);
   const [docHidden, setDocHidden] = useState(document.hidden);
-  const [currentFixture, setCurrentFixture] = useState(() => getGlobalTuiFixture());
-  const scrollProgress = useScrollProgress(containerRef);
+  const [currentFixture, setCurrentFixture] = useState(() => getGlobalTuiFixture() || initialFixturesData.fixtures?.[0]);
+  const internalProgress = useInternalScrollProgress(containerRef);
+  const effectiveProgress = typeof propScrollProgress === 'number' ? propScrollProgress : internalProgress;
 
   useEffect(() => {
+    const initial = getGlobalTuiFixture() || initialFixturesData.fixtures?.[0];
+    if (initial) setCurrentFixture(initial);
+
     const unsub = subscribeTuiFixture((fix) => {
       if (fix) setCurrentFixture(fix);
     });
@@ -269,7 +278,7 @@ export default function TerminalScene({ active }) {
           gl.setClearColor(0x000000, 0);
         }}
       >
-        <Scene fixture={currentFixture} scrollProgress={scrollProgress} />
+        <Scene fixture={currentFixture} scrollProgress={effectiveProgress} />
       </Canvas>
     </div>
   );

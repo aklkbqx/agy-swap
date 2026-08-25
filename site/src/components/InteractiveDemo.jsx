@@ -52,7 +52,6 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
 
   const containerRef = useRef(null);
   const tuiRef = useRef(null);
-  const buttonRefs = useRef([]);
   const lastVisibleFixtureRef = useRef(null);
   const pendingActionRef = useRef(null);
 
@@ -286,83 +285,133 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
       });
   };
 
-  const handleToolbarKeyDown = (e, index) => {
-    let nextIndex = index;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-      nextIndex = (index + 1) % VIEWS.length;
-    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-      nextIndex = (index - 1 + VIEWS.length) % VIEWS.length;
-    } else if (e.key === 'Home') {
-      nextIndex = 0;
-    } else if (e.key === 'End') {
-      nextIndex = VIEWS.length - 1;
-    }
+  const STAGES = [
+    {
+      view: 'Dashboard',
+      step: '01',
+      title: t('demo.stage1Title', 'Sub-Millisecond Account Rotation'),
+      desc: t('demo.stage1Desc', 'Swap unlimited Google accounts directly in terminal without losing flow.'),
+    },
+    {
+      view: 'Quota',
+      step: '02',
+      title: t('demo.stage2Title', 'Live Gemini Quota Monitor'),
+      desc: t('demo.stage2Desc', 'Real-time model capacity meter and rate-limit cooldown countdowns.'),
+    },
+    {
+      view: 'Profiles',
+      step: '03',
+      title: t('demo.stage3Title', 'Hardware OS Keychain Security'),
+      desc: t('demo.stage3Desc', 'Credentials stay encrypted in local OS Enclave with directory isolation.'),
+    },
+  ];
 
-    if (nextIndex !== index) {
-      e.preventDefault();
-      buttonRefs.current[nextIndex]?.focus();
-      openView(VIEWS[nextIndex]);
+  const trackRef = useRef(null);
+  const [activeStageIndex, setActiveStageIndex] = useState(0);
+
+  useEffect(() => {
+    let animId = null;
+
+    const handleScroll = () => {
+      if (!trackRef.current) return;
+      const rect = trackRef.current.getBoundingClientRect();
+      const windowHeight = window.innerHeight || document.documentElement.clientHeight;
+      const totalScrollable = rect.height - windowHeight;
+      const currentScroll = -rect.top;
+      const rawProgress = totalScrollable > 0 ? currentScroll / totalScrollable : 0;
+      const clamped = Math.max(0, Math.min(1, rawProgress));
+
+      let nextStage = 0;
+      if (clamped >= 0.66) {
+        nextStage = 2;
+      } else if (clamped >= 0.33) {
+        nextStage = 1;
+      } else {
+        nextStage = 0;
+      }
+
+      setActiveStageIndex(nextStage);
+    };
+
+    const onScroll = () => {
+      if (animId) cancelAnimationFrame(animId);
+      animId = requestAnimationFrame(handleScroll);
+    };
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+    handleScroll();
+
+    return () => {
+      if (animId) cancelAnimationFrame(animId);
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, []);
+
+  useEffect(() => {
+    const targetView = STAGES[activeStageIndex]?.view;
+    if (targetView && state.view !== targetView) {
+      openView(targetView);
     }
-  };
+  }, [activeStageIndex, openView, state.view]);
+
+  const currentStage = STAGES[activeStageIndex] || STAGES[0];
 
   return (
-    <div className={styles.interactiveSection} ref={containerRef}>
-      <div className={styles.apparatusNav}>
-        <div className={styles.viewTabs} role="toolbar" aria-label="Terminal views">
-          {VIEWS.map((view, i) => (
-            <button
-              key={view}
-              ref={(el) => (buttonRefs.current[i] = el)}
-              type="button"
-              className={`${styles.viewTab} ${state.view === view ? styles.activeTab : ''}`}
-              onClick={() => openView(view)}
-              onKeyDown={(e) => handleToolbarKeyDown(e, i)}
-              aria-pressed={state.view === view}
-              tabIndex={state.view === view ? 0 : -1}
-            >
-              {view}
-            </button>
-          ))}
+    <div className={styles.fullscreenPinTrack} ref={trackRef}>
+      <div className={styles.stickyPinStage} ref={containerRef}>
+        {/* Apple-Style Floating Story Headline */}
+        <div className={styles.floatingStoryBadge} role="region" aria-label="Showcase view">
+          <div className={styles.storyBadgeHeader}>
+            <span className={styles.storyStepNum}>{currentStage.step}</span>
+            <span className={styles.storyStepDivider}>/</span>
+            <span className={styles.storyStepView}>{currentStage.view}</span>
+          </div>
+          <h3 className={styles.storyStepTitle}>{currentStage.title}</h3>
+          <p className={styles.storyStepDesc}>{currentStage.desc}</p>
+          <div className={styles.storyStepDots} aria-hidden="true">
+            {STAGES.map((s, idx) => (
+              <button
+                key={s.view}
+                type="button"
+                className={`${styles.stepDot} ${activeStageIndex === idx ? styles.activeDot : ''}`}
+                onClick={() => openView(s.view)}
+                aria-label={`Go to ${s.title}`}
+              />
+            ))}
+          </div>
         </div>
-        <div className={styles.apparatusMeta}>
-          <span className={styles.statusDot} aria-hidden="true" />
-          <span className={styles.statusLabel}>{t('demo.liveEmulation', 'Live TUI Emulation')}</span>
-          {pendingView && (
-            <span className={styles.loadingLabel}>
-              {t('demo.loading', 'Loading')} {pendingView}…
-            </span>
+
+        <div className={styles.deviceFrame} data-layout={layout} data-3d-enabled={is3DEnabled ? 'true' : 'false'}>
+          <AmbientDust />
+
+          {is3DEnabled && (
+            <ErrorBoundary onError={on3DError}>
+              <Suspense fallback={null}>
+                <TerminalScene active={is3DEnabled} />
+              </Suspense>
+            </ErrorBoundary>
           )}
+
+          <div className={styles.terminalOverlay}>
+            <TuiTerminal
+              tuiRef={tuiRef}
+              fixture={currentFixture}
+              mode={state.mode}
+              isModal={isModal}
+              ariaLabel={t('demo.terminalAria', 'Interactive agy-swap terminal. Use arrow keys or numbers to select account, Enter to switch, ? for help.')}
+              ariaBusy={pendingView ? 'true' : 'false'}
+              onAction={dispatch}
+              onKeyDown={handleKeyDown}
+              onApertureCapacity={handleApertureCapacity}
+            />
+          </div>
         </div>
-      </div>
 
-      <div className={styles.deviceFrame} data-layout={layout} data-3d-enabled={is3DEnabled ? 'true' : 'false'}>
-        <AmbientDust />
-
-        {is3DEnabled && (
-          <ErrorBoundary onError={on3DError}>
-            <Suspense fallback={null}>
-              <TerminalScene active={is3DEnabled} />
-            </Suspense>
-          </ErrorBoundary>
-        )}
-
-        <div className={styles.terminalOverlay}>
-          <TuiTerminal
-            tuiRef={tuiRef}
-            fixture={currentFixture}
-            mode={state.mode}
-            isModal={isModal}
-            ariaLabel={t('demo.terminalAria', 'Interactive agy-swap terminal. Use arrow keys or numbers to select account, Enter to switch, ? for help.')}
-            ariaBusy={pendingView ? 'true' : 'false'}
-            onAction={dispatch}
-            onKeyDown={handleKeyDown}
-            onApertureCapacity={handleApertureCapacity}
-          />
+        <div className={styles.srOnly} aria-live="polite">
+          {state.ariaLiveMsg}
         </div>
-      </div>
-
-      <div className={styles.srOnly} aria-live="polite">
-        {state.ariaLiveMsg}
       </div>
     </div>
   );
