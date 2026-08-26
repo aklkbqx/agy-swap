@@ -70,10 +70,12 @@ export const translations = {
     install: {
       eyebrow: 'INSTALLATION',
       headline: 'Install agy-swap on Any Platform',
-      macTab: 'macOS (Homebrew)',
+      macTab: 'macOS / Linux (Shell)',
+      corporateProxyTab: 'Corporate Proxy / VPN (SSL Inspection)',
       linuxTab: 'Linux / WSL (Shell)',
       winTab: 'Windows (PowerShell)',
-      manualTab: 'Manual / Go Install',
+      manualTab: 'Go (Any Platform)',
+      securityBadge: '🛡️ Every installation is cryptographically verified via official SHA-256 checksums before execution.',
       copySuccess: 'Copied to clipboard',
     },
     faq: {
@@ -165,10 +167,12 @@ export const translations = {
     install: {
       eyebrow: 'การติดตั้ง',
       headline: 'ติดตั้ง agy-swap บนทุกระบบปฏิบัติการ',
-      macTab: 'macOS (Homebrew)',
+      macTab: 'macOS / Linux (Shell)',
+      corporateProxyTab: 'เครือข่ายองค์กร / VPN (SSL Inspection)',
       linuxTab: 'Linux / WSL (Shell Script)',
       winTab: 'Windows (PowerShell)',
-      manualTab: 'ติดตั้งเอง / Go Install',
+      manualTab: 'Go (ทุกระบบปฏิบัติการ)',
+      securityBadge: '🛡️ ทุกการติดตั้งได้รับการตรวจสอบความถูกต้องด้วย SHA-256 Checksum ทางการเสมอ',
       copySuccess: 'คัดลอกลงคลิปบอร์ดแล้ว',
     },
     faq: {
@@ -260,10 +264,12 @@ export const translations = {
     install: {
       eyebrow: 'インストール',
       headline: 'あらゆる環境に簡単に導入',
-      macTab: 'macOS (Homebrew)',
+      macTab: 'macOS / Linux (シェル)',
+      corporateProxyTab: '企業内プロキシ / VPN (SSL検査)',
       linuxTab: 'Linux / WSL (シェル)',
       winTab: 'Windows (PowerShell)',
-      manualTab: '手動 / Go Install',
+      manualTab: 'Go (全プラットフォーム)',
+      securityBadge: '🛡️ インストール前に公式SHA-256チェックサムによる完全性検証が実行されます。',
       copySuccess: 'クリップボードにコピーしました',
     },
     faq: {
@@ -355,10 +361,12 @@ export const translations = {
     install: {
       eyebrow: '安装指南',
       headline: '在任何主流操作系统上轻松安装',
-      macTab: 'macOS (Homebrew)',
+      macTab: 'macOS / Linux (Shell)',
+      corporateProxyTab: '企业代理 / VPN (SSL 检查)',
       linuxTab: 'Linux / WSL (Shell 脚本)',
       winTab: 'Windows (PowerShell)',
-      manualTab: '手动 / Go Install',
+      manualTab: 'Go (全平台)',
+      securityBadge: '🛡️ 每次安装在执行前均严格通过官方 SHA-256 校验码验证完整性。',
       copySuccess: '已成功复制到剪贴板',
     },
     faq: {

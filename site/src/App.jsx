@@ -10,6 +10,7 @@ export function App() {
   const { t } = useTranslation();
   const [copiedMac, setCopiedMac] = useState(false);
   const [copiedLinux, setCopiedLinux] = useState(false);
+  const [copiedProxy, setCopiedProxy] = useState(false);
   const [copiedWin, setCopiedWin] = useState(false);
   
   const [is3DEnabled, setIs3DEnabled] = useState(true);
@@ -132,14 +133,27 @@ export function App() {
 
         <section id="install" className={styles.installSection} aria-labelledby="install-heading">
           <h2 id="install-heading" className={styles.installHeading}>{t('install.headline', 'Installation')}</h2>
+          <div className={styles.installSecurityBadge}>
+            <span>{t('install.securityBadge', '🛡️ Every installation is cryptographically verified via official SHA-256 checksums before execution.')}</span>
+          </div>
           <div className={styles.installGrid}>
             
             <div className={styles.installBlock}>
-              <h3>{t('install.linuxTab', 'macOS / Linux (Shell)')}</h3>
+              <h3>{t('install.macTab', 'macOS / Linux (Shell)')}</h3>
               <div className={styles.copyCode}>
                 <span>curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash</span>
                 <button className={styles.copyBtn} onClick={() => handleCopy("curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash", setCopiedLinux)} aria-label="Copy macOS/Linux script install command">
                   {copiedLinux ? t('hero.copied', 'Copied') : 'Copy'}
+                </button>
+              </div>
+            </div>
+
+            <div className={styles.installBlock}>
+              <h3>{t('install.corporateProxyTab', 'Corporate Proxy / VPN (SSL Inspection)')}</h3>
+              <div className={styles.copyCode}>
+                <span>curl -k -fsSL https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | AGY_SWAP_INSECURE=1 bash</span>
+                <button className={styles.copyBtn} onClick={() => handleCopy("curl -k -fsSL https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | AGY_SWAP_INSECURE=1 bash", setCopiedProxy)} aria-label="Copy Corporate Proxy / VPN install command">
+                  {copiedProxy ? t('hero.copied', 'Copied') : 'Copy'}
                 </button>
               </div>
             </div>

@@ -632,11 +632,26 @@
 .installHeading {
   font-size: 2rem;
   font-weight: 800;
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
   text-align: center;
   background: var(--gradient-hero-title);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+.installSecurityBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+  background: rgba(255, 137, 26, 0.05);
+  border: 1px solid rgba(255, 137, 26, 0.2);
+  border-radius: 6px;
+  padding: 0.6rem 1rem;
+  margin-bottom: 1.75rem;
+  text-align: center;
 }
 
 .installGrid {
