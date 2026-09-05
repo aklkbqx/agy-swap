@@ -567,9 +567,7 @@ func (a *Application) tuiDetailTableLines(state *tuiState, width, maxRows int) [
 			}
 		}
 	}
-	if getString(account, "secret_ref") != "" && getString(account, "token_data") == "" {
-		rows = append(rows, tuiDetailKV("SESSION TOKEN", "Stored in OS vault", width, labelWidth, a.p))
-	} else if reset, ok := tokenResetInfo(tuiText(getString(account, "token_data"))); ok {
+	if reset, ok := tokenResetInfo(tuiText(getString(account, "token_data"))); ok {
 		rows = append(rows, tuiDetailKV("SESSION TOKEN", reset, width, labelWidth, a.p))
 	}
 	if reason := tuiText(state.quotaErrors[email]); reason != "" {

@@ -32,7 +32,16 @@ type Application struct {
 	color               bool
 	p                   palette
 	stdinTTY, stdoutTTY bool
+	loginCommand        func(context.Context) *exec.Cmd
+	loginTimeout        time.Duration
+	loginPollInterval   time.Duration
 }
+
+const (
+	defaultLoginTimeout      = 120 * time.Second
+	defaultLoginPollInterval = 1500 * time.Millisecond
+	loginStopGracePeriod     = 2 * time.Second
+)
 
 func New(version string, in io.Reader, out, errOut io.Writer) (*Application, error) {
 	paths, err := defaultPaths()
@@ -58,6 +67,62 @@ func readerTerminal(reader io.Reader) bool {
 func writerTerminal(writer io.Writer) bool {
 	file, ok := writer.(*os.File)
 	return ok && term.IsTerminal(int(file.Fd()))
+}
+
+func (a *Application) newLoginCommand(ctx context.Context) *exec.Cmd {
+	if a.loginCommand != nil {
+		return a.loginCommand(ctx)
+	}
+	return exec.CommandContext(ctx, "agy")
+}
+
+func (a *Application) loginWaitTimeout() time.Duration {
+	if a.loginTimeout > 0 {
+		return a.loginTimeout
+	}
+	return defaultLoginTimeout
+}
+
+func (a *Application) loginPollDelay() time.Duration {
+	if a.loginPollInterval > 0 {
+		return a.loginPollInterval
+	}
+	return defaultLoginPollInterval
+}
+
+func stopLoginCommand(command *exec.Cmd, done <-chan error) {
+	if command == nil || command.Process == nil {
+		return
+	}
+	select {
+	case <-done:
+		return
+	default:
+	}
+	if stopLoginProcessGroup(command) {
+		if waitForLoginCommand(done, loginStopGracePeriod) {
+			return
+		}
+		killLoginCommandTree(command)
+		_ = waitForLoginCommand(done, time.Second)
+		return
+	}
+	if err := command.Process.Signal(os.Interrupt); err == nil && waitForLoginCommand(done, loginStopGracePeriod) {
+		return
+	}
+	killLoginCommandTree(command)
+	_ = waitForLoginCommand(done, time.Second)
+}
+
+func waitForLoginCommand(done <-chan error, timeout time.Duration) bool {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
 type cliArgs struct {
@@ -496,41 +561,62 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 		fmt.Fprintln(a.Err, "Could not clear the active session before login")
 		return 1
 	}
-	command := exec.CommandContext(ctx, "agy")
-	if err := command.Start(); err == nil {
-		fmt.Fprintf(a.Out, "\n%s✓ Launched 'agy' to open login prompt...%s\n", a.p.Green, a.p.Reset)
-	} else {
-		fmt.Fprintf(a.Out, "\n%s'agy' not found in PATH. Please run 'agy' manually in another terminal.%s\n", a.p.Yellow, a.p.Reset)
+	fmt.Fprintf(a.Out, "\n%sLaunching interactive 'agy' login...%s\n", a.p.Green, a.p.Reset)
+	fmt.Fprintf(a.Out, "%sComplete every prompt shown here and in the browser. agy-swap will continue after the credential is saved.%s\n\n", a.p.Yellow, a.p.Reset)
+	command := a.newLoginCommand(ctx)
+	command.Stdin = a.In
+	command.Stdout = a.Out
+	command.Stderr = a.Err
+	prepareLoginCommand(command)
+	if err := command.Start(); err != nil {
+		restore()
+		fmt.Fprintf(a.Err, "\n%sCould not launch 'agy': %v%s\n", a.p.Red, err, a.p.Reset)
+		return 1
 	}
-	fmt.Fprintf(a.Out, "%sWaiting for login token in Keychain...%s\n\n", a.p.Yellow, a.p.Reset)
-	deadline := time.Now().Add(120 * time.Second)
+	commandDone := make(chan error, 1)
+	go func() { commandDone <- command.Wait() }()
+	timeout := time.NewTimer(a.loginWaitTimeout())
+	defer timeout.Stop()
+	poll := time.NewTicker(a.loginPollDelay())
+	defer poll.Stop()
 	var token string
-	for time.Now().Before(deadline) {
+	for {
 		select {
 		case <-ctx.Done():
+			stopLoginCommand(command, commandDone)
 			restore()
 			return 1
-		case <-time.After(1500 * time.Millisecond):
+		case commandErr := <-commandDone:
 			token = a.credentials.Current(ctx)
 			if token != "" && token != current {
-				goto found
+				return a.saveTokenAccount(ctx, token)
 			}
+			restore()
+			if ctx.Err() != nil {
+				return 1
+			}
+			if commandErr != nil {
+				fmt.Fprintf(a.Err, "\n%s'agy' exited before saving a login credential: %v%s\n", a.p.Red, commandErr, a.p.Reset)
+			} else {
+				fmt.Fprintf(a.Err, "\n%s'agy' exited before saving a login credential.%s\n", a.p.Red, a.p.Reset)
+			}
+			return 1
+		case <-poll.C:
+			token = a.credentials.Current(ctx)
+			if token != "" && token != current {
+				stopLoginCommand(command, commandDone)
+				return a.saveTokenAccount(ctx, token)
+			}
+		case <-timeout.C:
+			stopLoginCommand(command, commandDone)
+			restore()
+			fmt.Fprintf(a.Out, "\n%sTimed out waiting for login (120s).%s\n", a.p.Red, a.p.Reset)
+			if current != "" {
+				fmt.Fprintf(a.Out, "%sRestored previous token.%s\n", a.p.Gray, a.p.Reset)
+			}
+			return 1
 		}
 	}
-	if command.Process != nil {
-		_ = command.Process.Kill()
-	}
-	fmt.Fprintf(a.Out, "\n%sTimed out waiting for login (120s).%s\n", a.p.Red, a.p.Reset)
-	if current != "" {
-		restore()
-		fmt.Fprintf(a.Out, "%sRestored previous token.%s\n", a.p.Gray, a.p.Reset)
-	}
-	return 1
-found:
-	if command.Process != nil {
-		_ = command.Process.Kill()
-	}
-	return a.saveTokenAccount(ctx, token)
 }
 
 func (a *Application) saveTokenAccount(ctx context.Context, token string) int {
