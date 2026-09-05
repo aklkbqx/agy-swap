@@ -2,7 +2,7 @@
 # Install the native agy-swap binary. No Python runtime is required.
 set -euo pipefail
 
-VERSION="${AGY_SWAP_VERSION:-2.1.2}"
+VERSION="${AGY_SWAP_VERSION:-2.1.3}"
 VERSION="${VERSION#v}"
 TARGET_DIR="${AGY_SWAP_TARGET_DIR:-${HOME}/.local/bin}"
 TARGET_FILE="${TARGET_DIR}/agy-swap"

@@ -2339,7 +2339,7 @@ func TestTUIWebFixtures(t *testing.T) {
 	renderNow := time.Now().UTC()
 
 	a := &Application{
-		Version: "2.1.2",
+		Version: "2.1.3",
 		p:       makePalette(true),
 		color:   true,
 	}
@@ -2375,7 +2375,7 @@ func TestTUIWebFixtures(t *testing.T) {
 	outFirst := FixtureOutput{
 		Schema:            1,
 		Renderer:          "internal/app.(*Application).tuiLines",
-		Version:           "2.1.2",
+		Version:           "2.1.3",
 		SourceFingerprint: fingerprint,
 		Fixtures:          fixturesFirst,
 	}
@@ -2385,7 +2385,7 @@ func TestTUIWebFixtures(t *testing.T) {
 	outSecond := FixtureOutput{
 		Schema:            1,
 		Renderer:          "internal/app.(*Application).tuiLines",
-		Version:           "2.1.2",
+		Version:           "2.1.3",
 		SourceFingerprint: fingerprint,
 		Fixtures:          fixturesSecond,
 	}
@@ -2431,8 +2431,8 @@ func TestTUIWebFixtures(t *testing.T) {
 	if outFirst.Renderer != "internal/app.(*Application).tuiLines" {
 		t.Fatalf("renderer = %q, want internal/app.(*Application).tuiLines", outFirst.Renderer)
 	}
-	if outFirst.Version != "2.1.2" {
-		t.Fatalf("version = %q, want 2.1.2", outFirst.Version)
+	if outFirst.Version != "2.1.3" {
+		t.Fatalf("version = %q, want 2.1.3", outFirst.Version)
 	}
 	if outFirst.SourceFingerprint == "" {
 		t.Fatal("sourceFingerprint is empty")
@@ -2531,7 +2531,7 @@ func TestTUIWebFixtures(t *testing.T) {
 	initialOutput := FixtureOutput{
 		Schema:            1,
 		Renderer:          "internal/app.(*Application).tuiLines",
-		Version:           "2.1.2",
+		Version:           "2.1.3",
 		SourceFingerprint: fingerprint,
 		Fixtures:          initialFixtures,
 	}
@@ -2575,7 +2575,7 @@ func TestTUIWebFixtures(t *testing.T) {
 				shardOutput := FixtureOutput{
 					Schema:            1,
 					Renderer:          "internal/app.(*Application).tuiLines",
-					Version:           "2.1.2",
+					Version:           "2.1.3",
 					SourceFingerprint: fingerprint,
 					Fixtures:          shardFixtures,
 				}

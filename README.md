@@ -112,7 +112,7 @@ git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
 
 # Compile native binary with build provenance
-go build -trimpath -ldflags "-s -w -X main.version=2.1.2 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.1.3 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 
 # Verify installation
 ./agy-swap version
