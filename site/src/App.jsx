@@ -133,6 +133,11 @@ export function App() {
 
         <section id="install" className={styles.installSection} aria-labelledby="install-heading">
           <h2 id="install-heading" className={styles.installHeading}>{t('install.headline', 'Installation')}</h2>
+          <p className={styles.footerLinkWrapper}>
+            <a href="/install.html" className={styles.footerLink}>
+              {t('install.staticPage', 'Standalone install page')}
+            </a>
+          </p>
           <div className={styles.installSecurityBadge}>
             <span>{t('install.securityBadge', '🛡️ Every installation is cryptographically verified via official SHA-256 checksums before execution.')}</span>
           </div>

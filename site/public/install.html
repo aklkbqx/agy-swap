@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Install agy-swap — Google Antigravity CLI Account Switcher</title>
+    <meta name="description" content="Install agy-swap on macOS, Linux, or Windows. Native account switcher and quota monitor for Google Antigravity CLI (agy)." />
+    <meta name="theme-color" content="#FF891A" />
+    <link rel="canonical" href="https://agy-swap.aklkbqx.com/install.html" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://agy-swap.aklkbqx.com/install.html" />
+    <meta property="og:title" content="Install agy-swap — Google Antigravity CLI Account Switcher" />
+    <meta property="og:description" content="Install agy-swap on macOS, Linux, or Windows. Native account switcher and quota monitor for Google Antigravity CLI (agy)." />
+    <meta property="og:image" content="https://agy-swap.aklkbqx.com/fallback/credential-relay.jpg" />
+
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content="https://agy-swap.aklkbqx.com/install.html" />
+    <meta property="twitter:title" content="Install agy-swap — Google Antigravity CLI Account Switcher" />
+    <meta property="twitter:description" content="Install agy-swap on macOS, Linux, or Windows. Native account switcher and quota monitor for Google Antigravity CLI (agy)." />
+    <meta property="twitter:image" content="https://agy-swap.aklkbqx.com/fallback/credential-relay.jpg" />
+  </head>
+  <body style="margin: 0; background: #0d1117; color: #c9d1d9; font-family: ui-sans-serif, system-ui, sans-serif;">
+    <header style="padding: 2rem 1rem; max-width: 1200px; margin: 0 auto; text-align: center;">
+      <p style="margin: 0 0 1rem;"><a href="/" style="color: #58a6ff;">agy-swap home</a></p>
+      <h1 style="font-size: 2.25rem; font-weight: 800; color: #f0f6fc; margin-bottom: 0.5rem;">
+        Install agy-swap
+      </h1>
+      <p style="font-size: 1.125rem; color: #8b949e; max-width: 800px; margin: 0 auto;">
+        Native account switcher and quota monitor for Google Antigravity CLI (<code>agy</code>). Each installer verifies the binary against published SHA-256 checksums before running it.
+      </p>
+    </header>
+
+    <main style="max-width: 1200px; margin: 0 auto; padding: 0 1rem 3rem;">
+      <section style="margin-bottom: 2rem;">
+        <h2 style="font-size: 1.5rem; color: #f0f6fc; border-bottom: 1px solid #30363d; padding-bottom: 0.5rem;">macOS / Linux</h2>
+        <pre style="background: #161b22; padding: 1rem; border-radius: 6px; color: #58a6ff; overflow-x: auto;"><code>curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash</code></pre>
+      </section>
+
+      <section style="margin-bottom: 2rem;">
+        <h2 style="font-size: 1.5rem; color: #f0f6fc; border-bottom: 1px solid #30363d; padding-bottom: 0.5rem;">Go (any platform)</h2>
+        <pre style="background: #161b22; padding: 1rem; border-radius: 6px; color: #58a6ff; overflow-x: auto;"><code>go install github.com/aklkbqx/agy-swap/cmd/agy-swap@latest</code></pre>
+      </section>
+
+      <section style="margin-bottom: 2rem;">
+        <h2 style="font-size: 1.5rem; color: #f0f6fc; border-bottom: 1px solid #30363d; padding-bottom: 0.5rem;">Windows PowerShell</h2>
+        <pre style="background: #161b22; padding: 1rem; border-radius: 6px; color: #58a6ff; overflow-x: auto;"><code>irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex</code></pre>
+      </section>
+
+      <section style="margin-bottom: 2rem;">
+        <h2 style="font-size: 1.5rem; color: #f0f6fc; border-bottom: 1px solid #30363d; padding-bottom: 0.5rem;">Corporate proxy / TLS inspection</h2>
+        <p>If a corporate proxy rewrites TLS and <code>curl</code> fails certificate checks, SHA-256 verification of the downloaded binary still runs:</p>
+        <pre style="background: #161b22; padding: 1rem; border-radius: 6px; color: #58a6ff; overflow-x: auto;"><code>curl -k -fsSL https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | AGY_SWAP_INSECURE=1 bash</code></pre>
+      </section>
+
+      <p><a href="/" style="color: #58a6ff;">Back to agy-swap</a></p>
+    </main>
+  </body>
+</html>

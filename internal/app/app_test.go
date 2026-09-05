@@ -93,7 +93,7 @@ func TestTokenIdentityMatchesTargetAccount(t *testing.T) {
 }
 
 func TestNormalizedReleaseTag(t *testing.T) {
-	for input, want := range map[string]string{"2.1.2": "v2.1.2", "v2.1.2": "v2.1.2", " 2.1.2 ": "v2.1.2", "": ""} {
+	for input, want := range map[string]string{"2.1.3": "v2.1.3", "v2.1.3": "v2.1.3", " 2.1.3 ": "v2.1.3", "": ""} {
 		if got := normalizedReleaseTag(input); got != want {
 			t.Fatalf("%q normalized to %q, want %q", input, got, want)
 		}
@@ -513,6 +513,27 @@ func TestTUIDetailTableUsesKeyValueColumns(t *testing.T) {
 	}
 }
 
+func TestTUIDetailTableOmitsVaultStorageRow(t *testing.T) {
+	accounts := NewAccounts()
+	account := quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour))
+	account["secret_ref"] = "account:user@example.com"
+	groups := getSlice(getMap(account["quota_snapshot"])["groups"])
+	buckets := getSlice(getMap(groups[0])["buckets"])
+	getMap(buckets[0])["name"] = "Five Hour Limit Remaining"
+	accounts.Set("user@example.com", account)
+	a := &Application{Version: "2.1.1", p: makePalette(false), color: false}
+	state := newTUIState(accounts, "user@example.com")
+	rows := a.tuiDetailTableLines(state, 52, 12)
+	detail := strings.Join(rows, "\n")
+
+	if strings.Contains(detail, "SESSION TOKEN") || strings.Contains(detail, "Stored in OS vault") {
+		t.Fatalf("detail table exposed vault storage row: %q", rows)
+	}
+	if !strings.Contains(detail, "FIVE HOUR LIMIT") {
+		t.Fatalf("detail table lost quota rows while removing vault storage row: %q", rows)
+	}
+}
+
 func TestTUIOverlayKeepsFrameGeometry(t *testing.T) {
 	accounts := NewAccounts()
 	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
@@ -536,7 +557,7 @@ func TestTUIOverlayKeepsFrameGeometry(t *testing.T) {
 func TestTUISuccessToastKeepsFrameGeometryAndExpires(t *testing.T) {
 	accounts := NewAccounts()
 	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
-	a := &Application{Version: "2.1.2", p: makePalette(false), color: false}
+	a := &Application{Version: "2.1.3", p: makePalette(false), color: false}
 	state := newTUIState(accounts, "user@example.com")
 	state.showToast("Switched to user@example.com", "success")
 
@@ -912,7 +933,7 @@ func TestExtendedSettingsAliasesAndEncryptedBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	a := &Application{Version: "2.1.2", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
+	a := &Application{Version: "2.1.3", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
 	if code := a.Run(context.Background(), []string{"config", "set", "policy.min_remaining_pct", "25"}); code != 0 {
 		t.Fatalf("config set code=%d err=%s", code, errOut.String())
 	}

@@ -41,3 +41,48 @@ docker compose -f docker-compose.production.yml --env-file .env.production up -d
 ```bash
 docker compose -f docker-compose.production.yml down
 ```
+
+## 6. Indexing (Google Search)
+
+Code deploy does not put the URL in Google’s index. Do these operator steps on the live host; do not commit verification tokens.
+
+### Search Console
+
+1. Add a URL-prefix property for `https://agy-swap.aklkbqx.com/`.
+2. Verify with a Cloudflare DNS TXT record on `agy-swap.aklkbqx.com`. Do not put that token in this repo.
+3. Submit `https://agy-swap.aklkbqx.com/sitemap.xml`.
+4. URL Inspection → `https://agy-swap.aklkbqx.com/` → Request indexing.
+5. After this image is live, inspect `https://agy-swap.aklkbqx.com/install.html` the same way.
+
+Do not ping `https://www.google.com/ping?sitemap=...`. That endpoint is retired.
+
+### Cloudflare apex redirect
+
+`https://aklkbqx.com/` currently 404s, so Google has no path from the registered domain to this site. MX is unaffected.
+
+Create a Cloudflare Redirect Rule (edge 301, not Traefik — Traefik only routes `Host(agy-swap.aklkbqx.com)` and would need an origin cert for the apex):
+
+- If hostname is `aklkbqx.com` or `www.aklkbqx.com`
+- Then dynamic redirect (status 301) to `https://agy-swap.aklkbqx.com/${uri.path}` (preserve query if the UI offers it)
+
+If the apex must remain a personal homepage later, replace this 301 with a one-page index that links here. Do not leave the 404.
+
+### Cloudflare crawler hygiene
+
+- Turn **off** Email Address Obfuscation for this hostname.
+- After any WAF / Bot Fight change, confirm Googlebot still gets HTTP 200 (not a challenge page).
+
+### Post-deploy checks
+
+```bash
+curl -sI https://agy-swap.aklkbqx.com/
+curl -sI https://agy-swap.aklkbqx.com/robots.txt
+curl -s https://agy-swap.aklkbqx.com/sitemap.xml
+curl -sI https://agy-swap.aklkbqx.com/install.html
+curl -sI https://aklkbqx.com/   # expect 301 to agy-swap after the Cloudflare rule
+curl -sI -A "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" https://agy-swap.aklkbqx.com/
+```
+
+The Googlebot HTML body must not contain `noindex` or `email-protection`.
+
+Success: Search Console reports “URL is on Google”, and `site:agy-swap.aklkbqx.com` returns the homepage (often 1–14 days after Request indexing). Brand queries such as `agy-swap antigravity` are the realistic ranking target; generic `agy-swap` collides with crypto DEX results.

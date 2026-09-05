@@ -77,6 +77,7 @@ export const translations = {
       manualTab: 'Go (Any Platform)',
       securityBadge: '🛡️ Every installation is cryptographically verified via official SHA-256 checksums before execution.',
       copySuccess: 'Copied to clipboard',
+      staticPage: 'Standalone install page',
     },
     faq: {
       eyebrow: 'CLI REFERENCE & FAQ',
@@ -174,6 +175,7 @@ export const translations = {
       manualTab: 'Go (ทุกระบบปฏิบัติการ)',
       securityBadge: '🛡️ ทุกการติดตั้งได้รับการตรวจสอบความถูกต้องด้วย SHA-256 Checksum ทางการเสมอ',
       copySuccess: 'คัดลอกลงคลิปบอร์ดแล้ว',
+      staticPage: 'หน้าติดตั้งแบบ HTML',
     },
     faq: {
       eyebrow: 'คำสั่ง CLI และคำถามที่พบบ่อย',
@@ -271,6 +273,7 @@ export const translations = {
       manualTab: 'Go (全プラットフォーム)',
       securityBadge: '🛡️ インストール前に公式SHA-256チェックサムによる完全性検証が実行されます。',
       copySuccess: 'クリップボードにコピーしました',
+      staticPage: 'インストール専用ページ',
     },
     faq: {
       eyebrow: 'CLIリファレンス & FAQ',
@@ -368,6 +371,7 @@ export const translations = {
       manualTab: 'Go (全平台)',
       securityBadge: '🛡️ 每次安装在执行前均严格通过官方 SHA-256 校验码验证完整性。',
       copySuccess: '已成功复制到剪贴板',
+      staticPage: '独立安装页面',
     },
     faq: {
       eyebrow: 'CLI 命令参考与常见问题',

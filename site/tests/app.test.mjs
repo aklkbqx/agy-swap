@@ -66,6 +66,37 @@ test("Production canonical domain in metadata, github.io absent", () => {
 
   assert.ok(htmlCode.includes("https://agy-swap.aklkbqx.com/"));
   assert.ok(!htmlCode.includes("github.io"));
+  assert.ok(!htmlCode.toLowerCase().includes("noindex"));
+  assert.ok(!htmlCode.includes("@me.com"));
+  assert.ok(!htmlCode.includes("@company.com"));
+  assert.ok(htmlCode.includes('href="/install.html"'));
+});
+
+test("Static install page, robots, and sitemap are crawlable", () => {
+  const publicDir = join(__dirname, "../public");
+  const installPath = join(publicDir, "install.html");
+  const robotsPath = join(publicDir, "robots.txt");
+  const sitemapPath = join(publicDir, "sitemap.xml");
+
+  assert.ok(existsSync(installPath), "public/install.html must exist");
+  const installHtml = readFileSync(installPath, "utf-8");
+  assert.ok(installHtml.includes('href="https://agy-swap.aklkbqx.com/install.html"'));
+  assert.ok(installHtml.includes("install.sh"));
+  assert.ok(installHtml.includes("go install github.com/aklkbqx/agy-swap/cmd/agy-swap@latest"));
+  assert.ok(!installHtml.toLowerCase().includes("noindex"));
+
+  const robots = readFileSync(robotsPath, "utf-8");
+  assert.ok(robots.includes("Allow: /"));
+  assert.ok(robots.includes("https://agy-swap.aklkbqx.com/sitemap.xml"));
+
+  const sitemap = readFileSync(sitemapPath, "utf-8");
+  assert.ok(sitemap.includes("https://agy-swap.aklkbqx.com/"));
+  assert.ok(sitemap.includes("https://agy-swap.aklkbqx.com/install.html"));
+});
+
+test("App install section links to the static install page", () => {
+  const appCode = readFileSync(join(__dirname, "../src/App.jsx"), "utf-8");
+  assert.ok(appCode.includes('href="/install.html"'));
 });
 
 test("No window/document keydown listeners, no global Tab trap, no console usage in src", () => {
@@ -113,7 +144,7 @@ test("Authoritative initial, full, and 21 layout+view shard split (51054 fixture
 
   assert.equal(fullData.schema, 1);
   assert.equal(fullData.renderer, "internal/app.(*Application).tuiLines");
-  assert.equal(fullData.version, "2.1.2");
+  assert.equal(fullData.version, "2.1.3");
   assert.ok(fullData.sourceFingerprint && fullData.sourceFingerprint.length === 64);
   assert.equal(fullData.fixtures.length, 51054, `fixture count = ${fullData.fixtures.length}, want 51054`);
 
@@ -1108,4 +1139,3 @@ test("i18n translations dictionary contains all 4 supported languages with compl
     assert.ok(translations[lang].footer?.tagline, `footer.tagline missing in ${lang}`);
   }
 });
-
