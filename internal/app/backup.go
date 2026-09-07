@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type encryptedBackup struct {
@@ -37,14 +39,18 @@ func backupKey(passphrase string, salt []byte) []byte {
 }
 
 func encryptBackup(passphrase string, plaintext []byte) (encryptedBackup, error) {
-	if len(passphrase) < 8 {
+	if utf8.RuneCountInString(passphrase) < 8 {
 		return encryptedBackup{}, errors.New("passphrase must contain at least 8 characters")
 	}
 	salt := make([]byte, 16)
 	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
 		return encryptedBackup{}, err
 	}
-	block, err := aes.NewCipher(backupKey(passphrase, salt))
+	key, err := pbkdf2.Key(sha256.New, passphrase, salt, 600000, 32)
+	if err != nil {
+		return encryptedBackup{}, err
+	}
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return encryptedBackup{}, err
 	}
@@ -57,7 +63,7 @@ func encryptBackup(passphrase string, plaintext []byte) (encryptedBackup, error)
 		return encryptedBackup{}, err
 	}
 	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
-	return encryptedBackup{Schema: stateSchema, Encrypted: true, KDF: "sha256-120k", Salt: base64.StdEncoding.EncodeToString(salt), Nonce: base64.StdEncoding.EncodeToString(nonce), Ciphertext: base64.StdEncoding.EncodeToString(ciphertext)}, nil
+	return encryptedBackup{Schema: 2, Encrypted: true, KDF: "pbkdf2-sha256-600k", Salt: base64.StdEncoding.EncodeToString(salt), Nonce: base64.StdEncoding.EncodeToString(nonce), Ciphertext: base64.StdEncoding.EncodeToString(ciphertext)}, nil
 }
 
 func decryptBackup(passphrase string, envelope encryptedBackup) ([]byte, error) {
@@ -65,18 +71,30 @@ func decryptBackup(passphrase string, envelope encryptedBackup) ([]byte, error) 
 		return nil, errors.New("backup is not encrypted")
 	}
 	salt, err := base64.StdEncoding.DecodeString(envelope.Salt)
-	if err != nil {
+	if err != nil || len(salt) != 16 {
 		return nil, errors.New("invalid backup salt")
 	}
 	nonce, err := base64.StdEncoding.DecodeString(envelope.Nonce)
-	if err != nil {
+	if err != nil || len(nonce) != 12 {
 		return nil, errors.New("invalid backup nonce")
 	}
 	ciphertext, err := base64.StdEncoding.DecodeString(envelope.Ciphertext)
 	if err != nil {
 		return nil, errors.New("invalid backup ciphertext")
 	}
-	block, err := aes.NewCipher(backupKey(passphrase, salt))
+	var key []byte
+	switch {
+	case envelope.Schema == 1 && envelope.KDF == "sha256-120k":
+		key = backupKey(passphrase, salt)
+	case envelope.Schema == 2 && envelope.KDF == "pbkdf2-sha256-600k":
+		key, err = pbkdf2.Key(sha256.New, passphrase, salt, 600000, 32)
+	default:
+		return nil, errors.New("unsupported backup schema or KDF")
+	}
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
@@ -112,6 +130,7 @@ func (a *Application) backupDocument(ctx context.Context, includeSecrets bool) (
 		} else {
 			delete(accounts.ByEmail[email], "token_data")
 		}
+		delete(accounts.ByEmail[email], "secret_ref")
 	}
 	accountsData, err = encodeOrderedAccounts(accounts)
 	if err != nil {
@@ -136,7 +155,7 @@ func (a *Application) backupPassphrase(opts extendedOptions) (string, error) {
 	if len(data) > maxTokenBytes {
 		return "", errors.New("passphrase input exceeds limit")
 	}
-	return strings.TrimSpace(string(data)), nil
+	return strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r"), nil
 }
 
 func (a *Application) cmdBackup(ctx context.Context, opts extendedOptions, positional []string) int {
@@ -200,84 +219,29 @@ func (a *Application) cmdBackup(ctx context.Context, opts extendedOptions, posit
 		if len(positional) < 2 {
 			return a.extendedError("backup import", opts, errors.New("usage: backup import FILE [--merge] [--passphrase PASS]"))
 		}
-		raw, err := os.ReadFile(positional[1])
+		count, migrated, err := a.importBackup(ctx, positional[1], opts.Passphrase, opts.Merge)
 		if err != nil {
 			return a.extendedError("backup import", opts, err)
 		}
-		var envelope encryptedBackup
-		var object map[string]any
-		if json.Unmarshal(raw, &envelope) == nil && envelope.Encrypted {
-			plaintext, decryptErr := decryptBackup(opts.Passphrase, envelope)
-			if decryptErr != nil {
-				return a.extendedError("backup import", opts, decryptErr)
-			}
-			if err := json.Unmarshal(plaintext, &object); err != nil {
-				return a.extendedError("backup import", opts, errors.New("decrypted backup is invalid"))
-			}
-		} else if err := json.Unmarshal(raw, &object); err != nil {
-			return a.extendedError("backup import", opts, fmt.Errorf("invalid backup: %w", err))
-		}
-		if _, ok := object["accounts"]; !ok {
-			return a.extendedError("backup import", opts, errors.New("backup has no accounts"))
-		}
-		accountData, err := json.Marshal(object["accounts"])
-		if err != nil {
-			return a.extendedError("backup import", opts, err)
-		}
-		incoming, err := decodeOrderedAccounts(accountData)
-		if err != nil {
-			return a.extendedError("backup import", opts, err)
-		}
-		if opts.Merge {
-			existing, loadErr := a.store.Load(false)
-			if loadErr != nil {
-				return a.extendedError("backup import", opts, loadErr)
-			}
-			for _, email := range incoming.Order {
-				existing.Set(email, incoming.ByEmail[email])
-			}
-			incoming = existing
-		}
-		migrated := 0
-		for _, email := range incoming.Order {
-			account := incoming.ByEmail[email]
-			if token := getString(account, "token_data"); token != "" && a.saveAccountSecret(ctx, account, token) {
-				migrated++
-			}
-		}
-		if err := a.store.Save(incoming); err != nil {
-			return a.extendedError("backup import", opts, err)
-		}
-		if rawSettings, ok := object["settings"]; ok {
-			var settings AppSettings
-			if json.Unmarshal(mustJSON(rawSettings), &settings) == nil {
-				_ = a.store.SaveSettings(settings)
-			}
-		}
-		data := map[string]any{"accounts": incoming.Len(), "vault_migrated": migrated, "merged": opts.Merge}
+
+		data := map[string]any{"accounts": count, "vault_migrated": migrated, "merged": opts.Merge}
 		if opts.JSON {
 			return a.extendedResult("backup import", opts, data, nil)
 		}
-		fmt.Fprintf(a.Out, "Imported %d account(s); migrated %d secret(s) to the OS vault.\n", incoming.Len(), migrated)
+		fmt.Fprintf(a.Out, "Imported %d account(s); migrated %d secret(s) to the OS vault.\n", count, migrated)
 		return 0
 	case "verify":
 		if len(positional) < 2 {
 			return a.extendedError("backup verify", opts, errors.New("usage: backup verify FILE [--passphrase PASS]"))
 		}
-		raw, err := os.ReadFile(positional[1])
-		if err != nil {
-			return a.extendedError("backup verify", opts, err)
-		}
-		var envelope encryptedBackup
-		if json.Unmarshal(raw, &envelope) == nil && envelope.Encrypted {
-			_, err = decryptBackup(opts.Passphrase, envelope)
-		} else {
-			var object map[string]any
-			err = json.Unmarshal(raw, &object)
+		passphrase, err := a.backupPassphrase(opts)
+		if err == nil {
+			_, err = readBackup(positional[1], passphrase)
 		}
 		if err != nil {
 			return a.extendedError("backup verify", opts, err)
 		}
+
 		if opts.JSON {
 			return a.extendedResult("backup verify", opts, map[string]any{"valid": true}, nil)
 		}

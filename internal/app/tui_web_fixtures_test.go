@@ -1838,7 +1838,7 @@ func buildFixtures(t *testing.T, a *Application, accounts *Accounts, settings Ap
 	}
 
 	// 8. Post-Delete combinations (all 9 active × deleted combinations for 3-account store)
-		// 8. Post-Delete combinations (dynamically for all contexts)
+	// 8. Post-Delete combinations (dynamically for all contexts)
 	seenDeleteSuffixes := make(map[string]bool)
 	for _, currentAC := range accountContexts {
 		if len(currentAC.remain) == 0 {
@@ -1885,14 +1885,17 @@ func buildFixtures(t *testing.T, a *Application, accounts *Accounts, settings Ap
 						continue
 					}
 					seenDeleteSuffixes[suf] = true
-					
+
 					scenarios = append(scenarios, scenario{
 						suffix:   suf,
 						view:     currentV.vCap,
 						mode:     "ready",
 						active:   resultingAct,
 						selected: resultingSel,
-						setup: func(d struct{ layout string; innerCols, rows, cols int }) *tuiState {
+						setup: func(d struct {
+							layout                string
+							innerCols, rows, cols int
+						}) *tuiState {
 							s := createBaseStateWithActiveAndAccounts(resultingAccs, currentV.view, tuiBrowse, resultingAct, resultingSel)
 							s.message = fmt.Sprintf("Removed account %s", deletedEmail)
 							s.messageType = "success"
@@ -2269,7 +2272,7 @@ func buildFixtures(t *testing.T, a *Application, accounts *Accounts, settings Ap
 			id := fmt.Sprintf("%s.%s", d.layout, sc.suffix)
 			s := sc.setup(d)
 
-			now := time.Now()
+			now := renderNow
 			for _, acct := range s.accounts.ByEmail {
 				var delta time.Duration
 				switch acct["email"] {
@@ -2326,6 +2329,18 @@ func buildFixtures(t *testing.T, a *Application, accounts *Accounts, settings Ap
 		}
 	}
 
+	pool := make(map[string]string)
+	for i := range fixtures {
+		for _, rows := range [][]string{fixtures[i].Lines, fixtures[i].Plain} {
+			for j, row := range rows {
+				if shared, ok := pool[row]; ok {
+					rows[j] = shared
+				} else {
+					pool[row] = row
+				}
+			}
+		}
+	}
 	return fixtures
 }
 
@@ -2336,12 +2351,13 @@ func TestTUIWebFixtures(t *testing.T) {
 	time.Local = time.UTC
 
 	frozenTime := time.Date(2026, 8, 24, 8, 0, 0, 0, time.UTC)
-	renderNow := time.Now().UTC()
+	renderNow := frozenTime
 
 	a := &Application{
-		Version: "2.1.3",
-		p:       makePalette(true),
-		color:   true,
+		Version:     "2.2.0",
+		renderClock: func() time.Time { return frozenTime },
+		p:           makePalette(true),
+		color:       true,
 	}
 
 	resetAlpha := renderNow.Add(2*time.Hour + 30*time.Minute + 45*time.Second)
@@ -2375,7 +2391,7 @@ func TestTUIWebFixtures(t *testing.T) {
 	outFirst := FixtureOutput{
 		Schema:            1,
 		Renderer:          "internal/app.(*Application).tuiLines",
-		Version:           "2.1.3",
+		Version:           "2.2.0",
 		SourceFingerprint: fingerprint,
 		Fixtures:          fixturesFirst,
 	}
@@ -2385,16 +2401,16 @@ func TestTUIWebFixtures(t *testing.T) {
 	outSecond := FixtureOutput{
 		Schema:            1,
 		Renderer:          "internal/app.(*Application).tuiLines",
-		Version:           "2.1.3",
+		Version:           "2.2.0",
 		SourceFingerprint: fingerprint,
 		Fixtures:          fixturesSecond,
 	}
 
-	firstBytes, err := json.MarshalIndent(outFirst, "", "  ")
+	firstBytes, err := marshalPackedFixtures(outFirst)
 	if err != nil {
 		t.Fatalf("failed to marshal first fixtures run: %v", err)
 	}
-	secondBytes, err := json.MarshalIndent(outSecond, "", "  ")
+	secondBytes, err := marshalPackedFixtures(outSecond)
 	if err != nil {
 		t.Fatalf("failed to marshal second fixtures run: %v", err)
 	}
@@ -2431,8 +2447,8 @@ func TestTUIWebFixtures(t *testing.T) {
 	if outFirst.Renderer != "internal/app.(*Application).tuiLines" {
 		t.Fatalf("renderer = %q, want internal/app.(*Application).tuiLines", outFirst.Renderer)
 	}
-	if outFirst.Version != "2.1.3" {
-		t.Fatalf("version = %q, want 2.1.3", outFirst.Version)
+	if outFirst.Version != "2.2.0" {
+		t.Fatalf("version = %q, want 2.2.0", outFirst.Version)
 	}
 	if outFirst.SourceFingerprint == "" {
 		t.Fatal("sourceFingerprint is empty")
@@ -2442,6 +2458,11 @@ func TestTUIWebFixtures(t *testing.T) {
 	}
 
 	seenIDs := make(map[string]bool)
+	type rowKey struct {
+		text  string
+		width int
+	}
+	validatedRows := make(map[rowKey]bool)
 	var initialFixtures []Fixture
 
 	for idx, f := range outFirst.Fixtures {
@@ -2488,6 +2509,11 @@ func TestTUIWebFixtures(t *testing.T) {
 		}
 
 		for r, l := range f.Lines {
+			key := rowKey{l, f.Dimensions.Cols}
+			if validatedRows[key] {
+				continue
+			}
+			validatedRows[key] = true
 			if strings.ContainsAny(l, "\r\n") {
 				t.Fatalf("fixture %s line %d contains CR/LF: %q", f.ID, r, l)
 			}
@@ -2503,6 +2529,11 @@ func TestTUIWebFixtures(t *testing.T) {
 		}
 
 		for r, p := range f.Plain {
+			key := rowKey{p, f.Dimensions.Cols}
+			if validatedRows[key] {
+				continue
+			}
+			validatedRows[key] = true
 			if strings.ContainsAny(p, "\r\n") {
 				t.Fatalf("fixture %s plain line %d contains CR/LF: %q", f.ID, r, p)
 			}
@@ -2531,7 +2562,7 @@ func TestTUIWebFixtures(t *testing.T) {
 	initialOutput := FixtureOutput{
 		Schema:            1,
 		Renderer:          "internal/app.(*Application).tuiLines",
-		Version:           "2.1.3",
+		Version:           "2.2.0",
 		SourceFingerprint: fingerprint,
 		Fixtures:          initialFixtures,
 	}
@@ -2575,11 +2606,11 @@ func TestTUIWebFixtures(t *testing.T) {
 				shardOutput := FixtureOutput{
 					Schema:            1,
 					Renderer:          "internal/app.(*Application).tuiLines",
-					Version:           "2.1.3",
+					Version:           "2.2.0",
 					SourceFingerprint: fingerprint,
 					Fixtures:          shardFixtures,
 				}
-				sBytes, err := json.MarshalIndent(shardOutput, "", "  ")
+				sBytes, err := marshalPackedFixtures(shardOutput)
 				if err != nil {
 					t.Fatalf("failed to marshal shard %s.%s: %v", l, v, err)
 				}
@@ -2608,4 +2639,58 @@ func TestTUIWebFixtures(t *testing.T) {
 	if !bytes.Equal(initialBytes, diskInitialBytes) {
 		t.Fatalf("initial fixture file at %s is out of date or nondeterministic. Re-run UPDATE_TUI_WEB_FIXTURES=1", destInitial)
 	}
+}
+
+// Schema 2 shares rows and complete frame bodies; fixture IDs remain stable.
+func marshalPackedFixtures(output FixtureOutput) ([]byte, error) {
+	type frame struct {
+		Dimensions Dimensions `json:"dimensions"`
+		Layout     string     `json:"layout"`
+		View       string     `json:"view"`
+		Mode       string     `json:"mode"`
+		Active     string     `json:"active,omitempty"`
+		Selected   string     `json:"selected,omitempty"`
+		Lines      []int      `json:"lines"`
+		Plain      []int      `json:"plain"`
+	}
+	rows := []string{}
+	rowIDs := map[string]int{}
+	intern := func(lines []string) []int {
+		ids := make([]int, len(lines))
+		for i, line := range lines {
+			id, ok := rowIDs[line]
+			if !ok {
+				id = len(rows)
+				rowIDs[line] = id
+				rows = append(rows, line)
+			}
+			ids[i] = id
+		}
+		return ids
+	}
+	frames := []json.RawMessage{}
+	frameIDs := map[string]int{}
+	entries := make([][2]any, 0, len(output.Fixtures))
+	for _, f := range output.Fixtures {
+		data, err := json.Marshal(frame{f.Dimensions, f.Layout, f.View, f.Mode, f.Active, f.Selected, intern(f.Lines), intern(f.Plain)})
+		if err != nil {
+			return nil, err
+		}
+		id, ok := frameIDs[string(data)]
+		if !ok {
+			id = len(frames)
+			frameIDs[string(data)] = id
+			frames = append(frames, data)
+		}
+		entries = append(entries, [2]any{f.ID, id})
+	}
+	return json.Marshal(struct {
+		Schema            int               `json:"schema"`
+		Renderer          string            `json:"renderer"`
+		Version           string            `json:"version"`
+		SourceFingerprint string            `json:"sourceFingerprint"`
+		Rows              []string          `json:"rows"`
+		Frames            []json.RawMessage `json:"frames"`
+		Fixtures          [][2]any          `json:"fixtures"`
+	}{2, output.Renderer, output.Version, output.SourceFingerprint, rows, frames, entries})
 }

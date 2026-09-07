@@ -182,7 +182,7 @@ func (c *Credentials) applyUnlocked(ctx context.Context, tokenData, email string
 }
 
 func tokenMatchesEmail(tokenData, email string) bool {
-	claimed := extractVerifiedEmail(tokenData)
+	claimed := extractEmailHint(tokenData)
 	return claimed == "" || claimed == normalizeEmail(email)
 }
 

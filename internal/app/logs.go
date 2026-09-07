@@ -306,7 +306,7 @@ func scanLogFile(path string, info os.FileInfo) (map[string]map[string]EvidenceR
 	if _, err := file.Seek(offset, io.SeekStart); err != nil {
 		return nil, err
 	}
-	reader := bufio.NewReaderSize(file, 128*1024)
+	reader := bufio.NewReaderSize(io.LimitReader(file, info.Size()-offset), 128*1024)
 	if offset > 0 {
 		_, _ = reader.ReadString('\n')
 	}
@@ -375,13 +375,13 @@ func scanLogFile(path string, info os.FileInfo) (map[string]map[string]EvidenceR
 				}
 			}
 			var latest *pendingRequest
-			if len(pending) > 0 && (hasResponse || hasError) {
+			if len(pending) == 1 && (hasResponse || hasError) {
 				latest = latestPending(pending)
 			}
 			if latest != nil && hasResponse {
 				latest.Response = true
 			}
-			if hasError {
+			if hasError && len(pending) <= 1 {
 				match := errorLogPattern.FindStringSubmatch(line)
 				if match != nil {
 					if latest != nil {

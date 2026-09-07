@@ -391,7 +391,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			}
 		case "backspace":
 			if len(state.search) > 0 {
-				state.search = state.search[:len(state.search)-1]
+				state.search = removeLastRune(state.search)
 				state.clampSelection()
 			}
 		case "ctrl-u":
@@ -406,7 +406,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			}
 			state.clampSelection()
 		default:
-			if len(key) == 1 && key[0] >= 32 && key[0] != 127 {
+			if printableKey(key) {
 				state.search += strings.ToLower(key)
 				state.clampSelection()
 			}
@@ -428,9 +428,8 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			}
 			if a.credentials.Current(ctx) == token {
 				alreadyUsing = true
-				return 0
 			}
-			if a.credentials.Apply(ctx, token, email) {
+			if a.applyAccount(ctx, token, email) {
 				return 0
 			}
 			return 1
@@ -524,7 +523,9 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		case "forecast":
 			suspend(func() int { return a.cmdForecast(ctx, extendedOptions{}, nil) })
 		case "watch-once":
-			suspend(func() int { return a.cmdWatch(ctx, extendedOptions{Once: true}, nil) })
+			suspend(func() int {
+				return a.cmdWatch(ctx, extendedOptions{Once: true, Threshold: -1, Interval: time.Minute}, nil)
+			})
 		case "metrics":
 			suspend(func() int { return a.cmdMetrics(ctx, extendedOptions{}, []string{"render"}) })
 		case "run-now":
@@ -695,7 +696,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					continue
 				}
 				if state.mode == tuiSearch {
-					searchKey(key)
+					searchKey(value.key)
 					a.renderTUI(state, outFile)
 					continue
 				}
@@ -734,7 +735,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 								}
 							}
 						case "history-clear":
-							if err := os.Remove(a.paths.History); err != nil && !os.IsNotExist(err) {
+							if err := a.clearHistory(); err != nil {
 								state.message, state.messageType = err.Error(), "error"
 							} else {
 								state.history = nil
@@ -772,7 +773,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 						state.movePalette(5)
 					case "backspace":
 						if len(state.paletteQuery) > 0 {
-							state.paletteQuery = state.paletteQuery[:len(state.paletteQuery)-1]
+							state.paletteQuery = removeLastRune(state.paletteQuery)
 							state.paletteIndex = 0
 						}
 					case "enter":
@@ -784,7 +785,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 							}
 						}
 					default:
-						if len(key) == 1 && key[0] >= 32 && key[0] != 127 {
+						if printableKey(key) {
 							state.paletteQuery += key
 							state.paletteIndex = 0
 						}
@@ -793,7 +794,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					continue
 				}
 				if state.mode == tuiForm {
-					submit, cancel := state.formKey(key)
+					submit, cancel := state.formKey(value.key)
 					if cancel {
 						previous := tuiViewDashboard
 						if state.form != nil {
@@ -915,6 +916,8 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					}
 				case "p":
 					setView(tuiViewProfiles)
+				case "g":
+					setView(tuiViewDashboard)
 				case "h":
 					setView(tuiViewHistory)
 				case "s":

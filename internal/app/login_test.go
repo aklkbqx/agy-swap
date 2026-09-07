@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -193,7 +195,11 @@ func TestAddLoginFlowSavesCredentialAndCleansUpWrapper(t *testing.T) {
 	credentials := NewCredentials(paths)
 	credentials.backend = backend
 	httpService := NewHTTPService(&errorOutput)
-	httpService.userInfoURL = "://invalid"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"email":"user@example.com","name":"New User","verified_email":true}`)
+	}))
+	defer server.Close()
+	httpService.userInfoURL = server.URL
 	vault := fakeAccountVault{}
 	a := &Application{
 		In:                bytes.NewBufferString("\n"),
