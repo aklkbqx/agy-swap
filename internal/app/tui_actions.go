@@ -117,12 +117,15 @@ func (a *Application) applyTUIForm(ctx context.Context, state *tuiState) (string
 		if path == "" || profile == "" {
 			return "", errors.New("path and profile are required")
 		}
-		if !oneOf(mode, "prompt", "recommend", "disabled") {
-			return "", errors.New("mode must be prompt, recommend, or disabled")
+		if !oneOf(mode, "prompt", "recommend", "auto", "disabled") {
+			return "", errors.New("mode must be prompt, recommend, auto, or disabled")
 		}
 		settings, err := a.loadSettings()
 		if err != nil {
 			return "", err
+		}
+		if _, ok := settings.Profiles[profile]; !ok {
+			return "", fmt.Errorf("unknown profile %q", profile)
 		}
 		replaced := false
 		for index := range settings.Bindings {
@@ -259,84 +262,16 @@ func (a *Application) tuiExportBackup(ctx context.Context, path, passphrase stri
 }
 
 func (a *Application) tuiImportBackup(ctx context.Context, path, passphrase string, merge bool) (string, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return "", errors.New("backup path is required")
-	}
-	raw, err := os.ReadFile(path)
+	count, migrated, err := a.importBackup(ctx, strings.TrimSpace(path), passphrase, merge)
 	if err != nil {
 		return "", err
 	}
-	var envelope encryptedBackup
-	var object map[string]any
-	if json.Unmarshal(raw, &envelope) == nil && envelope.Encrypted {
-		plaintext, decryptErr := decryptBackup(passphrase, envelope)
-		if decryptErr != nil {
-			return "", decryptErr
-		}
-		if err := json.Unmarshal(plaintext, &object); err != nil {
-			return "", errors.New("decrypted backup is invalid")
-		}
-	} else if err := json.Unmarshal(raw, &object); err != nil {
-		return "", fmt.Errorf("invalid backup: %w", err)
-	}
-	if _, ok := object["accounts"]; !ok {
-		return "", errors.New("backup has no accounts")
-	}
-	accountData, err := json.Marshal(object["accounts"])
-	if err != nil {
-		return "", err
-	}
-	incoming, err := decodeOrderedAccounts(accountData)
-	if err != nil {
-		return "", err
-	}
-	if merge {
-		existing, loadErr := a.store.Load(false)
-		if loadErr != nil {
-			return "", loadErr
-		}
-		for _, email := range incoming.Order {
-			existing.Set(email, incoming.ByEmail[email])
-		}
-		incoming = existing
-	}
-	migrated := 0
-	for _, email := range incoming.Order {
-		account := incoming.ByEmail[email]
-		if token := getString(account, "token_data"); token != "" && a.saveAccountSecret(ctx, account, token) {
-			migrated++
-		}
-	}
-	if err := a.store.Save(incoming); err != nil {
-		return "", err
-	}
-	if rawSettings, ok := object["settings"]; ok {
-		var settings AppSettings
-		if err := json.Unmarshal(mustJSON(rawSettings), &settings); err == nil {
-			if err := a.store.SaveSettings(settings); err != nil {
-				return "", err
-			}
-		}
-	}
-	return fmt.Sprintf("Imported %d account(s); migrated %d secret(s)", incoming.Len(), migrated), nil
+	return fmt.Sprintf("Imported %d account(s); migrated %d secret(s)", count, migrated), nil
 }
 
 func (a *Application) tuiVerifyBackup(path, passphrase string) (string, error) {
-	raw, err := os.ReadFile(strings.TrimSpace(path))
-	if err != nil {
+	if _, err := readBackup(strings.TrimSpace(path), passphrase); err != nil {
 		return "", err
-	}
-	var envelope encryptedBackup
-	if json.Unmarshal(raw, &envelope) == nil && envelope.Encrypted {
-		if _, err := decryptBackup(passphrase, envelope); err != nil {
-			return "", err
-		}
-	} else {
-		var object map[string]any
-		if err := json.Unmarshal(raw, &object); err != nil {
-			return "", err
-		}
 	}
 	return "Backup is valid", nil
 }

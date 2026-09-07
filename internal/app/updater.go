@@ -99,7 +99,16 @@ func (a *Application) cmdUpdate(ctx context.Context, args cliArgs) int {
 	releaseTag := normalizedReleaseTag(release.Tag)
 	latest := strings.TrimPrefix(releaseTag, "v")
 	currentVersion := strings.TrimPrefix(strings.TrimSpace(a.Version), "v")
-	if latest == currentVersion && !args.force {
+	order, versionErr := compareVersions(latest, currentVersion)
+	if versionErr != nil {
+		fmt.Fprintln(a.Err, "Cannot compare release versions:", versionErr)
+		return 1
+	}
+	if order < 0 && !args.force {
+		fmt.Fprintf(a.Out, "Installed v%s is newer than release v%s; use --force for an explicit downgrade.\n", currentVersion, latest)
+		return 0
+	}
+	if order == 0 && !args.force {
 		fmt.Fprintf(a.Out, "%s✓ Already up to date (v%s).%s\n", a.p.Green, currentVersion, a.p.Reset)
 		return 0
 	}
@@ -153,7 +162,11 @@ func (a *Application) cmdUpdate(ctx context.Context, args cliArgs) int {
 		fmt.Fprintf(a.Err, "%s✕ Failed to locate current executable: %v%s\n", a.p.Red, err, a.p.Reset)
 		return 1
 	}
-	current, _ = filepath.EvalSymlinks(current)
+	current, err = filepath.EvalSymlinks(current)
+	if err != nil {
+		fmt.Fprintln(a.Err, "Cannot resolve installed executable:", err)
+		return 1
+	}
 	stat, statErr := os.Stat(current)
 	mode := os.FileMode(0o755)
 	if statErr == nil {
@@ -188,6 +201,10 @@ func (a *Application) cmdUpdate(ctx context.Context, args cliArgs) int {
 		fmt.Fprintf(a.Err, "%s✕ Failed to write update: %v%s\n", a.p.Red, err, a.p.Reset)
 		return 1
 	}
+	if err := verifyUpdateBinary(ctx, tmpName, latest); err != nil {
+		fmt.Fprintln(a.Err, "Update candidate failed self-test:", err)
+		return 1
+	}
 	backup := current + ".bak"
 	if runtime.GOOS == "windows" {
 		command := exec.Command(tmpName, "__update-finalize", strconv.Itoa(os.Getpid()), current, backup, latest)
@@ -200,14 +217,8 @@ func (a *Application) cmdUpdate(ctx context.Context, args cliArgs) int {
 		fmt.Fprintf(a.Out, "%s✓ Downloaded agy-swap v%s; finalizing update after exit.%s\n", a.p.Green, latest, a.p.Reset)
 		return 0
 	}
-	_ = os.Remove(backup)
-	if err = os.Rename(current, backup); err != nil {
-		fmt.Fprintf(a.Err, "%s✕ Failed to replace running executable: %v%s\n", a.p.Red, err, a.p.Reset)
-		return 1
-	}
-	if err = os.Rename(tmpName, current); err != nil {
-		_ = os.Rename(backup, current)
-		fmt.Fprintf(a.Err, "%s✕ Failed to write update: %v%s\n", a.p.Red, err, a.p.Reset)
+	if err = replaceUpdateBinary(current, tmpName, backup); err != nil {
+		fmt.Fprintf(a.Err, "%s✕ Failed to install update: %v%s\n", a.p.Red, err, a.p.Reset)
 		return 1
 	}
 	cleanup = false
@@ -218,13 +229,49 @@ func (a *Application) cmdUpdate(ctx context.Context, args cliArgs) int {
 	return 0
 }
 
+func verifyUpdateBinary(ctx context.Context, path, version string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, path, "--version").Output()
+	if err != nil {
+		return err
+	}
+	fields := strings.Fields(string(output))
+	if len(fields) < 2 || fields[0] != "agy-swap" || fields[1] != "v"+version {
+		return fmt.Errorf("candidate did not report agy-swap v%s", version)
+	}
+	return nil
+}
+
+func replaceUpdateBinary(current, candidate, backup string) error {
+	if err := os.Remove(backup); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Rename(current, backup); err != nil {
+		return err
+	}
+	if err := os.Rename(candidate, current); err != nil {
+		if rollbackErr := os.Rename(backup, current); rollbackErr != nil {
+			return fmt.Errorf("install failed: %v; rollback failed: %w", err, rollbackErr)
+		}
+		return err
+	}
+	return nil
+}
+
 func (a *Application) runUpdateFinalizer(ctx context.Context, args []string) int {
 	if runtime.GOOS != "windows" || len(args) != 4 {
 		fmt.Fprintln(a.Err, "invalid update finalizer invocation")
 		return 2
 	}
-	_, _ = strconv.Atoi(args[0]) // retained for auditability; retries below wait for the parent lock to release.
+	pid, parseErr := strconv.Atoi(args[0])
+	if parseErr != nil || pid <= 0 {
+		return 2
+	}
 	target, backup, latest := args[1], args[2], args[3]
+	if !filepath.IsAbs(target) || backup != target+".bak" || latest != strings.TrimPrefix(a.Version, "v") {
+		return 2
+	}
 	self, err := os.Executable()
 	if err != nil {
 		return 1

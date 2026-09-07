@@ -12,7 +12,7 @@
 [![Arch](https://img.shields.io/badge/Arch-arm64%20%7C%20x86__64-orange?style=flat-square)](https://github.com/aklkbqx/agy-swap/releases)
 
 <p align="center">
-  <b>Seamlessly switch accounts, monitor real-time AI quotas, and manage Antigravity developer sessions with instant sub-millisecond native Go performance.</b>
+  <b>Manage Google Antigravity accounts, inspect provider quota snapshots, and switch the shared local session from a native terminal interface.</b>
 </p>
 
 <p align="center">
@@ -53,7 +53,7 @@ Experience `agy-swap` directly in your browser without installing anything:
 
 👉 **[https://agy-swap.aklkbqx.com](https://agy-swap.aklkbqx.com)**
 
-- **Full Live TUI Emulation**: Experience exact terminal behavior driven by over 51,000 Go state engine fixtures.
+- **Interactive TUI Preview**: Explore sample accounts through over 51,000 Go-rendered fixtures. The browser does not connect to your credentials or reproduce every native operation.
 - **Interactive 3D Perspective Mode**: Real-time 3D hardware terminal visualization with mouse parallax.
 - **Responsive Layout Engine**: Live preview adapting across mobile (320px), tablet stacked (640px), and desktop wide (1440px) split-pane modes.
 
@@ -61,20 +61,20 @@ Experience `agy-swap` directly in your browser without installing anything:
 
 ## ✨ Key Features
 
-- ⚡ **Sub-Millisecond Native Binary**: Pure Go rewrite replacing legacy Python runtime. Instant startup, 0ms CLI lag, and zero runtime dependencies.
-- 🔄 **Transactional Session Switching**: Atomic snapshots with automatic rollback safeguards. Never corrupt your Antigravity tokens or workspace state.
+- ⚡ **Native Go CLI**: No application server. macOS uses system frameworks; Linux vault support needs `secret-tool` and an unlocked Secret Service.
+- 🔄 **Session Switching**: Locks and rollback protect session updates. Backup imports also journal their recovery state for interrupted restores.
 - 📊 **Real-Time Quota & Cooldown Tracking**: Proactively tracks Gemini and third-party model limits, reset countdowns, and rate limits.
 - 🔐 **Native OS Vault Integration**: Securely integrates with macOS Keychain, Windows Credential Manager, and Linux Secret Service (`libsecret` / DBus).
 - 🎨 **Adaptive Terminal Interface**: Fluid responsive terminal layout with 256-color support, search filter, and Command Palette (`Ctrl-K` / `:`).
 - 🩺 **Built-In System Doctor**: `agy-swap doctor` verifies permissions, OAuth tokens, endpoint health, and config integrity in one command.
-- 📁 **Project & Directory Auto-Binding**: Automatically switch or recommend the right account when entering specific Git repositories or directories.
+- 📁 **Project Bindings**: `run now` resolves the current directory to a profile. Choose recommend, prompt, or explicitly enabled auto mode.
 - 🛡️ **100% Private & Telemetry-Free**: Completely local operation. Zero data collection, analytics, or remote telemetry.
 
 ---
 
 ## 🚀 Quick Start & Installation
 
-Every installation method is cryptographically verified against official SHA-256 checksums before binary execution.
+Shell and PowerShell installers verify downloaded release binaries against SHA-256 checksums. Go builds use the Go module toolchain.
 
 ### macOS / Linux Automated Installer
 
@@ -94,7 +94,7 @@ irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex
 
 ### Go Install (`go install`)
 
-If you already have Go installed (Go 1.22+):
+If you already have Go installed (Go 1.26+):
 
 ```bash
 go install github.com/aklkbqx/agy-swap/cmd/agy-swap@latest
@@ -104,7 +104,7 @@ go install github.com/aklkbqx/agy-swap/cmd/agy-swap@latest
 
 ### Build from Source
 
-Requirements: Go 1.22 or later.
+Requirements: Go 1.26 or later. macOS source builds require Xcode Command Line Tools and `CGO_ENABLED=1` for Keychain writes.
 
 ```bash
 # Clone repository
@@ -112,7 +112,7 @@ git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
 
 # Compile native binary with build provenance
-go build -trimpath -ldflags "-s -w -X main.version=2.1.3 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.2.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 
 # Verify installation
 ./agy-swap version
@@ -140,9 +140,9 @@ agy-swap
 ```
 
 The TUI intelligently detects your terminal dimensions:
-- **Wide Mode (≥96 cols)**: Displays a split-pane layout with the active account list on the left and comprehensive health metrics on the right.
-- **Stacked Mode (64–95 cols)**: Vertically arranged panels optimized for mid-sized terminals.
-- **Compact Mode (<64 cols)**: Minimalist stream-lined interface ideal for split terminal panes and mobile SSH.
+- **Wide Mode (≥92 terminal columns and ≥18 rows)**: Displays a split-pane layout with the active account list on the left and comprehensive health metrics on the right.
+- **Stacked Mode (≥64 columns and ≥16 rows when wide mode does not fit)**: Vertically arranged panels optimized for mid-sized terminals.
+- **Compact Mode (<64 columns or <16 rows)**: Minimalist stream-lined interface ideal for split terminal panes and mobile SSH.
 
 ### Keyboard Shortcuts Cheat Sheet
 
@@ -150,9 +150,9 @@ The TUI intelligently detects your terminal dimensions:
 | :--- | :--- | :--- |
 | `↑` / `↓` or `j` / `k` | **Navigate** | Move highlighted cursor up or down |
 | `Enter` | **Switch Account** | Activate highlighted account session immediately |
-| `1` – `9` | **Quick Jump** | Directly jump and switch to account by index |
-| `n` | **Cycle Next** | Instantly rotate to next available account |
-| `/` | **Search** | Fuzzy search accounts by name or email |
+| `1` – `9` | **Quick Jump** | Select an account by index; press Enter to switch |
+| `n` | **Cycle Next** | Refresh and rotate to an eligible account |
+| `/` | **Search** | Filter accounts by name or email |
 | `Ctrl-K` or `:` | **Command Palette** | Access all operations, views, and commands |
 | `r` | **Refresh Quota** | Pull live quota data from endpoints in background |
 | `p` / `h` / `s` | **Switch View** | Jump to Profiles (`p`), History (`h`), Settings (`s`) |
@@ -225,11 +225,15 @@ agy-swap alias set personal user@gmail.com
 # Create custom profiles
 agy-swap profile set work-profile work --family gemini
 
-# Bind current project directory to a specific profile or account
-agy-swap bind set /path/to/my-repo work --mode recommend
+# Set primary/reserve accounts and a ranking policy
+agy-swap profile set work-profile work --family gemini --policy sticky --reserve personal --threshold 15
 
-# Get smart recommendation for current directory
-agy-swap recommend
+# Bind a directory to an existing profile
+agy-swap bind set /path/to/my-repo work-profile --mode recommend
+
+# Recommend for that profile, or resolve the working directory when running
+agy-swap recommend --profile work-profile --refresh
+agy-swap run now
 ```
 
 ### Diagnostics, Statusline & Metrics
@@ -242,7 +246,7 @@ agy-swap doctor
 agy-swap statusline install
 agy-swap statusline render < statusline.json
 
-# Local Prometheus-compatible metrics endpoint
+# Print a local Prometheus-compatible metrics snapshot (no HTTP server)
 agy-swap metrics prometheus
 
 # Run Antigravity CLI immediately after verifying session
@@ -260,7 +264,7 @@ agy-swap account migrate --force
 agy-swap backup export --output agy-swap-backup.json
 
 # Export encrypted full backup including secrets with passphrase
-printf '%s' 'YourStrongPassphrase' | agy-swap backup export --include-secrets --passphrase-stdin --output agy-secrets.json
+printf '%s' "$BACKUP_PASSPHRASE" | agy-swap backup export --include-secrets --passphrase-stdin --output agy-secrets.json
 
 # Restore from backup file
 agy-swap backup import agy-swap-backup.json --merge
@@ -268,15 +272,27 @@ agy-swap backup import agy-swap-backup.json --merge
 
 ---
 
+## Selection and session behavior
+
+`recommend` ranks eligible accounts first. Eligibility requires a quota snapshot no older than two minutes, positive remaining capacity at or above the policy reserve, and no matching manual or log cooldown. Without `--family`, the most restrictive model group and window govern readiness. `recommend --apply`, `next`, and bound runs refresh before selecting; failed refreshes cannot authorize a switch. Use `switch ACCOUNT` for an explicit override.
+
+`sticky` prefers the active account (or profile primary), `balanced` favors remaining capacity, and `round-robin` advances through saved order. Profile reserves are fallback candidates when the primary is unavailable. `next` advances rotation even with sticky policy. `watch --account` limits polling to that account; `watch --profile` uses its primary and notification threshold.
+
+Bindings take effect in `run now`, not when a shell merely changes directory. `--account` overrides a binding. Recommend mode prints a suggestion, prompt mode asks in a terminal, and auto mode requires `policy.allow_apply=true`. These profiles update one shared local Antigravity session; they do not isolate simultaneous processes. Targets launch executables and do not translate Google credentials into credentials for other providers.
+
 ## 🔒 Security & Architecture
 
 `agy-swap` is engineered from the ground up with a security-first posture:
 
 - **OS Keyring Integration**: Bearer tokens are stored in the host OS credential manager ([macOS Keychain](https://support.apple.com/guide/security/keychain-data-protection-secb0694df1a/web), [Windows Credential Manager](https://learn.microsoft.com/en-us/windows/win32/secauthn/credentials-management), or [Linux FreeDesktop Secret Service](https://specifications.freedesktop.org/secret-service/)).
+- **Storage boundaries**: Legacy or fallback account tokens and active Antigravity OAuth files can be plaintext protected by local permissions. Vault fallback is reported. macOS releases write secrets directly to Security.framework without passing secrets in process arguments. Old vault references may remain to support local backup recovery.
+- **Identity**: Adding a credential requires a verified email returned by Google userinfo. Decoded JWT claims are only local identity hints, not signature verification.
+- **Portable backups**: Metadata exports omit secrets and machine-local vault references. Merge keeps an existing credential when the backup has none. Secret exports use AES-GCM with PBKDF2-HMAC-SHA256 (600,000 iterations); legacy encrypted backups remain readable. Verify and import use the same validation. Imports use a recovery journal; do not delete it after an interrupted restore.
+- **History**: Switch and quota events are local JSONL records with locking and retention. This is not an immutable audit ledger.
 - **Atomic File Transactions**: Configuration writes use advisory filesystem locks (`flock` on Unix, `LockFileEx` on Windows) and write-to-temp-then-rename semantics to prevent race conditions.
 - **Memory Safety & Token Sanitization**: OAuth tokens are scrubbed from CLI logs and terminal outputs. Tokens are accepted securely via stdin streams.
-- **Zero Inbound/Outbound Telemetry**: No tracking, phone-home beacons, or external telemetry servers. Network calls are strictly limited to Google OAuth and quota endpoints.
-- **Strict TLS Verification**: All API interactions enforce strict TLS certificate validation.
+- **No CLI Telemetry**: The CLI contacts Google for account and quota data and GitHub for releases and updates.
+- **TLS Verification**: Verification is enabled by default. Prefer a trusted corporate CA bundle; the explicit insecure option disables certificate authentication.
 
 ---
 
@@ -298,9 +314,9 @@ go test -bench . ./internal/app
 
 # Build and test web application
 cd site
-npm install
-npm test
-npm run build
+npm ci
+bun run build
+bun run test
 ```
 
 ---

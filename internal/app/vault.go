@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strings"
 )
@@ -69,8 +71,14 @@ func (a *Application) accountToken(ctx context.Context, account Account) (string
 
 func (a *Application) saveAccountSecret(ctx context.Context, account Account, token string) bool {
 	email := getString(account, "email")
-	ref := firstString(getString(account, "secret_ref"), accountSecretRef(email))
-	if ref == "" || a.vault == nil || !a.vault.Set(ctx, ref, token) {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return false
+	}
+	ref := accountSecretRef(email) + ":" + hex.EncodeToString(nonce[:])
+	if email == "" || a.vault == nil || !a.vault.Set(ctx, ref, token) {
+		account["token_data"] = token
+		delete(account, "secret_ref")
 		return false
 	}
 	account["secret_ref"] = ref

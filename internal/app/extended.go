@@ -26,6 +26,9 @@ type extendedOptions struct {
 	Account         string
 	Target          string
 	Profile         string
+	Policy          string
+	Reserves        []string
+	ReservesSet     bool
 	Family          string
 	Tag             string
 	Mode            string
@@ -140,6 +143,19 @@ func parseExtended(argv []string) (string, extendedOptions, []string, error) {
 				return "", opts, nil, err
 			}
 			opts.Mode = value
+		case "--policy", "--reserve":
+			value, err := take()
+			if err != nil {
+				return "", opts, nil, err
+			}
+			if arg == "--policy" {
+				opts.Policy = value
+			} else {
+				opts.ReservesSet = true
+				if value != "" {
+					opts.Reserves = strings.Split(value, ",")
+				}
+			}
 		case "--interval":
 			value, err := take()
 			if err != nil {
@@ -208,7 +224,7 @@ func normalizeExtendedArgv(argv []string) []string {
 
 func extendedOptionTakesValue(arg string) bool {
 	switch arg {
-	case "--passphrase", "--output", "--account", "--target", "--profile", "--family", "--tag", "--mode", "--interval", "--limit", "--threshold":
+	case "--passphrase", "--output", "--account", "--target", "--profile", "--family", "--tag", "--mode", "--interval", "--limit", "--threshold", "--policy", "--reserve":
 		return true
 	default:
 		return false
@@ -233,7 +249,8 @@ func (a *Application) extendedResult(command string, opts extendedOptions, data 
 
 func (a *Application) extendedError(command string, opts extendedOptions, err error) int {
 	if opts.JSON {
-		return a.writeJSON(extendedEnvelope{Schema: stateSchema, Command: command, Error: err.Error()})
+		a.writeJSON(extendedEnvelope{Schema: stateSchema, Command: command, Error: err.Error()})
+		return 1
 	}
 	fmt.Fprintf(a.Err, "agy-swap: %s: %v\n", command, err)
 	return 1
@@ -764,7 +781,7 @@ func (a *Application) cmdProfile(opts extendedOptions, positional []string) int 
 		return 0
 	case "set":
 		if len(positional) < 3 {
-			return a.extendedError("profile set", opts, errors.New("usage: profile set NAME ACCOUNT [--family FAMILY]"))
+			return a.extendedError("profile set", opts, errors.New("usage: profile set NAME ACCOUNT [--family FAMILY] [--policy sticky|balanced|round-robin] [--reserve ACCOUNT,...] [--threshold PERCENT]"))
 		}
 		name := cleanText(positional[1])
 		if err := validateAliasName(name); err != nil {
@@ -779,6 +796,19 @@ func (a *Application) cmdProfile(opts extendedOptions, positional []string) int 
 		}
 		profile := settings.Profiles[name]
 		profile.Account = email
+		if opts.Policy != "" {
+			profile.Policy = opts.Policy
+		}
+		if opts.ReservesSet {
+			profile.ReserveAccounts = nil
+			for _, target := range opts.Reserves {
+				email, err := resolveConfiguredTarget(target, accounts, settings)
+				if err != nil || email == "" {
+					return a.extendedError("profile set", opts, errors.New("reserve account not found"))
+				}
+				profile.ReserveAccounts = append(profile.ReserveAccounts, email)
+			}
+		}
 		if opts.Family != "" {
 			profile.Family = opts.Family
 		}
@@ -787,6 +817,7 @@ func (a *Application) cmdProfile(opts extendedOptions, positional []string) int 
 		}
 		if opts.Threshold >= 0 {
 			profile.NotifyThreshold = opts.Threshold
+			profile.NotifyThresholdSet = true
 		}
 		settings.Profiles[name] = profile
 		if err := a.store.SaveSettings(settings); err != nil {
@@ -848,9 +879,12 @@ func (a *Application) cmdBind(opts extendedOptions, positional []string) int {
 		if path == "" {
 			return a.extendedError("bind set", opts, errors.New("path is required"))
 		}
+		if _, ok := settings.Profiles[positional[2]]; !ok {
+			return a.extendedError("bind set", opts, errors.New("profile not found"))
+		}
 		mode := firstString(opts.Mode, "prompt")
-		if !oneOf(mode, "prompt", "recommend", "disabled") {
-			return a.extendedError("bind set", opts, errors.New("mode must be prompt, recommend, or disabled"))
+		if !oneOf(mode, "prompt", "recommend", "auto", "disabled") {
+			return a.extendedError("bind set", opts, errors.New("mode must be prompt, recommend, auto, or disabled"))
 		}
 		replaced := false
 		for i := range settings.Bindings {
@@ -875,12 +909,7 @@ func (a *Application) cmdBind(opts extendedOptions, positional []string) int {
 			return a.extendedError("bind resolve", opts, errors.New("usage: bind resolve PATH"))
 		}
 		path := cleanBindingPath(positional[1])
-		best := Binding{}
-		for _, binding := range settings.Bindings {
-			if (path == binding.Path || strings.HasPrefix(path, binding.Path+string(filepath.Separator))) && len(binding.Path) > len(best.Path) {
-				best = binding
-			}
-		}
+		best := resolveBinding(settings, path)
 		if best.Path == "" {
 			return a.extendedError("bind resolve", opts, errors.New("no binding matches path"))
 		}
@@ -926,37 +955,47 @@ type recommendation struct {
 	Reasons   []string `json:"reasons"`
 }
 
+func quotaFamilyMatches(group, family string) bool {
+	canonical := func(value string) string {
+		if value == "claude" || value == "gpt" {
+			return "third_party"
+		}
+		return value
+	}
+	return family == "" || canonical(group) == canonical(family)
+}
+
 func accountRemaining(account Account, family string) (float64, bool, string) {
 	groups := quotaGroupHealths(account)
-	var best *quotaGroupHealth
+	var limiting *quotaGroupHealth
 	for i := range groups {
 		group := &groups[i]
-		if family == "gemini" && group.id != "gemini" {
+		if !quotaFamilyMatches(group.id, family) {
 			continue
 		}
-		if (family == "claude" || family == "gpt") && group.id != "third_party" {
-			continue
-		}
-		if best == nil || group.fraction > best.fraction {
-			best = group
+		if limiting == nil || group.fraction < limiting.fraction {
+			limiting = group
 		}
 	}
-	if best != nil {
-		return best.fraction * 100, true, best.id
+	if limiting != nil {
+		return limiting.fraction * 100, true, limiting.id
 	}
 	return 0, false, ""
 }
 
 func (a *Application) buildRecommendations(ctx context.Context, accounts *Accounts, settings AppSettings, profileName, family, tag string) []recommendation {
-	active := a.activeEmail(ctx, accounts, a.credentials.Current(ctx))
-	if profileName != "" {
-		if profile, ok := settings.Profiles[profileName]; ok {
-			if family == "" {
-				family = profile.Family
-			}
-			if active == "" {
-				active = profile.Account
-			}
+	active := ""
+	if a.credentials != nil {
+		active = a.activeEmail(ctx, accounts, a.credentials.Current(ctx))
+	}
+	policy := settings.Policy.Name
+	profile, hasProfile := settings.Profiles[profileName]
+	if hasProfile {
+		if family == "" {
+			family = profile.Family
+		}
+		if profile.Policy != "" {
+			policy = profile.Policy
 		}
 	}
 	if family == "" {
@@ -964,50 +1003,71 @@ func (a *Application) buildRecommendations(ctx context.Context, accounts *Accoun
 	}
 	result := make([]recommendation, 0, accounts.Len())
 	now := time.Now().UTC()
-	for _, email := range accounts.Order {
+	activeIndex := -1
+	for i, email := range accounts.Order {
+		if strings.EqualFold(email, active) {
+			activeIndex = i
+		}
+	}
+	for index, email := range accounts.Order {
 		if tag != "" && !containsStringValue(settings.Tags[email], tag) {
+			continue
+		}
+		if hasProfile && len(profile.ReserveAccounts) > 0 && email != profile.Account && !containsStringValue(profile.ReserveAccounts, email) {
 			continue
 		}
 		account := accounts.ByEmail[email]
 		remaining, known, group := accountRemaining(account, family)
 		wait, waitKnown := accountCooldown(account, now, family)
+		age, ageKnown := quotaAge(account, now)
 		item := recommendation{Email: email, Name: getString(account, "name"), Remaining: remaining, Family: group, Reasons: []string{}}
-		item.Ready = !waitKnown || wait <= 0
+		item.Ready = known && ageKnown && age <= 2*time.Minute && (!waitKnown || wait <= 0) && remaining > 0 && remaining >= float64(settings.Policy.MinRemainingPct)
 		if known {
 			item.Reasons = append(item.Reasons, fmt.Sprintf("%s has %.1f%% remaining", group, remaining))
-			if remaining < float64(settings.Policy.MinRemainingPct) {
-				item.Reasons = append(item.Reasons, "below policy reserve")
-			}
 		} else {
-			item.Reasons = append(item.Reasons, "no recent quota snapshot")
+			item.Reasons = append(item.Reasons, "quota unknown")
+		}
+		if !ageKnown || age > 2*time.Minute {
+			item.Reasons = append(item.Reasons, "quota needs refresh")
+		}
+		if remaining < float64(settings.Policy.MinRemainingPct) {
+			item.Reasons = append(item.Reasons, "below policy reserve")
 		}
 		if waitKnown && wait > 0 {
 			item.Wait = formatDuration(wait.Seconds())
-			item.Reasons = append(item.Reasons, "cooldown until "+item.Wait)
+			item.Reasons = append(item.Reasons, "cooldown for "+item.Wait)
 		}
-		if strings.EqualFold(email, active) {
-			item.Score += 15
-			item.Reasons = append(item.Reasons, "active account preference")
+		item.Score = int(remaining)
+		switch policy {
+		case "sticky":
+			preferred := active
+			if hasProfile {
+				preferred = profile.Account
+			}
+			if strings.EqualFold(email, preferred) {
+				item.Score += 200
+				item.Reasons = append(item.Reasons, "sticky account preference")
+			}
+		case "round-robin":
+			item.Score = accounts.Len() - (index-activeIndex-1+accounts.Len())%accounts.Len()
+			item.Reasons = append(item.Reasons, "next in account rotation")
 		}
-		if item.Ready {
-			item.Score += 40
-		}
-		if known {
-			item.Score += int(remaining)
-		}
-		if remaining < float64(settings.Policy.MinRemainingPct) {
-			item.Score -= 30
-		}
-		if family != "" && group == family {
-			item.Score += 5
+		if hasProfile && containsStringValue(profile.ReserveAccounts, email) {
+			item.Reasons = append(item.Reasons, "reserve account")
 		}
 		result = append(result, item)
 	}
 	sort.SliceStable(result, func(i, j int) bool {
-		if result[i].Score != result[j].Score {
-			return result[i].Score > result[j].Score
+		if result[i].Ready != result[j].Ready {
+			return result[i].Ready
 		}
-		return result[i].Email < result[j].Email
+		if hasProfile {
+			ir, jr := containsStringValue(profile.ReserveAccounts, result[i].Email), containsStringValue(profile.ReserveAccounts, result[j].Email)
+			if ir != jr {
+				return !ir
+			}
+		}
+		return result[i].Score > result[j].Score
 	})
 	return result
 }
@@ -1028,8 +1088,19 @@ func (a *Application) cmdRecommend(ctx context.Context, opts extendedOptions, po
 	if profile == "" && len(positional) > 0 {
 		profile = positional[0]
 	}
-	if opts.Refresh {
-		a.quota.Refresh(ctx, accounts, true, nil)
+	if profile != "" {
+		if _, ok := settings.Profiles[profile]; !ok {
+			return a.extendedError("recommend", opts, errors.New("profile not found"))
+		}
+	}
+	if opts.Refresh || opts.Apply {
+		failures := a.quota.Refresh(ctx, accounts, true, nil)
+		if failure := failures["store"]; failure != "" {
+			return a.extendedError("recommend", opts, errors.New(failure))
+		}
+		for email := range failures {
+			delete(accounts.ByEmail[email], "quota_snapshot")
+		}
 	}
 	recommendations := a.buildRecommendations(ctx, accounts, settings, profile, opts.Family, opts.Tag)
 	if len(recommendations) == 0 {
@@ -1039,9 +1110,12 @@ func (a *Application) cmdRecommend(ctx context.Context, opts extendedOptions, po
 		if !settings.Policy.AllowApply {
 			return a.extendedError("recommend", opts, errors.New("policy.allow_apply is false; set it explicitly before applying a recommendation"))
 		}
+		if !recommendations[0].Ready {
+			return a.extendedError("recommend", opts, errors.New("no eligible account with fresh quota above the policy reserve"))
+		}
 		chosen := accounts.ByEmail[recommendations[0].Email]
 		token, tokenErr := a.accountToken(ctx, chosen)
-		if tokenErr != nil || !a.credentials.Apply(ctx, token, recommendations[0].Email) {
+		if tokenErr != nil || !a.applyAccount(ctx, token, recommendations[0].Email) {
 			if tokenErr == nil {
 				tokenErr = errors.New("credential apply failed")
 			}

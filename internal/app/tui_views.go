@@ -5,7 +5,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // tuiAction is intentionally data-only. The event loop owns the side effects,
@@ -190,7 +189,7 @@ func (s *tuiState) formKey(key string) (submit, cancel bool) {
 	}
 	if key == "backspace" {
 		if len(field.Value) > 0 {
-			field.Value = field.Value[:len(field.Value)-1]
+			field.Value = removeLastRune(field.Value)
 		}
 		return false, false
 	}
@@ -207,7 +206,7 @@ func (s *tuiState) formKey(key string) (submit, cancel bool) {
 		}
 		return false, false
 	}
-	if len(key) == 1 && key[0] >= 32 && key[0] != 127 && len(field.Options) == 0 {
+	if printableKey(key) && len(field.Options) == 0 {
 		field.Value += key
 	}
 	return false, false
@@ -384,8 +383,8 @@ func (a *Application) tuiQuotaViewRows(state *tuiState, width, height int) []str
 		}
 		account := state.accounts.ByEmail[email]
 		name := firstString(tuiText(getString(account, "name")), "Google User")
-		health := accountHealthCompact(account, time.Now())
-		color := a.tuiHealthColor(tuiHealthToneForGroups(quotaGroupHealths(account), account, time.Now()))
+		health := accountHealthCompact(account, a.renderTime())
+		color := a.tuiHealthColor(tuiHealthToneForGroups(quotaGroupHealths(account), account, a.renderTime()))
 		rows = append(rows, color+"● "+tuiText(name)+a.p.Reset+"  "+a.p.Gray+tuiText(email)+a.p.Reset+"  "+color+tuiText(health)+a.p.Reset)
 	}
 	if email, _, ok := state.selectedAccount(); ok && len(rows) < height {
@@ -640,7 +639,7 @@ func (a *Application) beginTUIForm(state *tuiState, kind string) {
 		form.Fields = []tuiFormField{{Key: "name", Label: "Name"}, {Key: "target", Label: "Target", Value: state.active}}
 	case "binding":
 		form.Title, form.Description = "PROJECT BINDING", "Bind a folder to a named profile."
-		form.Fields = []tuiFormField{{Key: "path", Label: "Path"}, {Key: "profile", Label: "Profile"}, {Key: "mode", Label: "Mode", Value: "prompt", Options: []string{"prompt", "recommend", "disabled"}}}
+		form.Fields = []tuiFormField{{Key: "path", Label: "Path"}, {Key: "profile", Label: "Profile"}, {Key: "mode", Label: "Mode", Value: "prompt", Options: []string{"prompt", "recommend", "auto", "disabled"}}}
 	case "target":
 		form.Title, form.Description = "TARGET", "Register a compatible CLI executable."
 		form.Fields = []tuiFormField{{Key: "name", Label: "Name"}, {Key: "command", Label: "Command"}}

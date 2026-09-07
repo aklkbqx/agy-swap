@@ -69,6 +69,11 @@ func (a *Application) statuslineFromInput(value any) string {
 			remaining, hasRemaining = 100-used, true
 		}
 	}
+	if object, ok := value.(map[string]any); ok {
+		if known, present := object["known"].(bool); present && !known {
+			hasRemaining = false
+		}
+	}
 	plan := stringField(value, "plan", "tier", "model")
 	reset := stringField(value, "reset_at", "resetAt", "reset_time", "resetTime")
 	parts := []string{"agy-swap"}
@@ -80,6 +85,9 @@ func (a *Application) statuslineFromInput(value any) string {
 	}
 	if hasRemaining {
 		parts = append(parts, fmt.Sprintf("quota %.0f%%", max(0, min(100, remaining))))
+	}
+	if !hasRemaining {
+		parts = append(parts, "quota unknown")
 	}
 	if reset != "" {
 		if parsed, err := parseUTC(reset); err == nil {

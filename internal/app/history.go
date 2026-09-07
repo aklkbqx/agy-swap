@@ -25,6 +25,11 @@ func (a *Application) appendHistory(kind, email string, data map[string]any) err
 	if err != nil || !settings.History.Enabled {
 		return err
 	}
+	lock, err := acquireFileLock(a.paths.History + ".lock")
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
 	event := historyEvent{Schema: historySchema, At: isoTime(time.Now().UTC()), Kind: cleanText(kind), Email: normalizeEmail(email), Data: data}
 	encoded, err := json.Marshal(event)
 	if err != nil {
@@ -46,10 +51,19 @@ func (a *Application) appendHistory(kind, email string, data map[string]any) err
 	if closeErr != nil {
 		return closeErr
 	}
-	return a.trimHistory(settings.History.MaxBytes, settings.History.RetentionDays)
+	return a.trimHistoryUnlocked(settings.History.MaxBytes, settings.History.RetentionDays)
 }
 
 func (a *Application) trimHistory(maxBytes, retentionDays int) error {
+	lock, err := acquireFileLock(a.paths.History + ".lock")
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	return a.trimHistoryUnlocked(maxBytes, retentionDays)
+}
+
+func (a *Application) trimHistoryUnlocked(maxBytes, retentionDays int) error {
 	if maxBytes <= 0 {
 		maxBytes = maxHistoryBytes
 	}
@@ -77,7 +91,7 @@ func (a *Application) trimHistory(maxBytes, retentionDays int) error {
 		}
 		kept = append(kept, line)
 	}
-	start := 0
+	start := len(kept)
 	size := 0
 	for i := len(kept) - 1; i >= 0; i-- {
 		lineSize := len(kept[i]) + 1
@@ -87,7 +101,7 @@ func (a *Application) trimHistory(maxBytes, retentionDays int) error {
 		size += lineSize
 		start = i
 	}
-	if len(kept) == 0 {
+	if start == len(kept) {
 		return atomicWrite(a.paths.History, nil, 0o600)
 	}
 	return atomicWrite(a.paths.History, []byte(strings.Join(kept[start:], "\n")+"\n"), 0o600)
@@ -97,7 +111,7 @@ func (a *Application) readHistory(limit int) ([]historyEvent, error) {
 	if limit <= 0 {
 		limit = maxHistoryBytes
 	}
-	data, err := readLimited(a.paths.History, int64(maxHistoryBytes)+1)
+	data, err := readLimited(a.paths.History, 256*1024*1024)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -140,7 +154,7 @@ func (a *Application) cmdHistory(opts extendedOptions, positional []string) int 
 		if !opts.Force {
 			return a.extendedError("history clear", opts, errors.New("rerun with --force to remove history"))
 		}
-		if err := os.Remove(a.paths.History); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := a.clearHistory(); err != nil {
 			return a.extendedError("history clear", opts, err)
 		}
 		return 0
@@ -337,11 +351,39 @@ func (a *Application) watchOnce(ctx context.Context, opts extendedOptions) (map[
 	if err != nil {
 		return nil, err
 	}
-	failures := a.quota.Refresh(ctx, accounts, opts.Refresh, nil)
+	if opts.Interval <= 0 {
+		opts.Interval = time.Minute
+	}
+	if opts.Profile != "" {
+		profile, ok := settings.Profiles[opts.Profile]
+		if !ok {
+			return nil, errors.New("profile not found")
+		}
+		if opts.Account == "" {
+			opts.Account = profile.Account
+		}
+		if opts.Threshold < 0 && (profile.NotifyThresholdSet || profile.NotifyThreshold > 0) {
+			opts.Threshold = profile.NotifyThreshold
+		}
+	}
+	selected := ""
+	if opts.Account != "" {
+		selected, err = resolveConfiguredTarget(opts.Account, accounts, settings)
+		if err != nil {
+			return nil, err
+		}
+		if selected == "" {
+			return nil, errors.New("account not found")
+		}
+	}
+	failures := a.quota.refreshSelected(ctx, accounts, opts.Refresh, nil, selected)
 	state := a.loadNotificationState()
 	now := time.Now().UTC()
 	summaries := make([]map[string]any, 0, accounts.Len())
 	for _, email := range accounts.Order {
+		if selected != "" && email != selected {
+			continue
+		}
 		account := accounts.ByEmail[email]
 		remaining, group, reset, known := snapshotMinimum(account)
 		summary := map[string]any{"email": email, "remaining_pct": remaining, "group": group, "known": known}
@@ -354,7 +396,8 @@ func (a *Application) watchOnce(ctx context.Context, opts extendedOptions) (map[
 			threshold = opts.Threshold
 		}
 		if known {
-			if settings.Notifications.Enabled && settings.Notifications.Reset && state.Last[key] <= float64(threshold) && remaining > float64(threshold) && state.Last[key] > 0 {
+			previous, previouslyKnown := state.Last[key]
+			if settings.Notifications.Enabled && settings.Notifications.Reset && previouslyKnown && previous <= float64(threshold) && remaining > float64(threshold) {
 				a.notifyIfDue(&state, key+":reset", "agy-swap quota reset", fmt.Sprintf("%s: %s is %.1f%% available again", email, group, remaining), time.Duration(settings.Notifications.CooldownSeconds)*time.Second)
 			}
 			state.Last[key] = remaining
@@ -366,7 +409,7 @@ func (a *Application) watchOnce(ctx context.Context, opts extendedOptions) (map[
 		if failure := failures[email]; failure != "" {
 			summary["error"] = failure
 			if settings.Notifications.Enabled && settings.Notifications.AuthFailure && (strings.Contains(failure, "401") || strings.Contains(strings.ToLower(failure), "auth")) {
-				a.notify("agy-swap authentication", email+": "+failure)
+				a.notifyIfDue(&state, email+":auth", "agy-swap authentication", email+": "+failure, time.Duration(settings.Notifications.CooldownSeconds)*time.Second)
 			}
 		}
 		if known {
@@ -409,4 +452,31 @@ func (a *Application) cmdWatch(ctx context.Context, opts extendedOptions, positi
 		case <-timer.C:
 		}
 	}
+}
+
+func (a *Application) clearHistory() error {
+	lock, err := acquireFileLock(a.paths.History + ".lock")
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := os.Remove(a.paths.History); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// Recording failure must not pretend a successful credential change failed.
+func (a *Application) recordSwitch(email string) {
+	if err := a.appendHistory("switch", email, nil); err != nil && a.Err != nil {
+		fmt.Fprintf(a.Err, "Switched account, but history could not be saved: %v\n", err)
+	}
+}
+
+func (a *Application) applyAccount(ctx context.Context, token, email string) bool {
+	if !a.credentials.Apply(ctx, token, email) {
+		return false
+	}
+	a.recordSwitch(email)
+	return true
 }

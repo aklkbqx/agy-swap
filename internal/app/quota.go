@@ -27,12 +27,16 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 	if err != nil {
 		return nil, err
 	}
-	access, err := q.http.accessToken(ctx, tokenData)
+	access, refreshed, err := q.http.accessTokenData(ctx, tokenData)
 	if err != nil {
 		return nil, err
 	}
-	if claimed := extractVerifiedEmail(tokenData); claimed != "" && claimed != getString(account, "email") {
+	if claimed := extractEmailHint(tokenData); claimed != "" && claimed != getString(account, "email") {
 		return nil, fmt.Errorf("refreshed token identity does not match the account")
+	}
+	if refreshed != tokenData {
+		account["token_data"] = refreshed
+		delete(account, "secret_ref")
 	}
 	info, err := q.http.cloudPost(ctx, access, "loadCodeAssist", map[string]any{"metadata": map[string]any{"ideType": "ANTIGRAVITY"}})
 	if err != nil {
@@ -104,6 +108,10 @@ func quotaAge(account Account, now time.Time) (time.Duration, bool) {
 }
 
 func (q *QuotaService) Refresh(ctx context.Context, accounts *Accounts, force bool, progress quotaProgress) map[string]string {
+	return q.refreshSelected(ctx, accounts, force, progress, "")
+}
+
+func (q *QuotaService) refreshSelected(ctx context.Context, accounts *Accounts, force bool, progress quotaProgress, selected string) map[string]string {
 	now := time.Now().UTC()
 	type item struct {
 		email   string
@@ -112,6 +120,9 @@ func (q *QuotaService) Refresh(ctx context.Context, accounts *Accounts, force bo
 	var fetch []item
 	done := 0
 	for _, email := range accounts.Order {
+		if selected != "" && selected != email {
+			continue
+		}
 		account := accounts.ByEmail[email]
 		if age, ok := quotaAge(account, now); !force && ok && age < quotaCache {
 			done++
@@ -119,7 +130,11 @@ func (q *QuotaService) Refresh(ctx context.Context, accounts *Accounts, force bo
 				progress(done, accounts.Len(), account, "cached")
 			}
 		} else {
-			fetch = append(fetch, item{email, account})
+			copyAccount := make(Account, len(account))
+			for k, v := range account {
+				copyAccount[k] = v
+			}
+			fetch = append(fetch, item{email, copyAccount})
 		}
 	}
 	errorsByEmail := make(map[string]string)
@@ -157,15 +172,32 @@ func (q *QuotaService) Refresh(ctx context.Context, accounts *Accounts, force bo
 	for result := range results {
 		done++
 		state := "synced"
+		original := accounts.ByEmail[result.item.email]
+		if updated := getString(result.item.account, "token_data"); updated != "" && updated != getString(original, "token_data") {
+			if q.vault != nil {
+				app := &Application{vault: q.vault}
+				if !app.saveAccountSecret(ctx, result.item.account, updated) {
+					errorsByEmail["storage"] = "OS vault unavailable; refreshed token stored in private accounts file"
+				}
+			}
+			for _, key := range []string{"secret_ref", "token_data"} {
+				if value, ok := result.item.account[key]; ok {
+					original[key] = value
+				} else {
+					delete(original, key)
+				}
+			}
+			changed = true
+		}
 		if result.err != nil {
 			errorsByEmail[result.item.email] = result.err.Error()
 			state = "failed"
 		} else {
-			result.item.account["quota_snapshot"] = result.snapshot
+			original["quota_snapshot"] = result.snapshot
 			changed = true
 		}
 		if progress != nil {
-			progress(done, accounts.Len(), result.item.account, state)
+			progress(done, accounts.Len(), original, state)
 		}
 	}
 	if changed {
