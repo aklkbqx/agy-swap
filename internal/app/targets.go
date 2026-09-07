@@ -29,7 +29,7 @@ func (a *Application) cmdTarget(opts extendedOptions, positional []string) int {
 				continue
 			}
 			_, lookErr := exec.LookPath(builtin)
-			data = append(data, map[string]any{"name": builtin, "command": builtin, "enabled": false, "available": lookErr == nil, "experimental": true})
+			data = append(data, map[string]any{"name": builtin, "command": builtin, "enabled": true, "available": lookErr == nil, "experimental": true})
 		}
 		sort.Slice(data, func(i, j int) bool { return fmt.Sprint(data[i]["name"]) < fmt.Sprint(data[j]["name"]) })
 		if opts.JSON {

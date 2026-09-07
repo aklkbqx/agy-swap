@@ -5,8 +5,6 @@ package app
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
-	"io"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -40,13 +38,7 @@ func platformVaultSet(parent context.Context, ref, token string) bool {
 	defer cancel()
 	var command *exec.Cmd
 	if runtime.GOOS == "darwin" {
-		if token == "" {
-			return false
-		}
-		passwordData := hex.EncodeToString([]byte(token))
-		command = exec.CommandContext(ctx, "security", "add-generic-password", "-U", "-a", ref, "-s", "agy-swap", "-X", passwordData)
-		command.Stdout = io.Discard
-		command.Stderr = io.Discard
+		return keychainSet(ctx, "agy-swap", ref, token)
 	} else if runtime.GOOS == "linux" {
 		command = exec.CommandContext(ctx, "secret-tool", "store", "--label=agy-swap account token", "service", "agy-swap", "username", ref)
 		command.Stdin = bytes.NewBufferString(token)

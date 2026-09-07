@@ -17,9 +17,10 @@ import (
 type Account map[string]any
 
 type Accounts struct {
-	Order    []string
-	ByEmail  map[string]Account
-	Revision int64
+	Order        []string
+	ByEmail      map[string]Account
+	Revision     int64
+	revisionHash string
 }
 
 func NewAccounts() *Accounts {
@@ -95,7 +96,7 @@ func decodeOrderedAccounts(data []byte) (*Accounts, error) {
 			if !ok || decodeToken(token) == nil {
 				return nil, fmt.Errorf("invalid saved token for %s", email)
 			}
-			if claimed := extractVerifiedEmail(token); claimed != "" && claimed != email {
+			if claimed := extractEmailHint(token); claimed != "" && claimed != email {
 				return nil, fmt.Errorf("saved token email does not match %s", email)
 			}
 		}

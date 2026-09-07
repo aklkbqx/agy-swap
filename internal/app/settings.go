@@ -24,20 +24,23 @@ type AppSettings struct {
 	Statusline    StatuslineConfig        `json:"statusline,omitempty"`
 	Targets       map[string]TargetConfig `json:"targets,omitempty"`
 	UpdatedAt     string                  `json:"updated_at,omitempty"`
+	revision      string
+	loaded        bool
 }
 
 type Profile struct {
-	Account         string   `json:"account"`
-	Family          string   `json:"family,omitempty"`
-	Policy          string   `json:"policy,omitempty"`
-	ReserveAccounts []string `json:"reserve_accounts,omitempty"`
-	NotifyThreshold int      `json:"notify_threshold,omitempty"`
+	Account            string   `json:"account"`
+	Family             string   `json:"family,omitempty"`
+	Policy             string   `json:"policy,omitempty"`
+	ReserveAccounts    []string `json:"reserve_accounts,omitempty"`
+	NotifyThreshold    int      `json:"notify_threshold,omitempty"`
+	NotifyThresholdSet bool     `json:"notify_threshold_set,omitempty"`
 }
 
 type Binding struct {
 	Path    string `json:"path"`
 	Profile string `json:"profile"`
-	Mode    string `json:"mode,omitempty"` // prompt, recommend, disabled
+	Mode    string `json:"mode,omitempty"` // prompt, recommend, auto, disabled
 }
 
 type PolicyConfig struct {
@@ -112,6 +115,12 @@ func normalizeSettings(s AppSettings) (AppSettings, error) {
 	if s.Policy.Name == "" {
 		s.Policy.Name = defaults.Policy.Name
 	}
+	if !oneOf(s.Policy.Name, "sticky", "balanced", "round-robin") {
+		return AppSettings{}, errors.New("policy must be sticky, balanced, or round-robin")
+	}
+	if s.Notifications.CooldownSeconds < 0 {
+		return AppSettings{}, errors.New("notification cooldown must be non-negative")
+	}
 	if s.Policy.MinRemainingPct < 0 || s.Policy.MinRemainingPct > 100 {
 		return AppSettings{}, errors.New("policy min_remaining_pct must be between 0 and 100")
 	}
@@ -147,6 +156,15 @@ func normalizeSettings(s AppSettings) (AppSettings, error) {
 		if profile.Policy == "" {
 			profile.Policy = s.Policy.Name
 		}
+		if !oneOf(profile.Policy, "sticky", "balanced", "round-robin") {
+			return AppSettings{}, fmt.Errorf("profile %s has invalid policy", name)
+		}
+		for i, email := range profile.ReserveAccounts {
+			profile.ReserveAccounts[i] = normalizeEmail(email)
+			if profile.ReserveAccounts[i] == "" {
+				return AppSettings{}, errors.New("invalid reserve account")
+			}
+		}
 		if profile.NotifyThreshold < 0 || profile.NotifyThreshold > 100 {
 			return AppSettings{}, fmt.Errorf("profile %s has invalid notify threshold", name)
 		}
@@ -160,8 +178,8 @@ func normalizeSettings(s AppSettings) (AppSettings, error) {
 		if s.Bindings[i].Mode == "" {
 			s.Bindings[i].Mode = "prompt"
 		}
-		if !oneOf(s.Bindings[i].Mode, "prompt", "recommend", "disabled") {
-			return AppSettings{}, errors.New("binding mode must be prompt, recommend, or disabled")
+		if !oneOf(s.Bindings[i].Mode, "prompt", "recommend", "auto", "disabled") {
+			return AppSettings{}, errors.New("binding mode must be prompt, recommend, auto, or disabled")
 		}
 		if strings.TrimSpace(s.Bindings[i].Profile) == "" {
 			return AppSettings{}, errors.New("binding profile must be non-empty")
@@ -178,9 +196,23 @@ func normalizeSettings(s AppSettings) (AppSettings, error) {
 }
 
 func (s *Store) LoadSettings() (AppSettings, error) {
+	if err := s.recoverRestore(); err != nil {
+		return AppSettings{}, err
+	}
+	lock, err := acquireFileLock(s.paths.Settings + ".lock")
+	if err != nil {
+		return AppSettings{}, err
+	}
+	defer lock.Close()
+	return s.readSettingsUnlocked()
+}
+
+func (s *Store) readSettingsUnlocked() (AppSettings, error) {
 	data, err := os.ReadFile(s.paths.Settings)
 	if errors.Is(err, os.ErrNotExist) {
-		return defaultSettings(), nil
+		settings := defaultSettings()
+		settings.loaded = true
+		return settings, nil
 	}
 	if err != nil {
 		return AppSettings{}, fmt.Errorf("cannot read %s: %w", s.paths.Settings, err)
@@ -189,10 +221,30 @@ func (s *Store) LoadSettings() (AppSettings, error) {
 	if err := json.Unmarshal(data, &settings); err != nil {
 		return AppSettings{}, fmt.Errorf("cannot parse %s: %w", s.paths.Settings, err)
 	}
+	settings.revision, settings.loaded = contentRevision(data), true
 	return normalizeSettings(settings)
 }
 
 func (s *Store) SaveSettings(settings AppSettings) error {
+	if err := s.recoverRestore(); err != nil {
+		return err
+	}
+	lock, err := acquireFileLock(s.paths.Settings + ".lock")
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	return s.saveSettingsUnlocked(settings)
+}
+
+func (s *Store) saveSettingsUnlocked(settings AppSettings) error {
+	data, readErr := os.ReadFile(s.paths.Settings)
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		return readErr
+	}
+	if settings.loaded && settings.revision != contentRevision(data) {
+		return errors.New("config.json changed in another process; retry the command")
+	}
 	settings, err := normalizeSettings(settings)
 	if err != nil {
 		return err
@@ -202,15 +254,23 @@ func (s *Store) SaveSettings(settings AppSettings) error {
 }
 
 func (s *Store) UpdateSettings(fn func(*AppSettings) error) (AppSettings, error) {
-	settings, err := s.LoadSettings()
+	if err := s.recoverRestore(); err != nil {
+		return AppSettings{}, err
+	}
+	lock, err := acquireFileLock(s.paths.Settings + ".lock")
+	if err != nil {
+		return AppSettings{}, err
+	}
+	defer lock.Close()
+	settings, err := s.readSettingsUnlocked()
 	if err != nil {
 		return AppSettings{}, err
 	}
 	if err := fn(&settings); err != nil {
 		return AppSettings{}, err
 	}
-	if err := s.SaveSettings(settings); err != nil {
+	if err := s.saveSettingsUnlocked(settings); err != nil {
 		return AppSettings{}, err
 	}
-	return settings, nil
+	return s.readSettingsUnlocked()
 }

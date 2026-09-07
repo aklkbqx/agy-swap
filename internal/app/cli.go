@@ -18,6 +18,7 @@ import (
 
 type Application struct {
 	Version             string
+	renderClock         func() time.Time
 	BuildID             string
 	In                  io.Reader
 	Out, Err            io.Writer
@@ -459,49 +460,7 @@ func (a *Application) cmdAdd(ctx context.Context, args cliArgs) int {
 			fmt.Fprintf(a.Err, "%sEmpty token provided.%s\n", a.p.Red, a.p.Reset)
 			return 1
 		}
-		decoded := decodeToken(token)
-		inner := tokenObject(decoded)
-		if inner == nil || getString(inner, "access_token") == "" {
-			fmt.Fprintf(a.Err, "%sCould not parse token.%s\n", a.p.Red, a.p.Reset)
-			return 1
-		}
-		stop := a.spinner("Fetching Google profile & avatar...")
-		userinfo := a.http.userInfo(ctx, getString(inner, "access_token"))
-		stop()
-		email, name := "", "Google User"
-		if userinfo != nil {
-			email = normalizeEmail(getString(userinfo, "email"))
-			name = cleanText(firstString(userinfo["name"], "Google User"))
-		} else {
-			email = extractVerifiedEmail(token)
-			if email == "" && !a.stdinTTY {
-				fmt.Fprintf(a.Err, "%sGoogle userinfo unavailable and no verified email claim in token. In non-interactive mode, a token with a verified email claim is required.%s\n", a.p.Red, a.p.Reset)
-				return 1
-			}
-			if email == "" {
-				email = normalizeEmail(a.readLine("Enter email address manually: "))
-			}
-		}
-		if email == "" {
-			fmt.Fprintf(a.Err, "%sEmail address is required.%s\n", a.p.Red, a.p.Reset)
-			return 1
-		}
-		if !tokenMatchesEmail(token, email) {
-			fmt.Fprintf(a.Err, "%sToken identity does not match the selected Google account.%s\n", a.p.Red, a.p.Reset)
-			return 1
-		}
-		accounts, err := a.store.Load(false)
-		if err != nil {
-			return a.storeError(err)
-		}
-		account := newAccount(email, name, token)
-		_ = a.saveAccountSecret(ctx, account, token)
-		accounts.Set(email, account)
-		if err := a.store.Save(accounts); err != nil {
-			return a.storeError(err)
-		}
-		fmt.Fprintf(a.Out, "%s✓ Saved account '%s'.%s\n", a.p.Green, email, a.p.Reset)
-		return 0
+		return a.saveTokenAccount(ctx, token)
 	}
 	return a.addLoginFlow(ctx)
 }
@@ -514,17 +473,31 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 	defer lock.Close()
 	current := a.credentials.Current(ctx)
 	backupSecure := a.credentials.Secure(ctx)
-	snapshot, _ := snapshotFiles(a.paths.OAuthToken, a.paths.OAuthCredentials, a.paths.GoogleAccounts)
+	snapshot, err := snapshotFiles(a.paths.OAuthToken, a.paths.OAuthCredentials, a.paths.GoogleAccounts)
+	if err != nil {
+		return a.storeError(err)
+	}
 	restore := func() {
-		_ = restoreFiles(snapshot)
+		if !restoreFiles(snapshot) {
+			fmt.Fprintln(a.Err, "Session file rollback failed; restore from your local backup")
+		}
+		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		var secureOK bool
 		if backupSecure != "" {
-			_ = a.credentials.Set(ctx, backupSecure)
+			secureOK = a.credentials.Set(rollbackCtx, backupSecure)
 		} else {
-			_ = a.credentials.Delete(ctx)
+			secureOK = a.credentials.Delete(rollbackCtx)
+		}
+		if !secureOK {
+			fmt.Fprintln(a.Err, "Session vault rollback failed; the previous secure credential could not be restored")
 		}
 	}
 	if current != "" {
-		accounts, _ := a.store.Load(false)
+		accounts, err := a.store.Load(false)
+		if err != nil {
+			return a.storeError(err)
+		}
 		active := a.activeEmail(ctx, accounts, current)
 		_, saved := accounts.Get(strings.ToLower(active))
 		if !saved {
@@ -558,6 +531,7 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 		fmt.Fprintln(a.Out, "Please press Enter without entering a password; authentication happens in the browser.")
 	}
 	if !a.credentials.clearUnlocked(ctx) {
+		restore()
 		fmt.Fprintln(a.Err, "Could not clear the active session before login")
 		return 1
 	}
@@ -589,7 +563,11 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 		case commandErr := <-commandDone:
 			token = a.credentials.Current(ctx)
 			if token != "" && token != current {
-				return a.saveTokenAccount(ctx, token)
+				code := a.saveTokenAccount(ctx, token)
+				if code != 0 {
+					restore()
+				}
+				return code
 			}
 			restore()
 			if ctx.Err() != nil {
@@ -605,14 +583,18 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 			token = a.credentials.Current(ctx)
 			if token != "" && token != current {
 				stopLoginCommand(command, commandDone)
-				return a.saveTokenAccount(ctx, token)
+				code := a.saveTokenAccount(ctx, token)
+				if code != 0 {
+					restore()
+				}
+				return code
 			}
 		case <-timeout.C:
 			stopLoginCommand(command, commandDone)
 			restore()
 			fmt.Fprintf(a.Out, "\n%sTimed out waiting for login (120s).%s\n", a.p.Red, a.p.Reset)
 			if current != "" {
-				fmt.Fprintf(a.Out, "%sRestored previous token.%s\n", a.p.Gray, a.p.Reset)
+				fmt.Fprintf(a.Out, "%sAttempted to restore the previous session; any rollback errors are reported above.%s\n", a.p.Gray, a.p.Reset)
 			}
 			return 1
 		}
@@ -625,21 +607,23 @@ func (a *Application) saveTokenAccount(ctx context.Context, token string) int {
 		fmt.Fprintf(a.Out, "\n%sInvalid token structure.%s\n", a.p.Red, a.p.Reset)
 		return 1
 	}
-	stop := a.spinner("Fetching Google profile & avatar...")
-	info := a.http.userInfo(ctx, getString(inner, "access_token"))
-	stop()
-	email, name := "", "Google User"
-	if info != nil {
-		email = normalizeEmail(getString(info, "email"))
-		name = firstString(info["name"], name)
-	} else {
-		email = extractVerifiedEmail(token)
-		if email == "" && a.stdinTTY {
-			email = normalizeEmail(a.readLine("Enter account email manually: "))
-		}
+	stop := a.spinner("Verifying Google account...")
+	access, refreshed, err := a.http.accessTokenData(ctx, token)
+	if err != nil {
+		stop()
+		fmt.Fprintln(a.Err, "Could not refresh credential:", err)
+		return 1
 	}
+	info := a.http.userInfo(ctx, access)
+	stop()
+	if info == nil || !verifiedUserInfo(info) {
+		fmt.Fprintln(a.Err, "Google userinfo could not verify the account; retry when Google is reachable.")
+		return 1
+	}
+	token = refreshed
+	email, name := normalizeEmail(getString(info, "email")), cleanText(firstString(info["name"], "Google User"))
 	if email == "" {
-		fmt.Fprintln(a.Err, "A valid email is required")
+		fmt.Fprintln(a.Err, "Google returned no valid account email")
 		return 1
 	}
 	if !tokenMatchesEmail(token, email) {
@@ -650,8 +634,16 @@ func (a *Application) saveTokenAccount(ctx context.Context, token string) int {
 	if err != nil {
 		return a.storeError(err)
 	}
-	account := newAccount(email, name, token)
-	_ = a.saveAccountSecret(ctx, account, token)
+	account, exists := accounts.Get(email)
+	if !exists {
+		account = newAccount(email, name, token)
+	} else {
+		account["name"] = name
+		account["token_data"] = token
+	}
+	if !a.saveAccountSecret(ctx, account, token) {
+		fmt.Fprintln(a.Err, "OS credential vault unavailable; token stored in the private accounts file.")
+	}
 	accounts.Set(email, account)
 	if err := a.store.Save(accounts); err != nil {
 		return a.storeError(err)
@@ -668,6 +660,11 @@ func (a *Application) cmdList(ctx context.Context, args cliArgs) int {
 	if accounts.Len() == 0 {
 		fmt.Fprintf(a.Out, "%sNo accounts added yet. Run 'agy-swap add' to save a Google account.%s\n", a.p.Gray, a.p.Reset)
 		return 0
+	}
+	if args.refresh {
+		for email, failure := range a.quota.Refresh(ctx, accounts, true, nil) {
+			fmt.Fprintf(a.Err, "Quota refresh failed for %s: %s\n", email, failure)
+		}
 	}
 	current := a.credentials.Current(ctx)
 	active := a.activeEmail(ctx, accounts, current)
@@ -764,7 +761,7 @@ func localActiveEmail(accounts *Accounts, current string) string {
 			return email
 		}
 	}
-	claimed := extractVerifiedEmail(current)
+	claimed := extractEmailHint(current)
 	if claimed != "" {
 		for _, email := range accounts.Order {
 			if strings.EqualFold(email, claimed) {
@@ -807,13 +804,9 @@ func resolveTarget(target string, accounts *Accounts) (string, error) {
 }
 
 func accountCooldown(account Account, now time.Time, family string) (time.Duration, bool) {
-	if wait, matched := quotaWait(account, now, family); matched {
-		return wait, true
-	}
-	var maxWait time.Duration
-	found := false
+	maxWait, found := quotaWait(account, now, family)
 	for _, limit := range activeLimits(account, now) {
-		if family == "" || getString(limit.Limit, "family") == family {
+		if family == "" || getString(limit.Limit, "family") == "" || quotaFamilyMatches(getString(limit.Limit, "family"), family) {
 			found = true
 			if limit.Remaining > maxWait {
 				maxWait = limit.Remaining
@@ -823,6 +816,9 @@ func accountCooldown(account Account, now time.Time, family string) (time.Durati
 	return maxWait, found
 }
 func selectNext(accounts *Accounts, active, family string) (Account, int) {
+	if accounts.Len() == 0 {
+		return nil, -1
+	}
 	activeIndex := -1
 	for i, email := range accounts.Order {
 		if active != "" && strings.EqualFold(email, active) {
@@ -870,31 +866,37 @@ func (a *Application) cmdNext(ctx context.Context, args cliArgs) int {
 		fmt.Fprintf(a.Out, "%sNo accounts found. Add one with 'agy-swap add' first.%s\n", a.p.Gray, a.p.Reset)
 		return 1
 	}
-	_ = a.quota.Refresh(ctx, accounts, false, nil)
+	settings, err := a.loadSettings()
+	if err != nil {
+		return a.storeError(err)
+	}
+	failures := a.quota.Refresh(ctx, accounts, true, nil)
+	if failure := failures["store"]; failure != "" {
+		return a.storeError(errors.New(failure))
+	}
+	for email, failure := range failures {
+		fmt.Fprintf(a.Err, "Quota refresh failed for %s: %s\n", email, failure)
+		delete(accounts.ByEmail[email], "quota_snapshot")
+	}
+	// Explicit next advances the rotation; recommendation sticky policy is for reuse.
+	if settings.Policy.Name == "sticky" {
+		settings.Policy.Name = "round-robin"
+	}
+	recommendations := a.buildRecommendations(ctx, accounts, settings, "", args.family, "")
+	if len(recommendations) == 0 || !recommendations[0].Ready {
+		fmt.Fprintln(a.Err, "No eligible account with fresh quota; use switch ACCOUNT for an explicit override.")
+		return 1
+	}
+	next := accounts.ByEmail[recommendations[0].Email]
 	lock, err := acquireFileLock(a.paths.SessionLock)
 	if err != nil {
 		return a.storeError(err)
 	}
 	defer lock.Close()
-	current := a.credentials.Current(ctx)
-	active := a.activeEmail(ctx, accounts, current)
-	next, state := selectNext(accounts, active, args.family)
-	label := ""
-	if args.family != "" {
-		label = strings.Title(args.family) + " "
-	}
-	reason := "available " + label + "quota"
-	if state == 1 {
-		wait, _ := accountCooldown(next, time.Now(), args.family)
-		fmt.Fprintf(a.Out, "%sAll accounts have an observed %slimit; selecting the shortest wait (%s).%s\n", a.p.Yellow, label, formatDuration(wait.Seconds()), a.p.Reset)
-		reason = "shortest observed " + label + "limit"
-	} else if state == -1 {
-		fmt.Fprintf(a.Out, "%sNo account has confirmed available %squota; selecting the next account with unverified usage.%s\n", a.p.Yellow, label, a.p.Reset)
-		reason = "unverified " + label + "quota"
-	}
-	fmt.Fprintf(a.Out, "Auto-rotating to account with %s: %s%s%s %s<%s>%s...\n", reason, a.p.Bold, getString(next, "name"), a.p.Reset, a.p.Gray, getString(next, "email"), a.p.Reset)
+	fmt.Fprintf(a.Out, "Rotating to %s...\n", getString(next, "email"))
 	token, tokenErr := a.accountToken(ctx, next)
 	if tokenErr == nil && a.credentials.applyUnlocked(ctx, token, getString(next, "email")) {
+		a.recordSwitch(getString(next, "email"))
 		fmt.Fprintf(a.Out, "%s✓ Successfully auto-rotated to %s.%s\n", a.p.Green, getString(next, "email"), a.p.Reset)
 		return 0
 	}
@@ -934,12 +936,8 @@ func (a *Application) cmdSwitch(ctx context.Context, args cliArgs) int {
 		fmt.Fprintf(a.Err, "%s✕ Failed to read account credential: %v.%s\n", a.p.Red, tokenErr, a.p.Reset)
 		return 1
 	}
-	if a.credentials.Current(ctx) == token {
-		fmt.Fprintf(a.Out, "Already using %s%s%s %s<%s>%s.\n", a.p.Bold, getString(account, "name"), a.p.Reset, a.p.Gray, email, a.p.Reset)
-		return 0
-	}
 	fmt.Fprintf(a.Out, "Switching to %s%s%s %s<%s>%s...\n", a.p.Bold, getString(account, "name"), a.p.Reset, a.p.Gray, email, a.p.Reset)
-	if a.credentials.Apply(ctx, token, email) {
+	if a.applyAccount(ctx, token, email) {
 		fmt.Fprintf(a.Out, "%s✓ Successfully switched to %s.%s\n", a.p.Green, email, a.p.Reset)
 		return 0
 	}
@@ -1096,4 +1094,11 @@ func (a *Application) storeError(err error) int {
 		fmt.Fprintf(a.Err, "%sStore error: %v%s\n", a.p.Red, err, a.p.Reset)
 	}
 	return 1
+}
+
+func (a *Application) renderTime() time.Time {
+	if a.renderClock != nil {
+		return a.renderClock()
+	}
+	return time.Now()
 }
