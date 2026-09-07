@@ -1,3 +1,4 @@
+import { decodeFixtureDocument } from './fixtureCodec.js';
 export const VIEWS = ['Dashboard', 'Quota', 'Profiles', 'History', 'Settings', 'Doctor', 'Backup'];
 
 export const ACCOUNTS = [
@@ -111,7 +112,7 @@ export async function fetchShard(layout, view) {
       const curDir = dirname(fileURLToPath(import.meta.url));
       const shardPath = join(curDir, `../generated/shards/${key}.json`);
       const data = JSON.parse(readFileSync(shardPath, 'utf-8'));
-      const fixtures = data.fixtures;
+      const fixtures = decodeFixtureDocument(data).fixtures;
       if (!Array.isArray(fixtures) || fixtures.length === 0) {
         throw new Error(`Shard ${key} contained no fixtures in node test`);
       }

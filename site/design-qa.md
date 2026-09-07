@@ -66,7 +66,7 @@ The mobile capture confirms a top-of-page first load, readable headline, working
 
 ## TUI Fidelity & Authoritative Renderer Integration
 
-- Authoritative Source: All browser terminal screens are directly sourced from the Go application renderer (`internal/app.(*Application).tuiLines`) across 51,054 compiled fixtures partitioned into exactly 21 lazy layout-view shards and 3 initial frames (`tui-initial-fixtures.json`), completely eliminating bespoke HTML mockups, fake status bars, and invented confirmation dialogs.
+- Authoritative Source: All browser terminal screens are directly sourced from the Go application renderer (`internal/app.(*Application).tuiLines`) across 51,114 compiled fixtures partitioned into exactly 21 lazy layout-view shards and 3 initial frames (`tui-initial-fixtures.json`), completely eliminating bespoke HTML mockups, fake status bars, and invented confirmation dialogs.
 - Performance Architecture: Instant zero-CLS initial render from 3-frame initial bank (`tui-initial-fixtures.json`); dynamic on-demand loading of individual layout+view shards. Production build main `index-DAEKmpKw.js` is 268.75 kB raw / 77.24 kB gzip. CSS is 10.81 kB raw / 2.90 kB gzip, lazy 3D chunk is 896.92 kB raw / 241.91 kB gzip. Zero aggregate asset fetch on initial page load; zero initial shard requests and zero initial 3D requests.
 - Fixed Character-Cell Architecture: Monospace cell capacity (`cols`, `rows`) measured directly from aperture and monospace metrics to trigger wide (>=92×18), stacked, and compact (<64×16) layout selection with matched CSS aspects (wide 100/48, stacked 80/48, compact 376/228 with compact frame 4:3) centered in the carbon aperture.
 - Real Runtime Interaction Model: Real account-switch workflows immediately switch active accounts in all 7 views and modal contexts across all reachable active×selected pairs. Genuine post-delete fixtures reflect actual account removal with persistent reduced collection fidelity and authentic `active-none` states. Final edge parity fixes guarantee exact native History clear title "Clear local history" and History post-clear state, empty Profiles e/d/Enter guards, exact native Removed account copy, Doctor healthy completion, Go `clampSelection` after delete, sequential result banners through empty states, and option defaults/reset handling.
@@ -74,3 +74,22 @@ The mobile capture confirms a top-of-page first load, readable headline, working
 - Accessibility & Precision: Screen reader plain text representations, `aria-live` interactive announcements, focus-visible terminal region, dynamic `role="dialog"` with Tab-trapping during modal overlays, and accessible toolbar controls.
 
 passed
+
+
+## v2.2.0 reliability and responsive verification
+
+- Packed fixture schema 2 shares repeated rows and frames across 51,114 states;
+  initial frames remain schema 1. All 21 shards pass source-fingerprint checks.
+- Actual InteractiveDemo component tests cover manual navigation, stale view
+  requests, and late layout requests. Site suite: 46 tests passing.
+- Browser evidence: [mobile](qa/v2.2.0/mobile-demo.png) and
+  [desktop](qa/v2.2.0/desktop-demo.png). Production build tested in an isolated
+  Chrome browser at 390×844 and 1440×1000. Mobile document width equals viewport
+  width; device camera and terminal text fit the available space.
+- The native suite includes full race detection and isolated TUI smoke at
+  28×12, 40×20, 80×24, and 120×30. Fixture generation validates every unique row
+  and every state's dimensions, identity, metadata, and deterministic rendering.
+- All four locales (English, Thai, Japanese, Chinese) fit 320, 390, 768,
+  and 1440 pixel viewports without document overflow. Additional evidence:
+  [Thai mobile](qa/v2.2.0/mobile-th.png),
+  [reduced-motion Quota navigation](qa/v2.2.0/desktop-quota-reduced.png).

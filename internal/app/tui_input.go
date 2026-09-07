@@ -3,6 +3,8 @@ package app
 import (
 	"io"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 const tuiInputPollTimeout = 120 * time.Millisecond
@@ -18,7 +20,7 @@ func readTerminalKey(reader io.Reader) string {
 		return ""
 	}
 	switch first {
-	case 0, 0xe0:
+	case 0:
 		second, err := readInputByte(reader)
 		if err != nil {
 			return ""
@@ -40,6 +42,8 @@ func readTerminalKey(reader io.Reader) string {
 		return readEscapeSequence(reader)
 	case '\r', '\n':
 		return "enter"
+	case '\t':
+		return "tab"
 	case 0x7f, 0x08:
 		return "backspace"
 	case 0x03:
@@ -53,7 +57,18 @@ func readTerminalKey(reader io.Reader) string {
 	case 0x0b:
 		return "ctrl-k"
 	default:
-		return string(first)
+		buf := []byte{first}
+		for !utf8.FullRune(buf) && len(buf) < utf8.UTFMax {
+			next, err := readInputByteWithTimeout(reader, tuiEscapeTimeout)
+			if err != nil {
+				return ""
+			}
+			buf = append(buf, next)
+		}
+		if !utf8.Valid(buf) {
+			return ""
+		}
+		return string(buf)
 	}
 }
 
@@ -109,6 +124,8 @@ func decodeCSI(sequence []byte) string {
 	}
 	final := sequence[len(sequence)-1]
 	switch final {
+	case 'Z':
+		return "shift-tab"
 	case 'A':
 		return "up"
 	case 'B':
@@ -143,4 +160,14 @@ func readInputByte(reader io.Reader) (byte, error) {
 	var b [1]byte
 	_, err := io.ReadFull(reader, b[:])
 	return b[0], err
+}
+
+func printableKey(key string) bool {
+	r, size := utf8.DecodeRuneInString(key)
+	return size == len(key) && r != utf8.RuneError && unicode.IsPrint(r)
+}
+
+func removeLastRune(value string) string {
+	_, size := utf8.DecodeLastRuneInString(value)
+	return value[:len(value)-size]
 }

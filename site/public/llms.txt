@@ -1,6 +1,6 @@
 # agy-swap
 
-> High-Performance Native Account Switcher and Real-Time Quota Monitor for Google Antigravity CLI (`agy`). Built in Go with sub-millisecond execution and zero external dependencies.
+> High-Performance Native Account Switcher and Real-Time Quota Monitor for Google Antigravity CLI (`agy`). Built in Go with native OS credential storage and explicit quota refresh.
 
 - **Website**: https://agy-swap.aklkbqx.com/
 - **Repository**: https://github.com/aklkbqx/agy-swap

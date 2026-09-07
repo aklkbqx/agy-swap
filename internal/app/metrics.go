@@ -32,8 +32,14 @@ func (a *Application) metricsSnapshot(ctx context.Context, refresh bool) (map[st
 			group := getMap(rawGroup)
 			for _, rawBucket := range getSlice(group["buckets"]) {
 				bucket := getMap(rawBucket)
-				fraction, _ := getFloat(bucket["remaining_fraction"])
-				item["family_"+getString(group, "id")] = fraction
+				fraction, known := getFloat(bucket["remaining_fraction"])
+				if !known {
+					continue
+				}
+				key := "family_" + getString(group, "id")
+				if previous, ok := item[key].(float64); !ok || fraction < previous {
+					item[key] = fraction
+				}
 				item["reset_"+getString(bucket, "id")] = getString(bucket, "reset_at")
 			}
 		}

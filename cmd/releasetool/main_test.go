@@ -61,6 +61,16 @@ func TestVerifyAssetsRequiresAllReleasePlatforms(t *testing.T) {
 	if err := verifyAssets("2.0.0", dir); err != nil {
 		t.Fatal(err)
 	}
+	asset := filepath.Join(dir, "agy-swap_v2.0.0_linux_amd64")
+	if err := os.WriteFile(asset, []byte("tampered"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyAssets("2.0.0", dir); err == nil {
+		t.Fatal("tampered release asset accepted")
+	}
+	if err := writeChecksums(dir, filepath.Join(dir, "checksums.txt")); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Remove(filepath.Join(dir, "agy-swap_v2.0.0_windows_arm64.exe")); err != nil {
 		t.Fatal(err)
 	}

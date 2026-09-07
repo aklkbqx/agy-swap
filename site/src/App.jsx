@@ -21,7 +21,7 @@ export function App() {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(text);
         setter(true);
-        setAriaLiveMsg(t('install.copySuccess', 'Copied to clipboard.'));
+        setAriaLiveMsg(t('install.copySuccess', "Copied to clipboard"));
         setTimeout(() => setter(false), 2000);
       } else {
         const textArea = document.createElement("textarea");
@@ -31,7 +31,7 @@ export function App() {
         document.execCommand("Copy");
         textArea.remove();
         setter(true);
-        setAriaLiveMsg(t('install.copySuccess', 'Copied to clipboard.'));
+        setAriaLiveMsg(t('install.copySuccess', "Copied to clipboard"));
         setTimeout(() => setter(false), 2000);
       }
     } catch (err) {
@@ -62,10 +62,10 @@ export function App() {
       <header className={styles.nav}>
         <a className={styles.logo} href="#main-content" aria-label="agy-swap home">agy-swap</a>
         <nav className={styles.navLinks} aria-label="Main Navigation">
-          <a href="#main-content">{t('nav.overview', 'Overview')}</a>
-          <a href="#demo" onClick={scrollToDemo}>{t('nav.flow', 'Flow')}</a>
-          <a href="#features">{t('nav.features', 'Features')}</a>
-          <a href="#install">{t('nav.install', 'Install')}</a>
+          <a href="#main-content">{t('nav.overview', "Overview")}</a>
+          <a href="#demo" onClick={scrollToDemo}>{t('nav.flow', "Flow")}</a>
+          <a href="#features">{t('nav.features', "Features")}</a>
+          <a href="#install">{t('nav.install', "Install")}</a>
         </nav>
         <div className={styles.navRightGroup}>
           <LanguageSelector />
@@ -77,34 +77,34 @@ export function App() {
       <main id="main-content" className={styles.main}>
         <section className={styles.hero} aria-labelledby="hero-heading">
           <div className={styles.heroTitleBlock}>
-            <span className={styles.eyebrow}>{t('hero.eyebrow', 'AGY-SWAP')}</span>
+            <span className={styles.eyebrow}>{t('hero.eyebrow', "AGY-SWAP")}</span>
             <h1 id="hero-heading" className={styles.headline}>
-              {t('hero.headlinePart1', 'Native Terminal')}<br/>
-              {t('hero.headlinePart2', 'Account Switcher')}<br/>
-              {t('hero.headlinePart3', 'And Quota Monitor')}<span className={styles.dot}>.</span>
+              {t('hero.headlinePart1', "Native Terminal")}<br/>
+              {t('hero.headlinePart2', "Account Switcher")}<br/>
+              {t('hero.headlinePart3', "And Quota Monitor")}<span className={styles.dot}>.</span>
             </h1>
           </div>
           <div className={styles.heroAside}>
             <p className={styles.heroSubtitle}>
-              {t('hero.subtitle', 'Instant account rotation and live Gemini quota monitoring for Google Antigravity.')}
+              {t('hero.subtitle', "Manage Google Antigravity accounts, inspect cached quota, and choose your next session from a native terminal interface.")}
             </p>
             <div className={`${styles.copyCode} ${styles.heroCommand}`}>
               <span><b aria-hidden="true">›</b> curl -fsSL https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash</span>
               <button
                 className={styles.copyBtn}
                 onClick={() => handleCopy("curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash", setCopiedLinux)}
-                aria-label={t('hero.copyCommand', 'Copy install command')}
+                aria-label={t('hero.copyCommand', "Copy install command")}
               >
-                {copiedLinux ? t('hero.copied', 'Copied') : 'Copy'}
+                {copiedLinux ? t('hero.copied', "Copied") : 'Copy'}
               </button>
             </div>
             <a href="#demo" className={styles.demoLink} onClick={scrollToDemo}>
-              {t('hero.exploreDemo', 'Explore interactive demo')} ↓
+              {t('hero.exploreDemo', "Explore interactive demo")} ↓
             </a>
           </div>
         </section>
 
-        <section id="demo" tabIndex={-1} className={styles.demoSection} aria-label={t('demo.headline', 'Interactive demo')}>
+        <section id="demo" tabIndex={-1} className={styles.demoSection} aria-label={t('demo.headline', "Keyboard-Driven Operational Terminal")}>
           <div className={styles.demoWrapper}>
             <InteractiveDemo is3DEnabled={is3DEnabled} on3DError={handle3DError} />
           </div>
@@ -112,73 +112,73 @@ export function App() {
 
         <section id="features" className={styles.featuresSection} aria-labelledby="features-heading">
           <div className={styles.featuresIntro}>
-            <span className={styles.eyebrow}>{t('features.eyebrow', 'BUILT FOR FLOW')}</span>
-            <h2 id="features-heading">{t('features.headline', 'One tool. Zero friction.')}</h2>
+            <span className={styles.eyebrow}>{t('features.eyebrow', "CORE CAPABILITIES")}</span>
+            <h2 id="features-heading">{t('features.headline', "Engineered for High-Velocity Antigravity Workflows")}</h2>
           </div>
           <div className={styles.featuresGrid}>
             <div>
-              <h3 className={styles.featureTitle}>{t('features.card1Title', 'Sub-Millisecond Switching')}</h3>
-              <p className={styles.featureDesc}>{t('features.card1Desc', 'Switch active Google accounts instantaneously without restarting your terminal.')}</p>
+              <h3 className={styles.featureTitle}>{t('features.card1Title', "Account Switching")}</h3>
+              <p className={styles.featureDesc}>{t('features.card1Desc', "Update the shared local Antigravity session. Existing processes may need to reload credentials.")}</p>
             </div>
             <div>
-              <h3 className={styles.featureTitle}>{t('features.card2Title', 'Live Gemini Quota Monitor')}</h3>
-              <p className={styles.featureDesc}>{t('features.card2Desc', 'Precise real-time countdown of model rate limits and reset cooldowns.')}</p>
+              <h3 className={styles.featureTitle}>{t('features.card2Title', "Live Gemini Quota Monitor")}</h3>
+              <p className={styles.featureDesc}>{t('features.card2Desc', "Inspect remaining provider quota and reset times, with explicit refresh and stale-data checks.")}</p>
             </div>
             <div>
-              <h3 className={styles.featureTitle}>{t('features.card3Title', 'Hardware OS Keychain Vault')}</h3>
-              <p className={styles.featureDesc}>{t('features.card3Desc', 'Tokens and auth states are encrypted in your operating system secure enclave.')}</p>
+              <h3 className={styles.featureTitle}>{t('features.card3Title', "OS Credential Vault")}</h3>
+              <p className={styles.featureDesc}>{t('features.card3Desc', "Uses Keychain, Secret Service, or Credential Manager when available. Legacy and fallback tokens use a private local file.")}</p>
             </div>
           </div>
         </section>
 
         <section id="install" className={styles.installSection} aria-labelledby="install-heading">
-          <h2 id="install-heading" className={styles.installHeading}>{t('install.headline', 'Installation')}</h2>
+          <h2 id="install-heading" className={styles.installHeading}>{t('install.headline', "Install agy-swap on Any Platform")}</h2>
           <p className={styles.footerLinkWrapper}>
             <a href="/install.html" className={styles.footerLink}>
-              {t('install.staticPage', 'Standalone install page')}
+              {t('install.staticPage', "Standalone install page")}
             </a>
           </p>
           <div className={styles.installSecurityBadge}>
-            <span>{t('install.securityBadge', '🛡️ Every installation is cryptographically verified via official SHA-256 checksums before execution.')}</span>
+            <span>{t('install.securityBadge', "Shell and PowerShell installers verify downloaded release binaries against SHA-256 checksums.")}</span>
           </div>
           <div className={styles.installGrid}>
             
             <div className={styles.installBlock}>
-              <h3>{t('install.macTab', 'macOS / Linux (Shell)')}</h3>
+              <h3>{t('install.macTab', "macOS / Linux (Shell)")}</h3>
               <div className={styles.copyCode}>
                 <span>curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash</span>
                 <button className={styles.copyBtn} onClick={() => handleCopy("curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash", setCopiedLinux)} aria-label="Copy macOS/Linux script install command">
-                  {copiedLinux ? t('hero.copied', 'Copied') : 'Copy'}
+                  {copiedLinux ? t('hero.copied', "Copied") : 'Copy'}
                 </button>
               </div>
             </div>
 
             <div className={styles.installBlock}>
-              <h3>{t('install.corporateProxyTab', 'Corporate Proxy / VPN (SSL Inspection)')}</h3>
+              <h3>{t('install.corporateProxyTab', "Corporate Proxy / VPN (SSL Inspection)")}</h3>
               <div className={styles.copyCode}>
                 <span>curl -k -fsSL https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | AGY_SWAP_INSECURE=1 bash</span>
                 <button className={styles.copyBtn} onClick={() => handleCopy("curl -k -fsSL https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | AGY_SWAP_INSECURE=1 bash", setCopiedProxy)} aria-label="Copy Corporate Proxy / VPN install command">
-                  {copiedProxy ? t('hero.copied', 'Copied') : 'Copy'}
+                  {copiedProxy ? t('hero.copied', "Copied") : 'Copy'}
                 </button>
               </div>
             </div>
 
             <div className={styles.installBlock}>
-              <h3>{t('install.manualTab', 'Go (Any Platform)')}</h3>
+              <h3>{t('install.manualTab', "Go (Any Platform)")}</h3>
               <div className={styles.copyCode}>
                 <span>go install github.com/aklkbqx/agy-swap/cmd/agy-swap@latest</span>
                 <button className={styles.copyBtn} onClick={() => handleCopy('go install github.com/aklkbqx/agy-swap/cmd/agy-swap@latest', setCopiedMac)} aria-label="Copy Go install command">
-                  {copiedMac ? t('hero.copied', 'Copied') : 'Copy'}
+                  {copiedMac ? t('hero.copied', "Copied") : 'Copy'}
                 </button>
               </div>
             </div>
 
             <div className={styles.installBlock}>
-              <h3>{t('install.winTab', 'Windows (PowerShell)')}</h3>
+              <h3>{t('install.winTab', "Windows (PowerShell)")}</h3>
               <div className={styles.copyCode}>
                 <span>irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex</span>
                 <button className={styles.copyBtn} onClick={() => handleCopy("irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex", setCopiedWin)} aria-label="Copy Windows PowerShell install command">
-                  {copiedWin ? t('hero.copied', 'Copied') : 'Copy'}
+                  {copiedWin ? t('hero.copied', "Copied") : 'Copy'}
                 </button>
               </div>
             </div>
@@ -188,7 +188,7 @@ export function App() {
       </main>
       
       <footer className={styles.footer} role="contentinfo">
-        <p>{t('footer.tagline', 'Google Antigravity CLI Account Switcher & Quota Monitor.')} &middot; {t('footer.openSourceMIT', 'Open-source under MIT License.')}</p>
+        <p>{t('footer.tagline', "Google Antigravity CLI Account Switcher & Quota Monitor.")} &middot; {t('footer.openSourceMIT', "Open-source under MIT License.")}</p>
         <p className={styles.footerLinkWrapper}>
           <a href="https://github.com/aklkbqx/agy-swap" target="_blank" rel="noopener noreferrer" className={styles.footerLink}>
             github.com/aklkbqx/agy-swap

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { access } from "node:fs/promises";
 import test from "node:test";
 import worker from "../worker/index.js";
 
@@ -44,6 +43,8 @@ test("falls back to index.html for an unknown app route", async () => {
 test("does not turn missing API or write requests into the app shell", async () => {
   for (const request of [
     new Request("https://example.test/api/missing", { headers: { accept: "application/json" } }),
+    new Request("https://example.test/api/missing", { headers: { accept: "text/html" } }),
+    new Request("https://example.test/assets/missing.js", { headers: { accept: "text/html" } }),
     new Request("https://example.test/flow", { method: "POST", headers: { accept: "text/html" } }),
   ]) {
     let calls = 0;
@@ -59,10 +60,4 @@ test("does not turn missing API or write requests into the app shell", async () 
     assert.equal(response.status, 404);
     assert.equal(calls, 1);
   }
-});
-
-test("emits the files required by Sites packaging", async () => {
-  await access(new URL("../dist/client/index.html", import.meta.url));
-  await access(new URL("../dist/server/index.js", import.meta.url));
-  await access(new URL("../dist/.openai/hosting.json", import.meta.url));
 });

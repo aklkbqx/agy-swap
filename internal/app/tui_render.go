@@ -155,7 +155,7 @@ func (a *Application) tuiLines(state *tuiState, width, height int) []string {
 	} else if state.mode == tuiForm {
 		lines = a.tuiOverlay(lines, a.tuiFormLines(state, g.innerWidth), g.innerWidth, g.frameHeight)
 	}
-	if state.toastActive(time.Now()) {
+	if state.toastActive(a.renderTime()) {
 		lines = a.tuiToastOverlay(lines, state, g.innerWidth, g.frameHeight)
 	}
 	return fitFrameLines(lines, g, a.p)
@@ -423,7 +423,7 @@ func (a *Application) tuiAccountRows(state *tuiState, width, maxRows int) []stri
 	}
 	end := minInt(len(emails), start+accountBudget)
 	rows := make([]string, 0, end-start)
-	now := time.Now()
+	now := a.renderTime()
 	for i := start; i < end; i++ {
 		email := emails[i]
 		view := a.tuiAccountView(state, email, now)
@@ -477,7 +477,7 @@ func (a *Application) tuiAccountTableRows(state *tuiState, width, maxRows int) [
 		start = maxInt(0, minInt(selectedIndex-rowBudget/2, len(emails)-rowBudget))
 	}
 	end := minInt(len(emails), start+rowBudget)
-	now := time.Now()
+	now := a.renderTime()
 	for _, email := range emails[start:end] {
 		view := a.tuiAccountView(state, email, now)
 		// Keep the list column about recognition. The selected account's full
@@ -537,7 +537,7 @@ func (a *Application) tuiDetailTableLines(state *tuiState, width, maxRows int) [
 	if !ok {
 		return []string{fitVisible(a.tuiSecondary("Select an account to inspect usage."), width, a.p)}
 	}
-	now := time.Now()
+	now := a.renderTime()
 	name := firstString(tuiText(getString(account, "name")), "Google User")
 	labelWidth := maxInt(12, minInt(22, width/3))
 	rows := []string{
@@ -687,7 +687,7 @@ func (a *Application) tuiStatusLines(state *tuiState, width int) []string {
 
 func (a *Application) tuiToastOverlay(base []string, state *tuiState, width, height int) []string {
 	g := newTUIGeometry(width, height)
-	if !state.toastActive(time.Now()) {
+	if !state.toastActive(a.renderTime()) {
 		return fitFrameLines(base, g, a.p)
 	}
 
@@ -883,10 +883,11 @@ func fitVisible(value string, width int, p palette) string {
 	if width == 0 {
 		return ""
 	}
-	if visibleWidth(value) > width {
+	valueWidth := visibleWidth(value)
+	if valueWidth > width {
 		return truncateVisible(value, width, p)
 	}
-	return value + strings.Repeat(" ", width-visibleWidth(value))
+	return value + strings.Repeat(" ", width-valueWidth)
 }
 
 func stateVersion(version string) string {

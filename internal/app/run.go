@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -56,10 +58,7 @@ func (a *Application) prepareRunAccount(ctx context.Context, target string, sett
 	if err != nil {
 		return fmt.Errorf("read account credential: %w", err)
 	}
-	if a.credentials.Current(ctx) == token {
-		return nil
-	}
-	if !a.credentials.Apply(ctx, token, email) {
+	if !a.applyAccount(ctx, token, email) {
 		return fmt.Errorf("failed to switch to %s", email)
 	}
 	fmt.Fprintf(a.Out, "✓ Switched to %s before running.\n", email)
@@ -88,6 +87,11 @@ func (a *Application) cmdRunNow(ctx context.Context, opts extendedOptions, posit
 	if err := a.prepareRunAccount(ctx, opts.Account, settings); err != nil {
 		return a.extendedError("run now", opts, err)
 	}
+	if opts.Account == "" {
+		if err := a.prepareBoundRun(ctx, settings, opts.Profile); err != nil {
+			return a.extendedError("run now", opts, err)
+		}
+	}
 
 	cmd := exec.CommandContext(ctx, path, opts.RunArgs...)
 	cmd.Stdin = a.In
@@ -97,7 +101,76 @@ func (a *Application) cmdRunNow(ctx context.Context, opts extendedOptions, posit
 		if ctx.Err() != nil {
 			return a.extendedError("run now", opts, ctx.Err())
 		}
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return exitErr.ExitCode()
+		}
 		return a.extendedError("run now", opts, fmt.Errorf("%s exited: %w", command, err))
 	}
 	return 0
+}
+
+func resolveBinding(settings AppSettings, path string) Binding {
+	path = cleanBindingPath(path)
+	best := Binding{}
+	for _, binding := range settings.Bindings {
+		rel, err := filepath.Rel(binding.Path, path)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && len(binding.Path) > len(best.Path) {
+			best = binding
+		}
+	}
+	return best
+}
+
+// Directory bindings are evaluated by run now. Merely listing or inspecting
+// accounts never changes the session. An explicit --account takes precedence.
+func (a *Application) prepareBoundRun(ctx context.Context, settings AppSettings, profileName string) error {
+	path, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	binding := resolveBinding(settings, path)
+	if profileName != "" {
+		binding = Binding{Profile: profileName, Mode: "prompt"}
+	}
+	if binding.Profile == "" || binding.Mode == "disabled" {
+		return nil
+	}
+	if _, ok := settings.Profiles[binding.Profile]; !ok {
+		return errors.New("bound profile not found")
+	}
+	accounts, err := a.store.Load(true)
+	if err != nil {
+		return err
+	}
+	failures := a.quota.Refresh(ctx, accounts, true, nil)
+	if failure := failures["store"]; failure != "" {
+		return errors.New(failure)
+	}
+	for email := range failures {
+		delete(accounts.ByEmail[email], "quota_snapshot")
+	}
+	choices := a.buildRecommendations(ctx, accounts, settings, binding.Profile, "", "")
+	if len(choices) == 0 || !choices[0].Ready {
+		return errors.New("bound profile has no eligible account with fresh quota")
+	}
+	email := choices[0].Email
+	fmt.Fprintf(a.Out, "Project profile %s recommends %s.\n", binding.Profile, email)
+	if binding.Mode == "recommend" {
+		return nil
+	}
+	if binding.Mode == "auto" {
+		if !settings.Policy.AllowApply {
+			return errors.New("automatic binding requires policy.allow_apply=true")
+		}
+	} else {
+		if !a.stdinTTY {
+			return errors.New("binding needs confirmation; use --account explicitly or configure auto mode")
+		}
+		yes, valid := parseYesNo(a.readLine("Switch to this account before running? [y/N]: "), false)
+		if !valid || !yes {
+			return nil
+		}
+	}
+	return a.prepareRunAccount(ctx, email, settings)
 }

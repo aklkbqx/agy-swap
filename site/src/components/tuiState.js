@@ -9,7 +9,7 @@ function getFormOptions(formKind, fieldIndex) {
     if (fieldIndex === 1) return ['empty', 'claude', 'gemini', 'gpt'];
     if ([3, 4, 6, 7, 8, 10].includes(fieldIndex)) return ['off', 'on'];
   }
-  if (formKind === 'binding' && fieldIndex === 2) return ['prompt', 'recommend', 'disabled'];
+  if (formKind === 'binding' && fieldIndex === 2) return ['prompt', 'recommend', 'auto', 'disabled'];
   if (formKind === 'backup-export' && fieldIndex === 1) return ['off', 'on'];
   if (formKind === 'backup-import' && fieldIndex === 1) return ['off', 'on'];
   return null;
@@ -170,6 +170,7 @@ export function routeKeyAction(state, keyName, e = {}) {
     if (key === '?') return { type: 'OPEN_HELP' };
     if (key === '/') return { type: 'OPEN_SEARCH' };
     if (key === 'p') return { type: 'NAVIGATE_VIEW', view: 'Profiles' };
+    if (key === 'g') return { type: 'NAVIGATE_VIEW', view: 'Dashboard' };
     if (key === 'h') return { type: 'NAVIGATE_VIEW', view: 'History' };
     if (key === 's') return { type: 'NAVIGATE_VIEW', view: 'Settings' };
     if (key === 'o') return { type: 'NAVIGATE_DOCTOR' };
@@ -735,7 +736,7 @@ export function transitionTuiState(state, action) {
             ...state,
             confirmKind: '',
             mode: 'ready',
-            ariaLiveMsg: 'Safe preview: agy-swap is already at the latest release v2.1.3.',
+            ariaLiveMsg: 'Safe preview: agy-swap is already at the latest release v2.2.0.',
           };
         }
         return {

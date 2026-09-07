@@ -397,17 +397,62 @@ func firstRune(s string) string {
 
 var ansiPattern = regexp.MustCompile(`\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])`)
 
+// ansiPrefixLen recognizes the same escape grammar as ansiPattern without scanning
+// or allocating the rest of a terminal row.
+func ansiPrefixLen(s string) int {
+	if len(s) < 2 || s[0] != '\x1b' {
+		return 0
+	}
+	c := s[1]
+	if c >= '@' && c <= 'Z' || c >= '\\' && c <= '_' {
+		return 2
+	}
+	if c != '[' {
+		return 0
+	}
+	i := 2
+	for i < len(s) && s[i] >= '0' && s[i] <= '?' {
+		i++
+	}
+	for i < len(s) && s[i] >= ' ' && s[i] <= '/' {
+		i++
+	}
+	if i < len(s) && s[i] >= '@' && s[i] <= '~' {
+		return i + 1
+	}
+	return 0
+}
+
+func terminalRuneWidth(r rune) int {
+	if r < utf8.RuneSelf {
+		return 1
+	}
+	if unicode.Is(unicode.Mn, r) {
+		return 0
+	}
+	if isWide(r) {
+		return 2
+	}
+	return 1
+}
+
 func visibleWidth(s string) int {
 	n := 0
-	for _, r := range ansiPattern.ReplaceAllString(s, "") {
-		if unicode.Is(unicode.Mn, r) {
+	for len(s) > 0 {
+		if s[0] == '\x1b' {
+			if size := ansiPrefixLen(s); size > 0 {
+				s = s[size:]
+				continue
+			}
+		}
+		if s[0] < utf8.RuneSelf {
+			n++
+			s = s[1:]
 			continue
 		}
-		if isWide(r) {
-			n += 2
-		} else {
-			n++
-		}
+		r, size := utf8.DecodeRuneInString(s)
+		n += terminalRuneWidth(r)
+		s = s[size:]
 	}
 	return n
 }
@@ -425,21 +470,18 @@ func truncateVisible(s string, width int, p palette) string {
 	used := 0
 	limit := maxInt(0, width-1)
 	for len(s) > 0 {
-		if match := ansiPattern.FindStringIndex(s); match != nil && match[0] == 0 {
-			b.WriteString(s[:match[1]])
-			s = s[match[1]:]
-			continue
+		if s[0] == '\x1b' {
+			if size := ansiPrefixLen(s); size > 0 {
+				b.WriteString(s[:size])
+				s = s[size:]
+				continue
+			}
 		}
 		r, size := utf8.DecodeRuneInString(s)
 		if size == 0 {
 			break
 		}
-		w := 1
-		if unicode.Is(unicode.Mn, r) {
-			w = 0
-		} else if isWide(r) {
-			w = 2
-		}
+		w := terminalRuneWidth(r)
 		if used+w > limit {
 			break
 		}

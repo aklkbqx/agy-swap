@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Canvas, useFrame, useLoader } from '@react-three/fiber';
+import { Canvas, useFrame, useLoader, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { parseAnsi } from './ansi.js';
 import { getGlobalTuiFixture, subscribeTuiFixture } from './fixtures.js';
@@ -44,14 +44,16 @@ function drawTuiScreenToCanvas(canvas, fixture) {
   const lines = activeFix?.lines || [];
   if (lines.length === 0) return;
 
-  const totalRows = Math.max(lines.length, 24);
+  const totalRows = lines.length;
   const paddingX = 48;
   const paddingY = 40;
   const availW = width - paddingX * 2;
   const availH = height - paddingY * 2;
 
-  const lineHeight = availH / totalRows;
-  const fontSize = Math.floor(lineHeight * 0.78);
+  const columns = activeFix?.dimensions?.cols || 100;
+  const fontSize = Math.floor(Math.min(availH / totalRows * 0.78, availW / (columns * 0.61)));
+  const lineHeight = fontSize / 0.78;
+  const top = (height - lineHeight * totalRows) / 2;
 
   const baseFont = `${fontSize}px "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace`;
   const boldFont = `bold ${fontSize}px "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace`;
@@ -59,12 +61,17 @@ function drawTuiScreenToCanvas(canvas, fixture) {
   ctx.textBaseline = 'middle';
   ctx.font = baseFont;
 
+  const renderedRows = lines.map(parseAnsi);
+  const textWidth = Math.max(...renderedRows.map(tokens => tokens.reduce((sum, tok) => {
+    ctx.font = tok.bold ? boldFont : baseFont;
+    return sum + ctx.measureText(tok.text).width;
+  }, 0)));
+  const left = Math.max(paddingX, (width - textWidth) / 2);
   for (let r = 0; r < lines.length; r++) {
-    const line = lines[r];
-    const y = paddingY + r * lineHeight + lineHeight / 2;
-    const tokens = parseAnsi(line);
+    const y = top + r * lineHeight + lineHeight / 2;
+    const tokens = renderedRows[r];
 
-    let currentX = paddingX;
+    let currentX = left;
     for (const tok of tokens) {
       ctx.font = tok.bold ? boldFont : baseFont;
       ctx.fillStyle = tok.color || '#e0e6ed';
@@ -120,8 +127,17 @@ function useInternalScrollProgress(containerRef) {
   return progress;
 }
 
-function Scene({ fixture, scrollProgress }) {
+function Scene({ fixture, scrollProgress, reducedMotion }) {
   const meshRef = useRef(null);
+  const { camera, size, invalidate } = useThree();
+  useEffect(() => {
+    // Fit the entire device horizontally as well as vertically on narrow screens.
+    const aspect = size.width / Math.max(size.height, 1);
+    const halfFov = THREE.MathUtils.degToRad(camera.fov / 2);
+    camera.position.z = Math.max(9.2, 4.65 / (Math.tan(halfFov) * aspect));
+    camera.updateProjectionMatrix();
+    invalidate();
+  }, [camera, size.width, size.height, invalidate]);
   const [screenCanvas] = useState(() => {
     const c = document.createElement('canvas');
     c.width = 2048;
@@ -149,7 +165,8 @@ function Scene({ fixture, scrollProgress }) {
     if (textureRef.current) {
       textureRef.current.needsUpdate = true;
     }
-  }, [fixture, screenCanvas]);
+    invalidate();
+  }, [fixture, screenCanvas, invalidate]);
 
   useEffect(() => {
     return () => {
@@ -162,6 +179,12 @@ function Scene({ fixture, scrollProgress }) {
 
   useFrame((state) => {
     if (meshRef.current) {
+      if (reducedMotion) {
+        meshRef.current.rotation.set(0, 0, 0);
+        meshRef.current.position.y = 0;
+        meshRef.current.scale.setScalar(1);
+        return;
+      }
       const p = typeof scrollProgress === 'number' ? scrollProgress : 0.5;
       const scrollOffset = p - 0.5;
       
@@ -244,6 +267,13 @@ function Scene({ fixture, scrollProgress }) {
 
 export default function TerminalScene({ active, scrollProgress: propScrollProgress, onContextLost }) {
   const containerRef = useRef(null);
+  const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const update = () => setReducedMotion(media.matches);
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
   const [visible, setVisible] = useState(false);
   const [docHidden, setDocHidden] = useState(document.hidden);
   const [currentFixture, setCurrentFixture] = useState(() => getGlobalTuiFixture() || initialFixturesData.fixtures?.[0]);
@@ -288,7 +318,7 @@ export default function TerminalScene({ active, scrollProgress: propScrollProgre
           preserveDrawingBuffer: false,
         }}
         dpr={window.devicePixelRatio > 1.5 ? 1.5 : window.devicePixelRatio}
-        frameloop={isActive ? 'always' : 'demand'}
+        frameloop={isActive && !reducedMotion ? 'always' : 'demand'}
         camera={{ position: [0, 0, 9.2], fov: 36 }}
         onCreated={({ gl }) => {
           gl.setClearColor(0x000000, 0);
@@ -307,7 +337,7 @@ export default function TerminalScene({ active, scrollProgress: propScrollProgre
           }
         }}
       >
-        <Scene fixture={currentFixture} scrollProgress={effectiveProgress} />
+        <Scene fixture={currentFixture} scrollProgress={effectiveProgress} reducedMotion={reducedMotion} />
       </Canvas>
     </div>
   );

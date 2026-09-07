@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -22,7 +23,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: releasetool <checksums|verify-version|verify-assets> ...")
+		return errors.New("usage: releasetool <checksums|verify-version|verify-assets|verify-metadata> ...")
 	}
 	switch args[0] {
 	case "checksums":
@@ -35,6 +36,11 @@ func run(args []string) error {
 			return errors.New("usage: releasetool verify-version VERSION INSTALLER")
 		}
 		return verifyVersion(args[1], args[2])
+	case "verify-metadata":
+		if len(args) != 3 {
+			return errors.New("usage: releasetool verify-metadata VERSION ROOT")
+		}
+		return verifyMetadata(args[1], args[2])
 	case "verify-assets":
 		if len(args) != 3 {
 			return errors.New("usage: releasetool verify-assets VERSION DIST_DIR")
@@ -60,6 +66,22 @@ func verifyAssets(version, dir string) error {
 		}
 		if _, ok := checksums[name]; !ok {
 			return fmt.Errorf("release checksum missing: %s", name)
+		}
+		file, err := os.Open(filepath.Join(dir, name))
+		if err != nil {
+			return err
+		}
+		digest := sha256.New()
+		_, copyErr := io.Copy(digest, file)
+		closeErr := file.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		if !strings.EqualFold(hex.EncodeToString(digest.Sum(nil)), checksums[name]) {
+			return fmt.Errorf("release checksum mismatch: %s", name)
 		}
 	}
 	return nil
@@ -138,4 +160,57 @@ func verifyVersion(version, installerPath string) error {
 		}
 	}
 	return fmt.Errorf("%s does not contain the expected installer version %s", installerPath, version)
+}
+
+func verifyMetadata(version, root string) error {
+	version = strings.TrimPrefix(version, "v")
+	for _, name := range []string{"install.sh", "install.ps1"} {
+		if err := verifyVersion(version, filepath.Join(root, name)); err != nil {
+			return err
+		}
+	}
+	for name, expected := range map[string]string{
+		"Makefile":             "VERSION ?= " + version + "\n",
+		"cmd/agy-swap/main.go": "version = \"" + version + "\"",
+		"site/index.html":      "\"softwareVersion\": \"v" + version + "\"",
+		"CHANGELOG.md":         "## " + version + "\n",
+	} {
+		data, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(string(data), expected) {
+			return fmt.Errorf("version drift in %s: expected %s", name, version)
+		}
+	}
+	names := []string{"site/package.json", "site/package-lock.json", "site/src/generated/tui-initial-fixtures.json"}
+	shards, err := filepath.Glob(filepath.Join(root, "site/src/generated/shards/*.json"))
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		shards = append(shards, filepath.Join(root, name))
+	}
+	for _, name := range shards {
+		data, err := os.ReadFile(name)
+		if err != nil {
+			return err
+		}
+		var document struct {
+			Version  string `json:"version"`
+			Packages map[string]struct {
+				Version string `json:"version"`
+			} `json:"packages"`
+		}
+		if err := json.Unmarshal(data, &document); err != nil {
+			return err
+		}
+		if document.Version != version {
+			return fmt.Errorf("version drift in %s", name)
+		}
+		if pkg, ok := document.Packages[""]; ok && pkg.Version != version {
+			return fmt.Errorf("root package version drift in %s", name)
+		}
+	}
+	return nil
 }

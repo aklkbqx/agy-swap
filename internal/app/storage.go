@@ -22,7 +22,9 @@ func ensurePrivateDir(path string) error {
 
 func atomicWrite(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
-	if err := ensurePrivateDir(dir); err != nil {
+	// Existing export directories belong to the caller. Only newly created
+	// directories receive our private mode; never chmod an arbitrary parent.
+	if err := os.MkdirAll(dir, privateDirMode()); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, ".tmp.*")

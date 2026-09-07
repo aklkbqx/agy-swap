@@ -1,3 +1,4 @@
+import { decodeFixtureDocument } from '../src/components/fixtureCodec.js';
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
@@ -130,7 +131,7 @@ test("TerminalScene uses both textures and Math.PI / 2 dial orientation", () => 
   assert.ok(sceneCode.includes("Math.PI / 2"), "TerminalScene missing Math.PI / 2 rotation");
 });
 
-test("Authoritative initial, full, and 21 layout+view shard split (51054 fixtures)", () => {
+test("Authoritative initial, full, and 21 layout+view shard split (51114 fixtures)", () => {
   const fullPath = join(__dirname, "../src/generated/tui-fixtures.json");
   const initialPath = join(__dirname, "../src/generated/tui-initial-fixtures.json");
   const shardsDir = join(__dirname, "../src/generated/shards");
@@ -139,14 +140,14 @@ test("Authoritative initial, full, and 21 layout+view shard split (51054 fixture
   assert.ok(existsSync(initialPath), "Initial fixtures missing");
   assert.ok(existsSync(shardsDir), "Shards directory missing");
   
-  const fullData = JSON.parse(readFileSync(fullPath, "utf-8"));
-  const initialData = JSON.parse(readFileSync(initialPath, "utf-8"));
+  const fullData = parseFixture(readFileSync(fullPath, "utf-8"));
+  const initialData = parseFixture(readFileSync(initialPath, "utf-8"));
 
-  assert.equal(fullData.schema, 1);
+  assert.equal(fullData.schema, 2);
   assert.equal(fullData.renderer, "internal/app.(*Application).tuiLines");
-  assert.equal(fullData.version, "2.1.3");
+  assert.equal(fullData.version, "2.2.0");
   assert.ok(fullData.sourceFingerprint && fullData.sourceFingerprint.length === 64);
-  assert.equal(fullData.fixtures.length, 51054, `fixture count = ${fullData.fixtures.length}, want 51054`);
+  assert.equal(fullData.fixtures.length, 51114, `fixture count = ${fullData.fixtures.length}, want 51114`);
 
   assert.equal(initialData.fixtures.length, 3, "initial fixtures must contain exactly 3 canonical frames");
 
@@ -158,14 +159,14 @@ test("Authoritative initial, full, and 21 layout+view shard split (51054 fixture
     for (const v of views) {
       const shardPath = join(shardsDir, `${l}.${v}.json`);
       assert.ok(existsSync(shardPath), `Shard ${l}.${v}.json missing`);
-      const sData = JSON.parse(readFileSync(shardPath, "utf-8"));
-      assert.equal(sData.schema, 1);
+      const sData = parseFixture(readFileSync(shardPath, "utf-8"));
+      assert.equal(sData.schema, 2);
       assert.ok(sData.fixtures.length > 0, `Shard ${l}.${v}.json has no fixtures`);
       totalShardFixtures += sData.fixtures.length;
     }
   }
 
-  assert.equal(totalShardFixtures, 51054, `Total shard fixtures = ${totalShardFixtures}, want 51054`);
+  assert.equal(totalShardFixtures, 51114, `Total shard fixtures = ${totalShardFixtures}, want 51114`);
 });
 
 test("ANSI whitelist SGR parser unit tests", () => {
@@ -257,7 +258,7 @@ test("Transactional in-view first interaction: delayed-promise proves capture, s
     return new Promise((resolve) => {
       resolveDelayedDashboard = () => {
         const fullPath = join(__dirname, `../src/generated/shards/${layout}.${view.toLowerCase()}.json`);
-        const data = JSON.parse(readFileSync(fullPath, "utf-8"));
+        const data = parseFixture(readFileSync(fullPath, "utf-8"));
         resolve(data.fixtures);
       };
     });
@@ -272,7 +273,7 @@ test("Transactional in-view first interaction: delayed-promise proves capture, s
   function getCurrentFixtures(layout, view) {
     const loaded = sm.getLoadedShard(layout, view);
     if (loaded && loaded.length > 0) return loaded;
-    const initialData = JSON.parse(readFileSync(join(__dirname, "../src/generated/tui-initial-fixtures.json"), "utf-8"));
+    const initialData = parseFixture(readFileSync(join(__dirname, "../src/generated/tui-initial-fixtures.json"), "utf-8"));
     return initialData.fixtures;
   }
 
@@ -331,7 +332,7 @@ test("Transactional in-view first interaction: delayed-promise proves capture, s
 
 test("Initial Dashboard first ArrowDown and Search resolve exact full-shard fixtures", async () => {
   const fullPath = join(__dirname, "../src/generated/shards/wide.dashboard.json");
-  const data = JSON.parse(readFileSync(fullPath, "utf-8"));
+  const data = parseFixture(readFileSync(fullPath, "utf-8"));
   const sm = createShardManager(async () => data.fixtures);
 
   let state = createInitialTuiState();
@@ -395,7 +396,7 @@ test("Failed shard load leaves state unchanged and announces failure", async () 
 
 test("Exact delete semantics: All 9 active × deleted account combinations match Go state and metadata (with active-none)", () => {
   const fixturesPath = join(__dirname, "../src/generated/tui-fixtures.json");
-  const data = JSON.parse(readFileSync(fixturesPath, "utf-8"));
+  const data = parseFixture(readFileSync(fixturesPath, "utf-8"));
   const fixtures = data.fixtures;
 
   const emails = ["alpha@example.invalid", "beta@example.invalid", "gamma@example.invalid"];
@@ -437,7 +438,7 @@ test("Exact delete semantics: All 9 active × deleted account combinations match
 
 test("Search visible fidelity: query typing, selection clamping, and plain text validation", () => {
   const fixturesPath = join(__dirname, "../src/generated/tui-fixtures.json");
-  const data = JSON.parse(readFileSync(fixturesPath, "utf-8"));
+  const data = parseFixture(readFileSync(fixturesPath, "utf-8"));
   const fixtures = data.fixtures;
 
   let state = createInitialTuiState();
@@ -487,7 +488,7 @@ test("Search visible fidelity: query typing, selection clamping, and plain text 
 
 test("Palette visible fidelity and execution: arrow navigation moves marker in plain text", () => {
   const fixturesPath = join(__dirname, "../src/generated/tui-fixtures.json");
-  const data = JSON.parse(readFileSync(fixturesPath, "utf-8"));
+  const data = parseFixture(readFileSync(fixturesPath, "utf-8"));
   const fixtures = data.fixtures;
 
   let state = createInitialTuiState();
@@ -520,7 +521,7 @@ test("Palette visible fidelity and execution: arrow navigation moves marker in p
 
 test("Renderer-backed form editing: char-x, backspace, ctrl-u, and ctrl-w inspect actual fixture plain lines", () => {
   const fixturesPath = join(__dirname, "../src/generated/tui-fixtures.json");
-  const data = JSON.parse(readFileSync(fixturesPath, "utf-8"));
+  const data = parseFixture(readFileSync(fixturesPath, "utf-8"));
   const fixtures = data.fixtures;
 
   let state = createInitialTuiState();
@@ -609,7 +610,7 @@ test("Transaction helper: delayed-promise proves no state dispatch before resolu
 
 test("Option cycling and form keyboard controls (Left/Right, Backspace, Ctrl-U/Ctrl-W, Tab)", () => {
   const fixturesPath = join(__dirname, "../src/generated/tui-fixtures.json");
-  const data = JSON.parse(readFileSync(fixturesPath, "utf-8"));
+  const data = parseFixture(readFileSync(fixturesPath, "utf-8"));
   const fixtures = data.fixtures;
 
   let state = createInitialTuiState();
@@ -644,7 +645,7 @@ test("Option cycling and form keyboard controls (Left/Right, Backspace, Ctrl-U/C
 
 test("View preservation in all reachable operational modes", () => {
   const fixturesPath = join(__dirname, "../src/generated/tui-fixtures.json");
-  const data = JSON.parse(readFileSync(fixturesPath, "utf-8"));
+  const data = parseFixture(readFileSync(fixturesPath, "utf-8"));
   const fixtures = data.fixtures;
 
   let stateQuotaDel = createInitialTuiState();
@@ -709,7 +710,7 @@ test("Keyboard parity: selectNext algorithm ('n'), PageUp/Down steps, and bounda
 });
 
 test("Delayed fetch & shard resolution: no wrong Dashboard fallback when loading new view", async () => {
-  const initialData = JSON.parse(readFileSync(join(__dirname, "../src/generated/tui-initial-fixtures.json"), "utf-8"));
+  const initialData = parseFixture(readFileSync(join(__dirname, "../src/generated/tui-initial-fixtures.json"), "utf-8"));
   const initialFixtures = initialData.fixtures;
 
   let state = createInitialTuiState();
@@ -1029,7 +1030,7 @@ test("No duplicate reducer cases in tuiState.js", () => {
 
 test("Sequential account deletion down to empty, check plain text after navigation", () => {
   const fixturesPath = join(__dirname, "../src/generated/tui-fixtures.json");
-  const data = JSON.parse(readFileSync(fixturesPath, "utf-8"));
+  const data = parseFixture(readFileSync(fixturesPath, "utf-8"));
   const fixtures = data.fixtures;
 
   let state = createInitialTuiState();
@@ -1073,7 +1074,7 @@ test("Sequential account deletion down to empty, check plain text after navigati
 
 test("Sequential profile deletion down to empty, check plain text", () => {
   const fixturesPath = join(__dirname, "../src/generated/tui-fixtures.json");
-  const data = JSON.parse(readFileSync(fixturesPath, "utf-8"));
+  const data = parseFixture(readFileSync(fixturesPath, "utf-8"));
   const fixtures = data.fixtures;
 
   let state = createInitialTuiState();
@@ -1139,3 +1140,5 @@ test("i18n translations dictionary contains all 4 supported languages with compl
     assert.ok(translations[lang].footer?.tagline, `footer.tagline missing in ${lang}`);
   }
 });
+
+function parseFixture(raw) { return decodeFixtureDocument(JSON.parse(raw)); }

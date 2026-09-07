@@ -171,7 +171,9 @@ func decodeJWTClaims(jwt string) map[string]any {
 	return claims
 }
 
-func extractVerifiedEmail(tokenData string) string {
+// extractEmailHint only decodes local metadata. It does not verify a JWT signature
+// and must never establish the identity of a newly imported credential.
+func extractEmailHint(tokenData string) string {
 	decoded := decodeToken(tokenData)
 	inner := tokenObject(decoded)
 	if inner == nil {
@@ -224,25 +226,30 @@ func tokenExpiry(inner map[string]any) (time.Time, bool) {
 }
 
 func (h *HTTPService) accessToken(ctx context.Context, tokenData string) (string, error) {
+	access, _, err := h.accessTokenData(ctx, tokenData)
+	return access, err
+}
+
+func (h *HTTPService) accessTokenData(ctx context.Context, tokenData string) (string, string, error) {
 	decoded := decodeToken(tokenData)
 	inner := tokenObject(decoded)
 	if inner == nil {
-		return "", fmt.Errorf("refresh token is unavailable")
+		return "", tokenData, fmt.Errorf("refresh token is unavailable")
 	}
 	if access := getString(inner, "access_token"); access != "" {
 		if expiry, ok := tokenExpiry(inner); ok && time.Until(expiry) > 60*time.Second {
-			return access, nil
+			return access, tokenData, nil
 		}
 	}
 	refresh := getString(inner, "refresh_token")
 	if refresh == "" {
-		return "", fmt.Errorf("refresh token is unavailable")
+		return "", tokenData, fmt.Errorf("refresh token is unavailable")
 	}
 	clientID := oauthClientID(decoded)
 	values := url.Values{"client_id": {clientID}, "client_secret": {oauthClientSecrets[clientID]}, "refresh_token": {refresh}, "grant_type": {"refresh_token"}}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, h.oauthURL, strings.NewReader(values.Encode()))
 	if err != nil {
-		return "", err
+		return "", tokenData, err
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("User-Agent", "Mozilla/5.0")
@@ -250,30 +257,46 @@ func (h *HTTPService) accessToken(ctx context.Context, tokenData string) (string
 	defer cancel()
 	response, err := h.do(request.WithContext(requestCtx))
 	if err != nil {
-		return "", fmt.Errorf("OAuth refresh failed: %w", err)
+		return "", tokenData, fmt.Errorf("OAuth refresh failed: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return "", fmt.Errorf("OAuth refresh failed (HTTP %d)", response.StatusCode)
+		return "", tokenData, fmt.Errorf("OAuth refresh failed (HTTP %d)", response.StatusCode)
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, 4*1024*1024+1))
 	if err != nil {
-		return "", fmt.Errorf("OAuth refresh failed: %w", err)
+		return "", tokenData, fmt.Errorf("OAuth refresh failed: %w", err)
 	}
 	if len(data) > 4*1024*1024 {
-		return "", fmt.Errorf("OAuth refresh failed: response too large")
+		return "", tokenData, fmt.Errorf("OAuth refresh failed: response too large")
 	}
 	var result map[string]any
 	if json.Unmarshal(data, &result) != nil {
-		return "", fmt.Errorf("OAuth refresh failed: invalid response")
+		return "", tokenData, fmt.Errorf("OAuth refresh failed: invalid response")
 	}
 	access := getString(result, "access_token")
 	if access == "" {
-		return "", fmt.Errorf("OAuth refresh returned no access token")
+		return "", tokenData, fmt.Errorf("OAuth refresh returned no access token")
 	}
-	return access, nil
+	// Preserve provider fields and a rotated refresh token for subsequent requests.
+	for _, key := range []string{"access_token", "refresh_token", "id_token", "scope", "token_type"} {
+		if value := getString(result, key); value != "" {
+			inner[key] = value
+		}
+	}
+	if seconds, ok := getFloat(result["expires_in"]); ok && seconds > 0 && seconds <= 365*24*3600 {
+		expiry := time.Now().UTC().Add(time.Duration(seconds) * time.Second)
+		inner["expiry"], inner["expiry_date"] = isoTime(expiry), expiry.UnixMilli()
+	} else {
+		delete(inner, "expiry")
+		delete(inner, "expiry_date")
+	}
+	encoded, err := json.Marshal(decoded)
+	if err != nil {
+		return "", tokenData, err
+	}
+	return access, "go-keyring-base64:" + base64.StdEncoding.EncodeToString(encoded), nil
 }
-
 func (h *HTTPService) cloudPost(ctx context.Context, access, method string, body any) (map[string]any, error) {
 	result, status, err := h.jsonRequest(ctx, http.MethodPost, h.cloudAPI+method, map[string]string{"Authorization": "Bearer " + access, "Content-Type": "application/json", "User-Agent": "antigravity"}, body, 15*time.Second, 4*1024*1024)
 	if err != nil {
@@ -291,4 +314,12 @@ func (h *HTTPService) userInfo(ctx context.Context, access string) map[string]an
 		return nil
 	}
 	return result
+}
+
+func verifiedUserInfo(info map[string]any) bool {
+	verified, _ := info["email_verified"].(bool)
+	if !verified {
+		verified, _ = info["verified_email"].(bool)
+	}
+	return verified && normalizeEmail(getString(info, "email")) != ""
 }

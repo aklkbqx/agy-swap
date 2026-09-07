@@ -1,6 +1,7 @@
 package app
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -20,7 +21,7 @@ func NewStore(paths Paths) *Store {
 	return store
 }
 
-func (s *Store) Load(syncLogs bool) (*Accounts, error) {
+func (s *Store) readAccountsUnlocked() (*Accounts, error) {
 	data, err := os.ReadFile(s.paths.Accounts)
 	if errors.Is(err, os.ErrNotExist) {
 		return NewAccounts(), nil
@@ -32,8 +33,25 @@ func (s *Store) Load(syncLogs bool) (*Accounts, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot read %s: %w", s.paths.Accounts, err)
 	}
+	accounts.revisionHash = contentRevision(data)
 	if stat, statErr := os.Stat(s.paths.Accounts); statErr == nil {
 		accounts.Revision = stat.ModTime().UnixNano()
+	}
+	return accounts, nil
+}
+
+func (s *Store) Load(syncLogs bool) (*Accounts, error) {
+	if err := s.recoverRestore(); err != nil {
+		return nil, err
+	}
+	lock, err := acquireFileLock(s.paths.AccountsLock)
+	if err != nil {
+		return nil, err
+	}
+	accounts, err := s.readAccountsUnlocked()
+	_ = lock.Close()
+	if err != nil {
+		return nil, err
 	}
 	if syncLogs && accounts.Len() > 0 {
 		changed := migrateAndExpire(accounts, time.Now().UTC())
@@ -47,7 +65,10 @@ func (s *Store) Load(syncLogs bool) (*Accounts, error) {
 			}
 		}
 		if changed {
-			if saveErr := s.Save(accounts); saveErr != nil && !errors.Is(saveErr, errStoreConflict) {
+			if saveErr := s.Save(accounts); saveErr != nil {
+				if errors.Is(saveErr, errStoreConflict) {
+					return s.Load(false)
+				}
 				return nil, saveErr
 			}
 		}
@@ -56,11 +77,7 @@ func (s *Store) Load(syncLogs bool) (*Accounts, error) {
 }
 
 func (s *Store) Save(accounts *Accounts) error {
-	if err := validateAccounts(accounts); err != nil {
-		return err
-	}
-	payload, err := encodeOrderedAccounts(accounts)
-	if err != nil {
+	if err := s.recoverRestore(); err != nil {
 		return err
 	}
 	lock, err := acquireFileLock(s.paths.AccountsLock)
@@ -68,19 +85,40 @@ func (s *Store) Save(accounts *Accounts) error {
 		return err
 	}
 	defer lock.Close()
+	return s.saveUnlocked(accounts)
+}
+
+func contentRevision(data []byte) string {
+	if data == nil {
+		return ""
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(data))
+}
+
+func (s *Store) saveUnlocked(accounts *Accounts) error {
+	if err := validateAccounts(accounts); err != nil {
+		return err
+	}
+	payload, err := encodeOrderedAccounts(accounts)
+	if err != nil {
+		return err
+	}
 	currentRevision := int64(0)
 	if stat, statErr := os.Stat(s.paths.Accounts); statErr == nil {
 		currentRevision = stat.ModTime().UnixNano()
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return statErr
 	}
-	if accounts.Revision != 0 && accounts.Revision != currentRevision {
+	if accounts.Revision != currentRevision {
 		return errStoreConflict
 	}
 	if currentRevision != 0 {
 		previous, readErr := os.ReadFile(s.paths.Accounts)
 		if readErr != nil {
 			return readErr
+		}
+		if accounts.revisionHash != "" && accounts.revisionHash != contentRevision(previous) {
+			return errStoreConflict
 		}
 		if err := atomicWrite(s.paths.AccountsBackup, previous, 0o600); err != nil {
 			return err
@@ -94,10 +132,14 @@ func (s *Store) Save(accounts *Accounts) error {
 		return err
 	}
 	accounts.Revision = stat.ModTime().UnixNano()
+	accounts.revisionHash = contentRevision(payload)
 	return nil
 }
 
 func validateAccounts(accounts *Accounts) error {
+	if accounts == nil {
+		return errors.New("accounts are unavailable")
+	}
 	seen := make(map[string]struct{}, accounts.Len())
 	for _, key := range accounts.Order {
 		account, ok := accounts.ByEmail[key]
@@ -118,7 +160,7 @@ func validateAccounts(accounts *Accounts) error {
 			if decodeToken(token) == nil {
 				return fmt.Errorf("invalid saved token for %s", email)
 			}
-			if claimed := extractVerifiedEmail(token); claimed != "" && claimed != email {
+			if claimed := extractEmailHint(token); claimed != "" && claimed != email {
 				return fmt.Errorf("saved token email does not match %s", email)
 			}
 		}

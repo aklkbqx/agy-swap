@@ -59,6 +59,7 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
   const tuiRef = useRef(null);
   const lastVisibleFixtureRef = useRef(null);
   const pendingActionRef = useRef(null);
+  const apertureRequestRef = useRef(0);
 
   // Responsive layout selection with shard pre-check
   const handleApertureCapacity = useCallback(({ cols, rows }) => {
@@ -69,6 +70,7 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
       nextLayout = 'compact';
     }
 
+    const apertureRequest = ++apertureRequestRef.current;
     if (nextLayout === layout) return;
 
     const sm = shardManagerRef.current;
@@ -79,7 +81,7 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
     } else {
       sm.ensureShard(nextLayout, state.view)
         .then(() => {
-          if (!isMountedRef.current) return;
+          if (!isMountedRef.current || apertureRequest !== apertureRequestRef.current) return;
           setShardRevision((r) => r + 1);
           setLayout(nextLayout);
         })
@@ -92,6 +94,8 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
     if (state.view === targetView && !pendingView) return;
 
     const sm = shardManagerRef.current;
+    const reqId = sm.nextRequestId();
+    pendingActionRef.current = null;
     if (sm.hasFullShard(layout, targetView)) {
       setPendingView(null);
       dispatch({ type: 'SELECT_VIEW', view: targetView });
@@ -99,7 +103,6 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
     }
 
     setPendingView(targetView);
-    const reqId = sm.nextRequestId();
 
     sm.ensureShard(layout, targetView)
       .then(() => {
@@ -294,44 +297,44 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
     {
       view: 'Dashboard',
       step: '01',
-      title: t('demo.stage1Title', 'Sub-Millisecond Account Rotation'),
-      desc: t('demo.stage1Desc', 'Swap unlimited Google accounts directly in terminal without losing flow.'),
+      title: t('demo.stage1Title', "Account Rotation"),
+      desc: t('demo.stage1Desc', "Switch saved Google accounts from your terminal."),
     },
     {
       view: 'Quota',
       step: '02',
-      title: t('demo.stage2Title', 'Live Gemini Quota Monitor'),
-      desc: t('demo.stage2Desc', 'Real-time model capacity meter and rate-limit cooldown countdowns.'),
+      title: t('demo.stage2Title', "Live Gemini Quota Monitor"),
+      desc: t('demo.stage2Desc', "Inspect provider quota snapshots and reset countdowns; refresh when needed."),
     },
     {
       view: 'Profiles',
       step: '03',
-      title: t('demo.stage3Title', 'Hardware OS Keychain Security'),
-      desc: t('demo.stage3Desc', 'Credentials stay encrypted in local OS Enclave with directory isolation.'),
+      title: t('demo.stage3Title', "Profiles & OS Credential Vault"),
+      desc: t('demo.stage3Desc', "Save account profiles. The OS vault stores secrets when available; private file fallback is reported."),
     },
     {
       view: 'History',
       step: '04',
-      title: t('demo.stage4Title', 'Audit Trail & Event Logging'),
-      desc: t('demo.stage4Desc', 'Immutable chronological record of every account switch with JSON export.'),
+      title: t('demo.stage4Title', "Audit Trail & Event Logging"),
+      desc: t('demo.stage4Desc', "Local switch and quota history with JSON export, retention settings, and a clear command."),
     },
     {
       view: 'Settings',
       step: '05',
-      title: t('demo.stage5Title', 'Directory Binding & Auto-Switch'),
-      desc: t('demo.stage5Desc', 'Bind accounts to Git repos and project folders with custom aliases.'),
+      title: t('demo.stage5Title', "Project Bindings"),
+      desc: t('demo.stage5Desc', "Choose a profile for run now with recommend, prompt, or explicitly enabled auto mode."),
     },
     {
       view: 'Doctor',
       step: '06',
-      title: t('demo.stage6Title', 'Automated System Diagnostics'),
-      desc: t('demo.stage6Desc', 'Built-in self-diagnostic engine checking tokens, locks, and network latency.'),
+      title: t('demo.stage6Title', "Automated System Diagnostics"),
+      desc: t('demo.stage6Desc', "Inspect local configuration, credentials, platform tools, and endpoint connectivity."),
     },
     {
       view: 'Backup',
       step: '07',
-      title: t('demo.stage7Title', 'Cryptographic Backup & Restore'),
-      desc: t('demo.stage7Desc', 'Encrypted archive migration with SHA-256 integrity verification.'),
+      title: t('demo.stage7Title', "Cryptographic Backup & Restore"),
+      desc: t('demo.stage7Desc', "Export metadata or protect secret backups with AES-GCM and PBKDF2; restore with recovery journaling."),
     },
   ];
 
@@ -372,7 +375,10 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
     };
   }, []);
 
+  const lastScrollStageRef = useRef(activeStageIndex);
   useEffect(() => {
+    if (lastScrollStageRef.current === activeStageIndex) return;
+    lastScrollStageRef.current = activeStageIndex;
     const targetView = STAGES[activeStageIndex]?.view;
     if (targetView && state.view !== targetView) {
       openView(targetView);
@@ -385,7 +391,7 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
     const windowHeight = window.innerHeight || document.documentElement.clientHeight;
     const totalScrollable = rect.height - windowHeight;
     const targetScrollTop = window.scrollY + rect.top + (totalScrollable * (idx + 0.1) / STAGES.length);
-    window.scrollTo({ top: targetScrollTop, behavior: 'smooth' });
+    window.scrollTo({ top: targetScrollTop, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   };
 
   const currentStage = STAGES[activeStageIndex] || STAGES[0];
@@ -430,7 +436,7 @@ export default function InteractiveDemo({ is3DEnabled, on3DError }) {
               fixture={currentFixture}
               mode={state.mode}
               isModal={isModal}
-              ariaLabel={t('demo.terminalAria', 'Interactive agy-swap terminal. Use arrow keys or numbers to select account, Enter to switch, ? for help.')}
+              ariaLabel={t('demo.terminalAria', "Interactive agy-swap terminal. Use arrow keys or numbers to select account, Enter to switch, ? for help.")}
               ariaBusy={pendingView ? 'true' : 'false'}
               onAction={dispatch}
               onKeyDown={handleKeyDown}

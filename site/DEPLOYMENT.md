@@ -1,5 +1,25 @@
 # Deployment Runbook: agy-swap-site
 
+## Verified production runner
+
+The existing production container is managed through SSH alias `private` in
+`/root/apps/akalakkruaboon@gmail.com/aklkbqx.com/agy-swap`, using
+`docker-compose.yml` and `.env.production`. Confirm these paths from the
+container's Compose labels before deployment; do not copy environment contents
+into logs. The repository's `docker-compose.production.yml` is the source template.
+
+Build the site with `cd site && bun run build`. Transfer `Dockerfile`, `nginx.conf`,
+and `dist/client` into a fresh release directory on the runner. Build and push a
+unique `ghcr.io/aklkbqx/agy-swap-site:vX.Y.Z-COMMIT` image there, then set `OPS_IMAGE`
+to its registry digest in the production environment file. Keep the previous
+digest and a private environment backup for rollback. Run the Compose commands
+below with the production host's `docker-compose.yml` filename.
+
+Build the six native CLI assets on the macOS builder with
+`scripts/build-release.sh X.Y.Z COMMIT DIST_DIR`. Verify the checksums and run the
+Linux amd64 asset's `--version` on the private runner before publication. Darwin
+assets require cgo and Security.framework; disabling cgo uses plaintext fallback.
+
 ## Prerequisites
 - A pinned immutable Docker image digest (e.g., `ghcr.io/aklkbqx/agy-swap-site@sha256:...`)
 - `.env.production` configured based on `.env.production.example`.
@@ -15,7 +35,7 @@ docker stop agy-swap-site-test
 ## 2. Configuration Validation
 Validate the `docker-compose.production.yml` with the production environment variables:
 ```bash
-docker compose -f docker-compose.production.yml --env-file .env.production config
+docker compose -f docker-compose.production.yml --env-file .env.production config --quiet
 ```
 
 ## 3. Deployment
