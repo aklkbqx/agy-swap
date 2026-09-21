@@ -99,6 +99,7 @@ type tuiState struct {
 	job            *tuiJobState
 	settings       AppSettings
 	settingsLoaded bool
+	splitOffset    int
 	profileNames   []string
 	profileIndex   int
 	history        []historyEvent
@@ -333,4 +334,18 @@ func (s *tuiState) moveHistory(delta int) {
 		s.historyIndex += len(s.history)
 	}
 	s.beginAnimation("focus", 140*time.Millisecond)
+}
+
+func (s *tuiState) adjustSplit(delta int) {
+	next := s.splitOffset + delta
+	if next < -40 {
+		next = -40
+	} else if next > 40 {
+		next = 40
+	}
+	s.splitOffset = next
+}
+
+func (s *tuiState) resetSplit() {
+	s.splitOffset = 0
 }
