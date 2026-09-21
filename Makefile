@@ -1,11 +1,23 @@
-VERSION ?= 2.2.0
+VERSION ?= 2.2.1
 BUILD_ID ?= dev
 GOCACHE ?= /tmp/agy-swap-go-cache
+TARGET_DIR ?= $(HOME)/.local/bin
 
-.PHONY: build test race vet benchmark tui-smoke qa
+.PHONY: build test race vet benchmark tui-smoke qa bump install release-assets
 
 build:
 	GOCACHE=$(GOCACHE) go build -trimpath -ldflags "-s -w -X main.version=$(VERSION) -X main.buildID=$(BUILD_ID)" -o agy-swap ./cmd/agy-swap
+
+install: build
+	mkdir -p $(TARGET_DIR)
+	cp ./agy-swap $(TARGET_DIR)/agy-swap
+	@$(TARGET_DIR)/agy-swap --version
+
+bump:
+	go run ./cmd/releasetool bump $(if $(VERSION),$(VERSION),patch) .
+
+release-assets:
+	./scripts/build-release.sh $(VERSION) $(BUILD_ID) dist/release
 
 test:
 	GOCACHE=$(GOCACHE) go test ./...

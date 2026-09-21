@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.2.1
+
+This patch release fixes macOS Keychain secret retrieval and deletion by performing all operations in-process through Security.framework instead of external CLI calls, eliminating repeated OS authorization prompts, and adds automated single-command version bumping.
+
+- Read and delete macOS Keychain secrets directly via Security.framework in-process to align code identity and partition lists with writes.
+- Prevent recurring system permission prompts on Darwin caused by `/usr/bin/security` partition list mismatches.
+- Add opt-in Keychain probe test for real keychain round-trip verification.
+- Add automated single-command version bumping (`make bump` and `scripts/bump-version.sh`) across all code, documentation, and fixture surfaces.
+- Add `make install` to compile and install directly into active local CLI path.
+
 ## 2.2.0
 
 This minor release adds working account policies, reserve accounts, and directory
