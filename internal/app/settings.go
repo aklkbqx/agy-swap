@@ -23,6 +23,7 @@ type AppSettings struct {
 	History       HistoryConfig           `json:"history,omitempty"`
 	Statusline    StatuslineConfig        `json:"statusline,omitempty"`
 	Targets       map[string]TargetConfig `json:"targets,omitempty"`
+	UI            UIConfig                `json:"ui,omitempty"`
 	UpdatedAt     string                  `json:"updated_at,omitempty"`
 	revision      string
 	loaded        bool
@@ -75,6 +76,10 @@ type TargetConfig struct {
 	Enabled bool   `json:"enabled,omitempty"`
 }
 
+type UIConfig struct {
+	SplitOffset int `json:"split_offset,omitempty"`
+}
+
 func defaultSettings() AppSettings {
 	return AppSettings{
 		Schema:        stateSchema,
@@ -86,6 +91,7 @@ func defaultSettings() AppSettings {
 		Notifications: NotificationConfig{Threshold: 20, CooldownSeconds: 1800},
 		History:       HistoryConfig{Enabled: true, RetentionDays: 30, MaxBytes: maxHistoryBytes},
 		Targets:       map[string]TargetConfig{},
+		UI:            UIConfig{},
 	}
 }
 
@@ -138,6 +144,9 @@ func normalizeSettings(s AppSettings) (AppSettings, error) {
 	}
 	if s.History.MaxBytes == 0 {
 		s.History.MaxBytes = defaults.History.MaxBytes
+	}
+	if s.UI.SplitOffset < -40 || s.UI.SplitOffset > 40 {
+		s.UI.SplitOffset = 0
 	}
 	if s.History.RetentionDays < 1 || s.History.RetentionDays > 3650 {
 		return AppSettings{}, errors.New("history retention_days must be between 1 and 3650")

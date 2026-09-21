@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.3.0
+
+This minor release introduces interactive split resizing for wide TUI displays, persistent layout preferences, and dynamic account table column expansion.
+
+- Interactive split resizing via keyboard (`[` / `]` or `<` / `>` for fine step, `{` / `}` for large step, and `=` to reset).
+- Command Palette actions for widening, narrowing, and resetting the pane split.
+- Layout split preference persisted in `settings.json` under `ui.split_offset` and configurable via CLI (`agy-swap config set ui.split_offset <val>`).
+- Dynamic account column widths with increased health column cap (up to 32 characters) to prevent text truncation on wider displays.
+
 ## 2.2.1
 
 This patch release fixes macOS Keychain secret retrieval and deletion by performing all operations in-process through Security.framework instead of external CLI calls, eliminating repeated OS authorization prompts, and adds automated single-command version bumping.

@@ -75,6 +75,21 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 
 	state := newTUIState(accounts, current)
 	state.active = a.activeHint(accounts, current)
+	var initialSplitOffset int
+	if initialSettings, err := a.loadSettings(); err == nil {
+		state.settings = initialSettings
+		state.settingsLoaded = true
+		state.splitOffset = initialSettings.UI.SplitOffset
+		initialSplitOffset = initialSettings.UI.SplitOffset
+	}
+	defer func() {
+		if state.splitOffset != initialSplitOffset && a.store != nil {
+			if s, err := a.loadSettings(); err == nil {
+				s.UI.SplitOffset = state.splitOffset
+				_ = a.store.SaveSettings(s)
+			}
+		}
+	}()
 	events := make(chan tuiEvent, 32)
 	done := make(chan struct{})
 	workerCtx, cancelWorkers := context.WithCancel(ctx)
@@ -588,6 +603,15 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			a.beginTUIForm(state, "backup-import")
 		case "backup-verify":
 			a.beginTUIForm(state, "backup-verify")
+		case "split-widen":
+			state.adjustSplit(4)
+			state.message, state.messageType = fmt.Sprintf("Split offset: %+d", state.splitOffset), "info"
+		case "split-narrow":
+			state.adjustSplit(-4)
+			state.message, state.messageType = fmt.Sprintf("Split offset: %+d", state.splitOffset), "info"
+		case "split-reset":
+			state.resetSplit()
+			state.message, state.messageType = "Split reset to default", "info"
 		case "help":
 			state.mode = tuiHelp
 		case "quit":
@@ -746,6 +770,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 							if saveErr := a.store.SaveSettings(defaultSettings()); saveErr != nil {
 								state.message, state.messageType = saveErr.Error(), "error"
 							} else {
+								state.splitOffset = 0
 								state.message, state.messageType = "Settings reset", "success"
 								a.beginTUIView(state, tuiViewSettings)
 							}
@@ -969,6 +994,21 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					suspend(func() int { return a.cmdAccount(ctx, extendedOptions{Force: true}, []string{"migrate"}) })
 				case "u":
 					beginConfirmAction("update", "Download and install the latest release")
+				case "]", ">", "alt-right":
+					state.adjustSplit(2)
+					state.message, state.messageType = fmt.Sprintf("Split offset: %+d", state.splitOffset), "info"
+				case "}", "ctrl-right":
+					state.adjustSplit(6)
+					state.message, state.messageType = fmt.Sprintf("Split offset: %+d", state.splitOffset), "info"
+				case "[", "<", "alt-left":
+					state.adjustSplit(-2)
+					state.message, state.messageType = fmt.Sprintf("Split offset: %+d", state.splitOffset), "info"
+				case "{", "ctrl-left":
+					state.adjustSplit(-6)
+					state.message, state.messageType = fmt.Sprintf("Split offset: %+d", state.splitOffset), "info"
+				case "=":
+					state.resetSplit()
+					state.message, state.messageType = "Split reset to default", "info"
 				default:
 					if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
 						index := int(key[0] - '1')

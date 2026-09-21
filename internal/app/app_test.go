@@ -93,7 +93,7 @@ func TestTokenIdentityMatchesTargetAccount(t *testing.T) {
 }
 
 func TestNormalizedReleaseTag(t *testing.T) {
-	for input, want := range map[string]string{"2.2.1": "v2.2.1", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} {
+	for input, want := range map[string]string{"2.3.0": "v2.3.0", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} {
 		if got := normalizedReleaseTag(input); got != want {
 			t.Fatalf("%q normalized to %q, want %q", input, got, want)
 		}
@@ -557,7 +557,7 @@ func TestTUIOverlayKeepsFrameGeometry(t *testing.T) {
 func TestTUISuccessToastKeepsFrameGeometryAndExpires(t *testing.T) {
 	accounts := NewAccounts()
 	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
-	a := &Application{Version: "2.2.1", p: makePalette(false), color: false}
+	a := &Application{Version: "2.3.0", p: makePalette(false), color: false}
 	state := newTUIState(accounts, "user@example.com")
 	state.showToast("Switched to user@example.com", "success")
 
@@ -933,7 +933,7 @@ func TestExtendedSettingsAliasesAndEncryptedBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	a := &Application{Version: "2.2.1", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
+	a := &Application{Version: "2.3.0", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
 	if code := a.Run(context.Background(), []string{"config", "set", "policy.min_remaining_pct", "25"}); code != 0 {
 		t.Fatalf("config set code=%d err=%s", code, errOut.String())
 	}
@@ -1089,6 +1089,66 @@ func TestExpectedChecksum(t *testing.T) {
 	}
 	if _, err := expectedChecksum([]byte("bad"), name); err == nil {
 		t.Fatal("invalid checksum accepted")
+	}
+}
+
+func TestTUISplitResize(t *testing.T) {
+	state := &tuiState{}
+	if state.splitOffset != 0 {
+		t.Fatalf("expected 0, got %d", state.splitOffset)
+	}
+	state.adjustSplit(10)
+	if state.splitOffset != 10 {
+		t.Fatalf("expected 10, got %d", state.splitOffset)
+	}
+	state.adjustSplit(50)
+	if state.splitOffset != 40 {
+		t.Fatalf("expected clamped 40, got %d", state.splitOffset)
+	}
+	state.adjustSplit(-100)
+	if state.splitOffset != -40 {
+		t.Fatalf("expected clamped -40, got %d", state.splitOffset)
+	}
+	state.resetSplit()
+	if state.splitOffset != 0 {
+		t.Fatalf("expected reset 0, got %d", state.splitOffset)
+	}
+}
+
+func TestTUIWideBodySplitOffsetGeometry(t *testing.T) {
+	a := &Application{p: makePalette(false)}
+	accounts := NewAccounts()
+	accounts.Set("user@example.com", Account{"email": "user@example.com", "name": "User"})
+	state := newTUIState(accounts, "user@example.com")
+
+	linesDefault := a.tuiWideBody(state, 120, 22)
+	if len(linesDefault) == 0 {
+		t.Fatal("expected lines, got none")
+	}
+
+	state.adjustSplit(15)
+	linesWider := a.tuiWideBody(state, 120, 22)
+	if len(linesWider) != len(linesDefault) {
+		t.Fatalf("line count changed: %d vs %d", len(linesWider), len(linesDefault))
+	}
+	for i, line := range linesWider {
+		if visibleWidth(line) != visibleWidth(linesDefault[i]) {
+			t.Fatalf("row %d width mismatch: %d vs %d", i, visibleWidth(line), visibleWidth(linesDefault[i]))
+		}
+	}
+}
+
+func TestTUIColumnWidthsExpansion(t *testing.T) {
+	_, idNarrow, healthNarrow := tuiAccountColumnWidths(42)
+	if healthNarrow != 14 {
+		t.Fatalf("expected health 14 at width 42, got %d", healthNarrow)
+	}
+	_, idWide, healthWide := tuiAccountColumnWidths(90)
+	if healthWide != 30 {
+		t.Fatalf("expected health 30 at width 90, got %d", healthWide)
+	}
+	if idWide <= idNarrow {
+		t.Fatalf("expected id to expand: %d vs %d", idWide, idNarrow)
 	}
 }
 
