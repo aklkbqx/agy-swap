@@ -736,7 +736,7 @@ export function transitionTuiState(state, action) {
             ...state,
             confirmKind: '',
             mode: 'ready',
-            ariaLiveMsg: 'Safe preview: agy-swap is already at the latest release v2.2.0.',
+            ariaLiveMsg: 'Safe preview: agy-swap is already at the latest release v2.2.1.',
           };
         }
         return {
