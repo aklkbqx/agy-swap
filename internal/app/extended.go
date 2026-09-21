@@ -588,6 +588,12 @@ func setConfigValue(settings *AppSettings, key, value string) error {
 			return err
 		}
 		settings.History.MaxBytes = parsed
+	case "ui.split_offset", "split_offset":
+		parsed, err := parseInt(-40, 40)
+		if err != nil {
+			return err
+		}
+		settings.UI.SplitOffset = parsed
 	default:
 		return fmt.Errorf("unknown configuration key %q", key)
 	}

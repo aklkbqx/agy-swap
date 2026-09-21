@@ -112,7 +112,7 @@ git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
 
 # Compile native binary with build provenance
-go build -trimpath -ldflags "-s -w -X main.version=2.2.1 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.3.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 
 # Verify installation
 ./agy-swap version
@@ -149,6 +149,8 @@ The TUI intelligently detects your terminal dimensions:
 | Key | Action | Description |
 | :--- | :--- | :--- |
 | `↑` / `↓` or `j` / `k` | **Navigate** | Move highlighted cursor up or down |
+| `[` / `]` or `<` / `>` | **Resize Split** | Narrow or widen the accounts pane split in Wide Mode |
+| `=` | **Reset Split** | Reset layout pane split to default width |
 | `Enter` | **Switch Account** | Activate highlighted account session immediately |
 | `1` – `9` | **Quick Jump** | Select an account by index; press Enter to switch |
 | `n` | **Cycle Next** | Refresh and rotate to an eligible account |
