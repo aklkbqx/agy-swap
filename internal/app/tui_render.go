@@ -296,10 +296,16 @@ func (a *Application) tuiAccountIdentityLine(view tuiAccountView, state *tuiStat
 func (a *Application) tuiWideBody(state *tuiState, width, height int) []string {
 	g := newTUIGeometry(width, height+8)
 	g.bodyRows = maxInt(1, height)
-	if g.leftWidth == 0 {
-		g.leftWidth = maxInt(42, minInt(64, (g.frameWidth-7)*36/100))
-		g.rightWidth = maxInt(1, g.frameWidth-7-g.leftWidth)
+	totalAvail := maxInt(2, g.frameWidth-7)
+	baseLeft := maxInt(42, minInt(64, totalAvail*36/100))
+	offset := 0
+	if state != nil {
+		offset = state.splitOffset
 	}
+	minLeft := minInt(32, totalAvail-1)
+	maxLeft := maxInt(minLeft, totalAvail-28)
+	g.leftWidth = maxInt(minLeft, minInt(maxLeft, baseLeft+offset))
+	g.rightWidth = maxInt(1, totalAvail-g.leftWidth)
 	lines := []string{panelDivider(g, a.p)}
 	if g.bodyRows > 1 {
 		leftTitle := a.tuiSectionTitle("ACCOUNTS") + "  " + a.p.Gray + fmt.Sprintf("%d", len(state.visibleEmails())) + "  > selected · ● active" + a.p.Reset
@@ -516,7 +522,7 @@ func (a *Application) tuiWelcomeRows(width, maxRows int) []string {
 func tuiAccountColumnWidths(width int) (marker, identity, health int) {
 	width = maxInt(16, width)
 	marker = 4 // [AA]
-	health = maxInt(14, minInt(24, width/3))
+	health = maxInt(14, minInt(32, width/3))
 	identity = width - marker - health - 6 // two marker columns plus four spaces
 	if identity < 12 {
 		health = maxInt(10, health-(12-identity))
@@ -758,6 +764,7 @@ func (a *Application) tuiHelpLines(width int) []string {
 		"KEYBOARD GUIDE",
 		"",
 		"↑ ↓ / j k   Move through accounts",
+		"[ ] / =     Resize / reset accounts split",
 		"Enter       Switch selected account",
 		"/           Search by name or email",
 		"Ctrl-K / :  Open action palette",

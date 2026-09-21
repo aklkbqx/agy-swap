@@ -96,6 +96,9 @@ export function getPaletteActions(state) {
     { id: 'backup-export', label: 'Export backup', description: 'Write metadata-only or encrypted backup', shortcut: 'x', section: 'Backup', enabled: view === 'Backup', form: 'backup-export' },
     { id: 'backup-import', label: 'Import backup', description: 'Restore accounts and settings', shortcut: 'i', section: 'Backup', enabled: view === 'Backup', form: 'backup-import' },
     { id: 'backup-verify', label: 'Verify backup', description: 'Check a backup file without importing', shortcut: 'v', section: 'Backup', enabled: view === 'Backup', form: 'backup-verify' },
+    { id: 'split-widen', label: 'Widen accounts pane', description: 'Increase left accounts pane width', shortcut: ']', section: 'Layout', enabled: true, notice: 'Safe browser preview: layout resize is active in native CLI.' },
+    { id: 'split-narrow', label: 'Narrow accounts pane', description: 'Decrease left accounts pane width', shortcut: '[', section: 'Layout', enabled: true, notice: 'Safe browser preview: layout resize is active in native CLI.' },
+    { id: 'split-reset', label: 'Reset pane split', description: 'Reset layout split to default width', shortcut: '=', section: 'Layout', enabled: true, notice: 'Safe browser preview: layout resize is active in native CLI.' },
     { id: 'update-check', label: 'Check for update', description: 'See whether a matching release asset is available', shortcut: '', section: 'System', enabled: true, notice: 'Safe browser preview: agy-swap is already up to date.' },
     { id: 'update', label: 'Install latest update', description: 'Download, verify, and install the latest release', shortcut: 'u', section: 'System', enabled: true, confirm: 'update' },
     { id: 'quit', label: 'Quit', description: 'Close the interactive console', shortcut: 'q', section: 'System', enabled: true, notice: 'Safe browser preview: interactive demo remains open.' },
@@ -243,6 +246,9 @@ export function routeKeyAction(state, keyName, e = {}) {
     if (key === 'l') return { type: 'ANNOUNCE_SAFE_NOTICE', msg: 'Safe browser preview: logout is enabled in native CLI.' };
     if (key === 'm') return { type: 'ANNOUNCE_SAFE_NOTICE', msg: 'Safe browser preview: vault migration is enabled in native CLI.' };
     if (key === 'u') return { type: 'OPEN_CONFIRM_ACTION', confirmKind: 'update' };
+    if (key === ']' || key === '}' || key === '>') return { type: 'ANNOUNCE_SAFE_NOTICE', msg: 'Safe browser preview: pane split resize is active in native CLI.' };
+    if (key === '[' || key === '{' || key === '<') return { type: 'ANNOUNCE_SAFE_NOTICE', msg: 'Safe browser preview: pane split resize is active in native CLI.' };
+    if (key === '=') return { type: 'ANNOUNCE_SAFE_NOTICE', msg: 'Safe browser preview: pane split reset is active in native CLI.' };
     if (key === 'enter') return { type: 'ENTER' };
     if (key === 'arrowup' || key === 'k') return { type: 'NAV_UP' };
     if (key === 'arrowdown' || key === 'j') return { type: 'NAV_DOWN' };
@@ -736,7 +742,7 @@ export function transitionTuiState(state, action) {
             ...state,
             confirmKind: '',
             mode: 'ready',
-            ariaLiveMsg: 'Safe preview: agy-swap is already at the latest release v2.2.1.',
+            ariaLiveMsg: 'Safe preview: agy-swap is already at the latest release v2.3.0.',
           };
         }
         return {

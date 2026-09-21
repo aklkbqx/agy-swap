@@ -131,7 +131,7 @@ test("TerminalScene uses both textures and Math.PI / 2 dial orientation", () => 
   assert.ok(sceneCode.includes("Math.PI / 2"), "TerminalScene missing Math.PI / 2 rotation");
 });
 
-test("Authoritative initial, full, and 21 layout+view shard split (51114 fixtures)", () => {
+test("Authoritative initial, full, and 21 layout+view shard split (54246 fixtures)", () => {
   const fullPath = join(__dirname, "../src/generated/tui-fixtures.json");
   const initialPath = join(__dirname, "../src/generated/tui-initial-fixtures.json");
   const shardsDir = join(__dirname, "../src/generated/shards");
@@ -145,9 +145,9 @@ test("Authoritative initial, full, and 21 layout+view shard split (51114 fixture
 
   assert.equal(fullData.schema, 2);
   assert.equal(fullData.renderer, "internal/app.(*Application).tuiLines");
-  assert.equal(fullData.version, "2.2.1");
+  assert.equal(fullData.version, "2.3.0");
   assert.ok(fullData.sourceFingerprint && fullData.sourceFingerprint.length === 64);
-  assert.equal(fullData.fixtures.length, 51114, `fixture count = ${fullData.fixtures.length}, want 51114`);
+  assert.equal(fullData.fixtures.length, 54246, `fixture count = ${fullData.fixtures.length}, want 54246`);
 
   assert.equal(initialData.fixtures.length, 3, "initial fixtures must contain exactly 3 canonical frames");
 
@@ -166,7 +166,7 @@ test("Authoritative initial, full, and 21 layout+view shard split (51114 fixture
     }
   }
 
-  assert.equal(totalShardFixtures, 51114, `Total shard fixtures = ${totalShardFixtures}, want 51114`);
+  assert.equal(totalShardFixtures, 54246, `Total shard fixtures = ${totalShardFixtures}, want 54246`);
 });
 
 test("ANSI whitelist SGR parser unit tests", () => {

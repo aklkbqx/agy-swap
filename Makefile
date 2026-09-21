@@ -1,4 +1,4 @@
-VERSION ?= 2.2.1
+VERSION ?= 2.3.0
 BUILD_ID ?= dev
 GOCACHE ?= /tmp/agy-swap-go-cache
 TARGET_DIR ?= $(HOME)/.local/bin
@@ -10,7 +10,7 @@ build:
 
 install: build
 	mkdir -p $(TARGET_DIR)
-	cp ./agy-swap $(TARGET_DIR)/agy-swap
+	install -m 755 ./agy-swap $(TARGET_DIR)/agy-swap
 	@$(TARGET_DIR)/agy-swap --version
 
 bump:
