@@ -18,10 +18,11 @@ func vaultContext(parent context.Context, timeout time.Duration) (context.Contex
 func platformVaultGet(parent context.Context, ref string) string {
 	ctx, cancel := vaultContext(parent, 5*time.Second)
 	defer cancel()
-	var command *exec.Cmd
 	if runtime.GOOS == "darwin" {
-		command = exec.CommandContext(ctx, "security", "find-generic-password", "-a", ref, "-s", "agy-swap", "-w")
-	} else if runtime.GOOS == "linux" {
+		return keychainGet(ctx, "agy-swap", ref)
+	}
+	var command *exec.Cmd
+	if runtime.GOOS == "linux" {
 		command = exec.CommandContext(ctx, "secret-tool", "lookup", "service", "agy-swap", "username", ref)
 	} else {
 		return ""
@@ -51,10 +52,11 @@ func platformVaultSet(parent context.Context, ref, token string) bool {
 func platformVaultDelete(parent context.Context, ref string) bool {
 	ctx, cancel := vaultContext(parent, 5*time.Second)
 	defer cancel()
-	var command *exec.Cmd
 	if runtime.GOOS == "darwin" {
-		command = exec.CommandContext(ctx, "security", "delete-generic-password", "-a", ref, "-s", "agy-swap")
-	} else if runtime.GOOS == "linux" {
+		return keychainDelete(ctx, "agy-swap", ref)
+	}
+	var command *exec.Cmd
+	if runtime.GOOS == "linux" {
 		command = exec.CommandContext(ctx, "secret-tool", "clear", "service", "agy-swap", "username", ref)
 	} else {
 		return false
