@@ -145,7 +145,7 @@ test("Authoritative initial, full, and 21 layout+view shard split (54246 fixture
 
   assert.equal(fullData.schema, 2);
   assert.equal(fullData.renderer, "internal/app.(*Application).tuiLines");
-  assert.equal(fullData.version, "2.3.0");
+  assert.equal(fullData.version, "2.3.1");
   assert.ok(fullData.sourceFingerprint && fullData.sourceFingerprint.length === 64);
   assert.equal(fullData.fixtures.length, 54246, `fixture count = ${fullData.fixtures.length}, want 54246`);
 

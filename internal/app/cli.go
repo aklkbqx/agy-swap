@@ -56,7 +56,7 @@ func New(version string, in io.Reader, out, errOut io.Writer) (*Application, err
 	if in != nil {
 		lineReader = bufio.NewReader(in)
 	}
-	app := &Application{Version: version, BuildID: "unknown", In: in, Out: out, Err: errOut, lineReader: lineReader, paths: paths, store: store, credentials: NewCredentials(paths), vault: NewAccountVault(), http: httpService, quota: NewQuotaService(httpService, store), stdinTTY: readerTerminal(in), stdoutTTY: stdoutTTY, color: stdoutTTY && os.Getenv("NO_COLOR") == ""}
+	app := &Application{Version: version, BuildID: "unknown", In: in, Out: out, Err: errOut, lineReader: lineReader, paths: paths, store: store, credentials: NewCredentials(paths), vault: NewAccountVault(paths), http: httpService, quota: NewQuotaService(httpService, store), stdinTTY: readerTerminal(in), stdoutTTY: stdoutTTY, color: stdoutTTY && os.Getenv("NO_COLOR") == ""}
 	app.quota.SetVault(app.vault)
 	app.p = makePalette(app.color)
 	return app, nil
@@ -731,9 +731,17 @@ func (a *Application) activeEmail(ctx context.Context, accounts *Accounts, curre
 	if claimed != "" {
 		return claimed
 	}
+	currentHash := hashToken(current)
 	for _, email := range accounts.Order {
-		if token, err := a.accountToken(ctx, accounts.ByEmail[email]); err == nil && token == current {
-			return email
+		acc := accounts.ByEmail[email]
+		if token, err := a.accountToken(ctx, acc); err == nil {
+			if token == current || (currentHash != "" && hashToken(token) == currentHash) {
+				if getString(acc, "token_hash") == "" && currentHash != "" {
+					acc["token_hash"] = currentHash
+					_ = a.store.Save(accounts)
+				}
+				return email
+			}
 		}
 	}
 	inner := tokenObject(decodeToken(current))
@@ -753,11 +761,16 @@ func (a *Application) activeEmail(ctx context.Context, accounts *Accounts, curre
 }
 
 func localActiveEmail(accounts *Accounts, current string) string {
-	if current == "" {
+	if current == "" || accounts == nil {
 		return ""
 	}
+	currentHash := hashToken(current)
 	for _, email := range accounts.Order {
-		if getString(accounts.ByEmail[email], "token_data") == current {
+		acc := accounts.ByEmail[email]
+		if getString(acc, "token_data") == current {
+			return email
+		}
+		if currentHash != "" && getString(acc, "token_hash") == currentHash {
 			return email
 		}
 	}

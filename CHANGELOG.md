@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.3.1
+
+This patch release permanently eliminates repeated macOS Keychain authorization prompts, cascades of permission dialogs on launch, and orphaned keychain items.
+
+- **Deterministic Secret Refs**: Switched account secret references from randomized nonce strings (`account:<email>:<nonce>`) to stable deterministic refs (`account:<email>`), preserving access authorization across token refreshes and account updates.
+- **In-Memory Token Hashing**: Added SHA-256 token hashing (`token_hash`) for active account identification in memory, completely eliminating the startup loop over all managed accounts.
+- **Secure File Vault (`0600`) & Hybrid Vault**: Added `fileAccountVault` (`~/.gemini/agy-swap/vault.json` with strict `0600` permissions) and hybrid vault fallback for a 100% zero-prompt experience on macOS matching Antigravity and GitHub CLI standards.
+- **Keychain Orphan Cleaner**: Added automatic detection and cleanup of obsolete orphaned keychain items left behind by previous versions in macOS `login.keychain-db`.
+
+
 ## 2.3.0
 
 This minor release introduces interactive split resizing for wide TUI displays, persistent layout preferences, and dynamic account table column expansion.

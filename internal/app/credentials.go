@@ -34,10 +34,10 @@ func NewCredentials(paths Paths) *Credentials {
 func (c *Credentials) Secure(ctx context.Context) string { return c.backend.Get(ctx) }
 
 func (c *Credentials) Current(ctx context.Context) string {
-	if token := c.Secure(ctx); token != "" {
+	if token := c.readOAuthToken(); token != "" {
 		return token
 	}
-	return c.readOAuthToken()
+	return c.Secure(ctx)
 }
 
 // StoredActiveEmail returns the last identity written by the Antigravity

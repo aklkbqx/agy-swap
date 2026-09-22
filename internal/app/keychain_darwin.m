@@ -41,10 +41,14 @@ int storeSecret(const char *service, const char *account, const void *secret, lo
 int loadSecret(const char *service, const char *account, void **out, long *size) {
  CFMutableDictionaryRef query = itemQuery(service, account);
  if (!query) return 0;
+ LAContext *context = [[LAContext alloc] init];
+ context.interactionNotAllowed = YES;
+ CFDictionarySetValue(query, kSecUseAuthenticationContext, (CFTypeRef)context);
  CFDictionarySetValue(query, kSecReturnData, kCFBooleanTrue);
  CFDictionarySetValue(query, kSecMatchLimit, kSecMatchLimitOne);
  CFTypeRef result = NULL;
  OSStatus status = SecItemCopyMatching(query, &result);
+ [context release];
  CFRelease(query);
  if (status != errSecSuccess || !result) { if (result) CFRelease(result); return 0; }
  CFDataRef data = (CFDataRef)result;

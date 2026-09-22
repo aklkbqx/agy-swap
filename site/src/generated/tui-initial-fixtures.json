@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "renderer": "internal/app.(*Application).tuiLines",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "sourceFingerprint": "d89740d8ce1b5046a3def938c3cc0e2576248c76b13720fe02a6f3ceb1536ee1",
   "fixtures": [
     {
@@ -18,7 +18,7 @@
       "selected": "alpha@example.invalid",
       "lines": [
         "\u001b[38;5;244m┌──────────────────────────────────────────────────────────────────────────────────────────────────┐\u001b[0m",
-        "│ \u001b[1m\u001b[38;5;208mAGY SWAP\u001b[0m  v2.3.0                                                       \u001b[38;5;244mcredit: aklkbqx  ·  LOCAL\u001b[0m │",
+        "│ \u001b[1m\u001b[38;5;208mAGY SWAP\u001b[0m  v2.3.1                                                       \u001b[38;5;244mcredit: aklkbqx  ·  LOCAL\u001b[0m │",
         "│ \u001b[1mACTIVE\u001b[0m  \u001b[38;5;78m●\u001b[0m \u001b[38;5;68m\u001b[1m[AU]\u001b[0m \u001b[38;5;255mAlpha User\u001b[0m \u001b[38;5;244m\u003calpha@example.invalid\u003e\u001b[0m  \u001b[38;5;78mSAVED\u001b[0m                                         │",
         "\u001b[38;5;244m├────────────────────────────────────────────┬─────────────────────────────────────────────────────┤\u001b[0m",
         "│ \u001b[1m\u001b[38;5;255mACCOUNTS\u001b[0m  \u001b[38;5;244m3  \u003e selected · ● active\u001b[0m         │ \u001b[1m\u001b[38;5;255mACCOUNT HEALTH\u001b[0m                                      │",
@@ -44,7 +44,7 @@
       ],
       "plain": [
         "┌──────────────────────────────────────────────────────────────────────────────────────────────────┐",
-        "│ AGY SWAP  v2.3.0                                                       credit: aklkbqx  ·  LOCAL │",
+        "│ AGY SWAP  v2.3.1                                                       credit: aklkbqx  ·  LOCAL │",
         "│ ACTIVE  ● [AU] Alpha User \u003calpha@example.invalid\u003e  SAVED                                         │",
         "├────────────────────────────────────────────┬─────────────────────────────────────────────────────┤",
         "│ ACCOUNTS  3  \u003e selected · ● active         │ ACCOUNT HEALTH                                      │",
@@ -83,7 +83,7 @@
       "selected": "alpha@example.invalid",
       "lines": [
         "\u001b[38;5;244m┌──────────────────────────────────────────────────────────────────────────────┐\u001b[0m",
-        "│ \u001b[1m\u001b[38;5;208mAGY SWAP\u001b[0m  v2.3.0                                   \u001b[38;5;244mcredit: aklkbqx  ·  LOCAL\u001b[0m │",
+        "│ \u001b[1m\u001b[38;5;208mAGY SWAP\u001b[0m  v2.3.1                                   \u001b[38;5;244mcredit: aklkbqx  ·  LOCAL\u001b[0m │",
         "│ \u001b[1mACTIVE\u001b[0m  \u001b[38;5;78m●\u001b[0m \u001b[38;5;68m\u001b[1m[AU]\u001b[0m \u001b[38;5;255mAlpha User\u001b[0m \u001b[38;5;244m\u003calpha@example.invalid\u003e\u001b[0m  \u001b[38;5;78mSAVED\u001b[0m                     │",
         "\u001b[38;5;244m├──────────────────────────────────────────────────────────────────────────────┤\u001b[0m",
         "│ \u001b[1m\u001b[38;5;255mACCOUNTS\u001b[0m  \u001b[38;5;244m3  \u003e selected · ● active\u001b[0m                                           │",
@@ -109,7 +109,7 @@
       ],
       "plain": [
         "┌──────────────────────────────────────────────────────────────────────────────┐",
-        "│ AGY SWAP  v2.3.0                                   credit: aklkbqx  ·  LOCAL │",
+        "│ AGY SWAP  v2.3.1                                   credit: aklkbqx  ·  LOCAL │",
         "│ ACTIVE  ● [AU] Alpha User \u003calpha@example.invalid\u003e  SAVED                     │",
         "├──────────────────────────────────────────────────────────────────────────────┤",
         "│ ACCOUNTS  3  \u003e selected · ● active                                           │",
@@ -148,7 +148,7 @@
       "selected": "alpha@example.invalid",
       "lines": [
         "\u001b[38;5;244m┌──────────────────────────────────────────────┐\u001b[0m",
-        "│ \u001b[1m\u001b[38;5;208mAGY SWAP\u001b[0m  v2.3.0   \u001b[38;5;244mcredit: aklkbqx  ·  LOCAL\u001b[0m │",
+        "│ \u001b[1m\u001b[38;5;208mAGY SWAP\u001b[0m  v2.3.1   \u001b[38;5;244mcredit: aklkbqx  ·  LOCAL\u001b[0m │",
         "│ \u001b[1mACTIVE\u001b[0m  \u001b[38;5;78m●\u001b[0m \u001b[38;5;68m\u001b[1m[AU]\u001b[0m \u001b[38;5;255mAlpha User\u001b[0m \u001b[38;5;244m\u003calpha@example.in…\u001b[0m │",
         "\u001b[38;5;244m├──────────────────────────────────────────────┤\u001b[0m",
         "│ \u001b[38;5;208m\u003e\u001b[0m \u001b[38;5;78m●\u001b[0m \u001b[38;5;68m\u001b[1m[AU]\u001b[0m \u001b[1m\u001b[38;5;255mAlpha User\u001b[0m \u001b[38;5;244m\u003calpha@example.invalid\u003e\u001b[0m  │",
@@ -164,7 +164,7 @@
       ],
       "plain": [
         "┌──────────────────────────────────────────────┐",
-        "│ AGY SWAP  v2.3.0   credit: aklkbqx  ·  LOCAL │",
+        "│ AGY SWAP  v2.3.1   credit: aklkbqx  ·  LOCAL │",
         "│ ACTIVE  ● [AU] Alpha User \u003calpha@example.in… │",
         "├──────────────────────────────────────────────┤",
         "│ \u003e ● [AU] Alpha User \u003calpha@example.invalid\u003e  │",
