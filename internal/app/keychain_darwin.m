@@ -35,8 +35,9 @@ int storeSecret(const char *service, const char *account, const void *secret, lo
  return status == errSecSuccess;
 }
 
-// Reading in this process keeps the reader identical to the writer. A helper
-// binary would carry a different code identity and fail the item's partition
+// In-process reads keep the agy-swap vault on one code identity. The
+// gemini/antigravity session item is not stored here; the agy CLI reads that
+// item through /usr/bin/security, and a helper identity fails its partition
 // list, which no ACL entry can compensate for.
 int loadSecret(const char *service, const char *account, void **out, long *size) {
  CFMutableDictionaryRef query = itemQuery(service, account);
