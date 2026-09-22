@@ -1,16 +1,17 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 )
 
 // AccountVault stores long-lived account tokens outside accounts.json. The
@@ -53,16 +54,60 @@ func NewFileAccountVault(path string) AccountVault {
 	return &fileAccountVault{path: path}
 }
 
-func (v *fileAccountVault) readMapUnlocked() map[string]string {
+func (v *fileAccountVault) lockPath() string {
+	return v.path + ".lock"
+}
+
+// fileLock serializes readers and writers across processes. create is set for
+// mutations so the config directory exists; lookups leave a missing directory
+// untouched and report the entry as absent.
+func (v *fileAccountVault) fileLock(create bool) (*fileLock, error) {
+	dir := filepath.Dir(v.path)
+	if create {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, err
+		}
+		_ = os.Chmod(dir, 0o700)
+	} else if _, err := os.Stat(dir); err != nil {
+		return nil, err
+	}
+	return acquireFileLock(v.lockPath())
+}
+
+// readMap distinguishes a missing vault from a vault that cannot be trusted.
+// A missing or empty file is an empty map. Corrupt JSON and permission errors
+// fail closed so a later write cannot replace every saved token.
+func (v *fileAccountVault) readMap() (map[string]string, error) {
 	data, err := os.ReadFile(v.path)
 	if err != nil {
-		return make(map[string]string)
+		if errors.Is(err, os.ErrNotExist) {
+			return map[string]string{}, nil
+		}
+		return nil, err
 	}
-	var m map[string]string
-	if err := json.Unmarshal(data, &m); err != nil || m == nil {
-		return make(map[string]string)
+	if len(bytes.TrimSpace(data)) == 0 {
+		return map[string]string{}, nil
 	}
-	return m
+	var decoded map[string]string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return nil, err
+	}
+	if decoded == nil {
+		return map[string]string{}, nil
+	}
+	return decoded, nil
+}
+
+func (v *fileAccountVault) writeMap(m map[string]string) error {
+	if m == nil {
+		m = map[string]string{}
+	}
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return atomicWrite(v.path, data, 0o600)
 }
 
 func (v *fileAccountVault) Get(_ context.Context, ref string) (string, bool) {
@@ -72,7 +117,15 @@ func (v *fileAccountVault) Get(_ context.Context, ref string) (string, bool) {
 	}
 	v.mu.RLock()
 	defer v.mu.RUnlock()
-	m := v.readMapUnlocked()
+	lock, err := v.fileLock(false)
+	if err != nil {
+		return "", false
+	}
+	defer lock.Close()
+	m, err := v.readMap()
+	if err != nil {
+		return "", false
+	}
 	val, ok := m[ref]
 	return val, ok && val != ""
 }
@@ -85,31 +138,17 @@ func (v *fileAccountVault) Set(_ context.Context, ref, token string) bool {
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
-
-	dir := filepath.Dir(v.path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return false
-	}
-	_ = os.Chmod(dir, 0700)
-
-	m := v.readMapUnlocked()
-	m[ref] = token
-	data, err := json.MarshalIndent(m, "", "  ")
+	lock, err := v.fileLock(true)
 	if err != nil {
 		return false
 	}
-
-	tmpFile := filepath.Join(dir, fmt.Sprintf(".vault-%d.tmp", time.Now().UnixNano()))
-	if err := os.WriteFile(tmpFile, data, 0600); err != nil {
+	defer lock.Close()
+	m, err := v.readMap()
+	if err != nil {
 		return false
 	}
-	_ = os.Chmod(tmpFile, 0600)
-	if err := os.Rename(tmpFile, v.path); err != nil {
-		_ = os.Remove(tmpFile)
-		return false
-	}
-	_ = os.Chmod(v.path, 0600)
-	return true
+	m[ref] = token
+	return v.writeMap(m) == nil
 }
 
 func (v *fileAccountVault) Delete(_ context.Context, ref string) bool {
@@ -119,30 +158,20 @@ func (v *fileAccountVault) Delete(_ context.Context, ref string) bool {
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
-
-	m := v.readMapUnlocked()
+	lock, err := v.fileLock(true)
+	if err != nil {
+		return false
+	}
+	defer lock.Close()
+	m, err := v.readMap()
+	if err != nil {
+		return false
+	}
 	if _, ok := m[ref]; !ok {
 		return true
 	}
 	delete(m, ref)
-
-	dir := filepath.Dir(v.path)
-	data, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return false
-	}
-
-	tmpFile := filepath.Join(dir, fmt.Sprintf(".vault-%d.tmp", time.Now().UnixNano()))
-	if err := os.WriteFile(tmpFile, data, 0600); err != nil {
-		return false
-	}
-	_ = os.Chmod(tmpFile, 0600)
-	if err := os.Rename(tmpFile, v.path); err != nil {
-		_ = os.Remove(tmpFile)
-		return false
-	}
-	_ = os.Chmod(v.path, 0600)
-	return true
+	return v.writeMap(m) == nil
 }
 
 type hybridVault struct {
@@ -222,6 +251,20 @@ func hashToken(token string) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
+func rememberTokenExpiry(account Account, token string) {
+	inner := tokenObject(decodeToken(token))
+	if inner == nil {
+		delete(account, "access_expires_at")
+		return
+	}
+	expiry, ok := tokenExpiry(inner)
+	if !ok {
+		delete(account, "access_expires_at")
+		return
+	}
+	account["access_expires_at"] = isoTime(expiry)
+}
+
 func accountToken(ctx context.Context, account Account, vault AccountVault) (string, error) {
 	if ref := getString(account, "secret_ref"); ref != "" {
 		if vault == nil {
@@ -249,32 +292,72 @@ func (a *Application) accountToken(ctx context.Context, account Account) (string
 	return accountToken(ctx, account, a.vault)
 }
 
-func (a *Application) saveAccountSecret(ctx context.Context, account Account, token string) bool {
+// saveAccountSecret writes token into the deterministic vault entry and updates
+// account metadata. The returned reference is the previous vault entry, which
+// the caller must delete only after accounts.json has been saved. A false
+// result means the token stayed in token_data and nothing should be deleted.
+func (a *Application) saveAccountSecret(ctx context.Context, account Account, token string) (string, bool) {
 	email := getString(account, "email")
 	token = strings.TrimSpace(token)
 	if email == "" || a.vault == nil || token == "" {
 		if token != "" {
 			account["token_data"] = token
 			account["token_hash"] = hashToken(token)
+			rememberTokenExpiry(account, token)
 		}
 		delete(account, "secret_ref")
-		return false
+		return "", false
 	}
 	oldRef := getString(account, "secret_ref")
 	ref := accountSecretRef(email)
 	if !a.vault.Set(ctx, ref, token) {
 		account["token_data"] = token
 		account["token_hash"] = hashToken(token)
+		rememberTokenExpiry(account, token)
 		delete(account, "secret_ref")
-		return false
-	}
-	if oldRef != "" && oldRef != ref {
-		_ = a.vault.Delete(ctx, oldRef)
+		return "", false
 	}
 	account["secret_ref"] = ref
 	account["token_hash"] = hashToken(token)
+	rememberTokenExpiry(account, token)
 	delete(account, "token_data")
-	return true
+	if oldRef != "" && oldRef != ref {
+		return oldRef, true
+	}
+	return "", true
+}
+
+func (a *Application) deleteReplacedSecrets(ctx context.Context, refs []string) {
+	if a == nil || a.vault == nil {
+		return
+	}
+	for _, ref := range refs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			continue
+		}
+		_ = a.vault.Delete(ctx, ref)
+	}
+}
+
+func captureSecretFields(account Account) map[string]any {
+	saved := make(map[string]any, 4)
+	for _, key := range []string{"secret_ref", "token_hash", "token_data", "access_expires_at"} {
+		if value, ok := account[key]; ok {
+			saved[key] = value
+		}
+	}
+	return saved
+}
+
+func restoreSecretFields(account Account, saved map[string]any) {
+	for _, key := range []string{"secret_ref", "token_hash", "token_data", "access_expires_at"} {
+		if value, ok := saved[key]; ok {
+			account[key] = value
+			continue
+		}
+		delete(account, key)
+	}
 }
 
 func (a *Application) migrateVaultAccounts(ctx context.Context, accounts *Accounts) bool {
@@ -282,43 +365,67 @@ func (a *Application) migrateVaultAccounts(ctx context.Context, accounts *Accoun
 		return false
 	}
 	changed := false
-	var activeRefs []string
+	var replaced []string
+	previous := make(map[string]map[string]any, accounts.Len())
 	for _, email := range accounts.Order {
 		acc := accounts.ByEmail[email]
 		detRef := accountSecretRef(email)
-		activeRefs = append(activeRefs, detRef)
 		oldRef := getString(acc, "secret_ref")
 		tokenHash := getString(acc, "token_hash")
 
 		if oldRef != "" && (oldRef != detRef || tokenHash == "") {
 			token, err := a.accountToken(ctx, acc)
-			if err == nil && token != "" {
-				if a.vault.Set(ctx, detRef, token) {
-					if oldRef != detRef {
-						_ = a.vault.Delete(ctx, oldRef)
-					}
-					acc["secret_ref"] = detRef
-					acc["token_hash"] = hashToken(token)
-					delete(acc, "token_data")
-					changed = true
-				}
+			if err != nil || token == "" {
+				continue
 			}
-		} else if oldRef == "" {
-			if token := getString(acc, "token_data"); token != "" {
-				if a.saveAccountSecret(ctx, acc, token) {
-					changed = true
-				}
+			// Keep the live reference until the new copy and accounts.json both succeed.
+			if !a.vault.Set(ctx, detRef, token) {
+				continue
+			}
+			previous[email] = captureSecretFields(acc)
+			acc["secret_ref"] = detRef
+			acc["token_hash"] = hashToken(token)
+			rememberTokenExpiry(acc, token)
+			delete(acc, "token_data")
+			changed = true
+			if oldRef != detRef {
+				replaced = append(replaced, oldRef)
+			}
+			continue
+		}
+		if oldRef == "" {
+			token := getString(acc, "token_data")
+			if token == "" {
+				continue
+			}
+			previous[email] = captureSecretFields(acc)
+			old, ok := a.saveAccountSecret(ctx, acc, token)
+			if !ok {
+				restoreSecretFields(acc, previous[email])
+				delete(previous, email)
+				continue
+			}
+			changed = true
+			if old != "" {
+				replaced = append(replaced, old)
 			}
 		}
 	}
-	go func() {
-		cleanCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		cleanOrphanKeychainItems(cleanCtx, activeRefs)
-	}()
-
-	if changed && a.store != nil {
-		_ = a.store.Save(accounts)
+	if !changed {
+		return false
 	}
-	return changed
+	if a.store == nil {
+		for email, saved := range previous {
+			restoreSecretFields(accounts.ByEmail[email], saved)
+		}
+		return false
+	}
+	if err := a.store.Save(accounts); err != nil {
+		for email, saved := range previous {
+			restoreSecretFields(accounts.ByEmail[email], saved)
+		}
+		return false
+	}
+	a.deleteReplacedSecrets(ctx, replaced)
+	return true
 }

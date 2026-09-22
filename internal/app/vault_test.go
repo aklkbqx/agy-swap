@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -170,9 +172,10 @@ func TestMigrateVaultAccounts(t *testing.T) {
 		"secret_ref": oldRef,
 	}
 
+	paths := testPaths(t)
 	app := &Application{
 		vault: v,
-		store: NewStore(Paths{Accounts: filepath.Join(tempDir, "accounts.json")}),
+		store: NewStore(paths),
 	}
 
 	migrated := app.migrateVaultAccounts(ctx, accounts)
@@ -197,4 +200,135 @@ func TestMigrateVaultAccounts(t *testing.T) {
 	if val, ok := v.Get(ctx, detRef); !ok || val != "migrated-token-val" {
 		t.Fatalf("deterministic ref missing from vault: %q, %v", val, ok)
 	}
+}
+
+type failSetVault struct{ AccountVault }
+
+func (failSetVault) Set(context.Context, string, string) bool { return false }
+
+func TestFileVaultRetainsBothKeysAndRejectsCorruptJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vault.json")
+	ctx := context.Background()
+	vault := NewFileAccountVault(path)
+	if !vault.Set(ctx, "account:one@example.com", "one") || !vault.Set(ctx, "account:two@example.com", "two") {
+		t.Fatal("expected both secrets to be stored")
+	}
+	if got, ok := vault.Get(ctx, "account:one@example.com"); !ok || got != "one" {
+		t.Fatalf("first secret = %q ok=%v", got, ok)
+	}
+	if got, ok := vault.Get(ctx, "account:two@example.com"); !ok || got != "two" {
+		t.Fatalf("second secret = %q ok=%v", got, ok)
+	}
+
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if vault.Set(ctx, "account:three@example.com", "three") {
+		t.Fatal("set replaced a corrupt vault")
+	}
+	if vault.Delete(ctx, "account:one@example.com") {
+		t.Fatal("delete rewrote a corrupt vault")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "{" {
+		t.Fatalf("corrupt vault changed to %q", got)
+	}
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFileVaultConcurrentWritersKeepEveryKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vault.json")
+	ctx := context.Background()
+	const n = 24
+	errCh := make(chan error, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			vault := NewFileAccountVault(path)
+			ref := fmt.Sprintf("account:user%d@example.com", i)
+			if !vault.Set(ctx, ref, fmt.Sprintf("token-%d", i)) {
+				errCh <- fmt.Errorf("set %s failed", ref)
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Error(err)
+	}
+	vault := NewFileAccountVault(path)
+	for i := 0; i < n; i++ {
+		ref := fmt.Sprintf("account:user%d@example.com", i)
+		got, ok := vault.Get(ctx, ref)
+		if !ok || got != fmt.Sprintf("token-%d", i) {
+			t.Fatalf("missing %s after concurrent writes: %q ok=%v", ref, got, ok)
+		}
+	}
+}
+
+func TestMigrateVaultAccountsKeepsNonceWhenSetOrSaveFails(t *testing.T) {
+	ctx := context.Background()
+	oldRef := "account:user@example.com:0123456789abcdef0123456789abcdef"
+	token := "migrated-token-val"
+
+	t.Run("set fails", func(t *testing.T) {
+		paths := testPaths(t)
+		base := NewFileAccountVault(filepath.Join(paths.ConfigDir, "vault.json"))
+		if !base.Set(ctx, oldRef, token) {
+			t.Fatal("seed failed")
+		}
+		accounts := NewAccounts()
+		accounts.Order = []string{"user@example.com"}
+		accounts.ByEmail["user@example.com"] = Account{"email": "user@example.com", "secret_ref": oldRef}
+		app := &Application{vault: failSetVault{base}, store: NewStore(paths)}
+		if app.migrateVaultAccounts(ctx, accounts) {
+			t.Fatal("migration reported success without storing the new reference")
+		}
+		if _, ok := base.Get(ctx, oldRef); !ok {
+			t.Fatal("nonce secret was deleted")
+		}
+		if getString(accounts.ByEmail["user@example.com"], "secret_ref") != oldRef {
+			t.Fatal("account reference changed")
+		}
+	})
+
+	t.Run("save fails", func(t *testing.T) {
+		paths := testPaths(t)
+		if err := os.MkdirAll(paths.ConfigDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(paths.Accounts, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		vault := NewFileAccountVault(filepath.Join(paths.ConfigDir, "vault.json"))
+		if !vault.Set(ctx, oldRef, token) {
+			t.Fatal("seed failed")
+		}
+		accounts := NewAccounts()
+		accounts.Order = []string{"user@example.com"}
+		accounts.ByEmail["user@example.com"] = Account{"email": "user@example.com", "secret_ref": oldRef}
+		app := &Application{vault: vault, store: NewStore(paths)}
+		if app.migrateVaultAccounts(ctx, accounts) {
+			t.Fatal("migration reported success when accounts.json could not be saved")
+		}
+		if _, ok := vault.Get(ctx, oldRef); !ok {
+			t.Fatal("nonce secret was deleted after the save failure")
+		}
+		if getString(accounts.ByEmail["user@example.com"], "secret_ref") != oldRef {
+			t.Fatal("account reference changed after the save failure")
+		}
+	})
 }

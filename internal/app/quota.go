@@ -31,12 +31,17 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 	if err != nil {
 		return nil, err
 	}
-	if claimed := extractEmailHint(tokenData); claimed != "" && claimed != getString(account, "email") {
+	stored := tokenData
+	if refreshed != tokenData {
+		stored = refreshed
+	}
+	if !tokenMatchesEmail(stored, getString(account, "email")) {
 		return nil, fmt.Errorf("refreshed token identity does not match the account")
 	}
 	if refreshed != tokenData {
 		account["token_data"] = refreshed
 		delete(account, "secret_ref")
+		rememberTokenExpiry(account, refreshed)
 	}
 	info, err := q.http.cloudPost(ctx, access, "loadCodeAssist", map[string]any{"metadata": map[string]any{"ideType": "ANTIGRAVITY"}})
 	if err != nil {
@@ -169,6 +174,7 @@ func (q *QuotaService) refreshSelected(ctx context.Context, accounts *Accounts, 
 		close(results)
 	}()
 	changed := false
+	var replaced []string
 	for result := range results {
 		done++
 		state := "synced"
@@ -176,11 +182,17 @@ func (q *QuotaService) refreshSelected(ctx context.Context, accounts *Accounts, 
 		if updated := getString(result.item.account, "token_data"); updated != "" && updated != getString(original, "token_data") {
 			if q.vault != nil {
 				app := &Application{vault: q.vault}
-				if !app.saveAccountSecret(ctx, result.item.account, updated) {
+				old, ok := app.saveAccountSecret(ctx, result.item.account, updated)
+				if !ok {
 					errorsByEmail["storage"] = "OS vault unavailable; refreshed token stored in private accounts file"
+				} else if old != "" {
+					replaced = append(replaced, old)
 				}
+			} else {
+				result.item.account["token_hash"] = hashToken(updated)
+				rememberTokenExpiry(result.item.account, updated)
 			}
-			for _, key := range []string{"secret_ref", "token_data"} {
+			for _, key := range []string{"secret_ref", "token_data", "token_hash", "access_expires_at"} {
 				if value, ok := result.item.account[key]; ok {
 					original[key] = value
 				} else {
@@ -203,6 +215,8 @@ func (q *QuotaService) refreshSelected(ctx context.Context, accounts *Accounts, 
 	if changed {
 		if err := q.store.Save(accounts); err != nil {
 			errorsByEmail["store"] = err.Error()
+		} else if q.vault != nil {
+			(&Application{vault: q.vault}).deleteReplacedSecrets(ctx, replaced)
 		}
 	}
 	return errorsByEmail
@@ -217,6 +231,21 @@ func tokenResetInfo(tokenData string) (string, bool) {
 	if !ok {
 		return "", false
 	}
+	return formatTokenReset(expiry, getString(inner, "refresh_token") != "")
+}
+
+func tokenResetFromExpiry(value string) (string, bool) {
+	expiry, err := parseUTC(strings.TrimSpace(value))
+	if err != nil || expiry.IsZero() {
+		return "", false
+	}
+	return formatTokenReset(expiry, false)
+}
+
+func formatTokenReset(expiry time.Time, refreshAvailable bool) (string, bool) {
+	if expiry.IsZero() {
+		return "", false
+	}
 	diff := time.Until(expiry)
 	if diff > 0 {
 		mins := int(diff.Minutes())
@@ -225,7 +254,7 @@ func tokenResetInfo(tokenData string) (string, bool) {
 		}
 		return fmt.Sprintf("%dm %ds", mins, int(diff.Seconds())%60), true
 	}
-	if getString(inner, "refresh_token") != "" {
+	if refreshAvailable {
 		return "Access expired · refresh token available", true
 	}
 	return fmt.Sprintf("Expired %dm ago", int((-diff).Minutes())), true

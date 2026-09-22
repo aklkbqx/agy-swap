@@ -1,11 +1,15 @@
 package app
 
 import (
+	"errors"
 	"io"
+	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
 )
+
+var errInputPaused = errors.New("terminal input is paused")
 
 const tuiInputPollTimeout = 120 * time.Millisecond
 const tuiEscapeTimeout = 90 * time.Millisecond
@@ -15,13 +19,17 @@ const tuiEscapeTimeout = 90 * time.Millisecond
 // prefixes. Unknown escape sequences are treated as escape/alt input rather
 // than silently disappearing, which keeps cancel actions reliable.
 func readTerminalKey(reader io.Reader) string {
-	first, err := readInputByteWithTimeout(reader, tuiInputPollTimeout)
+	return readTerminalKeyPaused(reader, nil)
+}
+
+func readTerminalKeyPaused(reader io.Reader, paused *atomic.Bool) string {
+	first, err := readInputByteWithTimeout(reader, tuiInputPollTimeout, paused)
 	if err != nil {
 		return ""
 	}
 	switch first {
 	case 0:
-		second, err := readInputByte(reader)
+		second, err := readInputByteWithTimeout(reader, tuiEscapeTimeout, paused)
 		if err != nil {
 			return ""
 		}
@@ -39,7 +47,7 @@ func readTerminalKey(reader io.Reader) string {
 		}
 		return ""
 	case 0x1b:
-		return readEscapeSequence(reader)
+		return readEscapeSequence(reader, paused)
 	case '\r', '\n':
 		return "enter"
 	case '\t':
@@ -59,7 +67,7 @@ func readTerminalKey(reader io.Reader) string {
 	default:
 		buf := []byte{first}
 		for !utf8.FullRune(buf) && len(buf) < utf8.UTFMax {
-			next, err := readInputByteWithTimeout(reader, tuiEscapeTimeout)
+			next, err := readInputByteWithTimeout(reader, tuiEscapeTimeout, paused)
 			if err != nil {
 				return ""
 			}
@@ -72,16 +80,22 @@ func readTerminalKey(reader io.Reader) string {
 	}
 }
 
-func readEscapeSequence(reader io.Reader) string {
-	second, err := readInputByteWithTimeout(reader, tuiEscapeTimeout)
+func readEscapeSequence(reader io.Reader, paused *atomic.Bool) string {
+	second, err := readInputByteWithTimeout(reader, tuiEscapeTimeout, paused)
 	if err != nil {
+		if errors.Is(err, errInputPaused) {
+			return ""
+		}
 		return "esc"
 	}
 	if second == '[' {
 		sequence := make([]byte, 0, 4)
 		for len(sequence) < 8 {
-			b, readErr := readInputByteWithTimeout(reader, tuiEscapeTimeout)
+			b, readErr := readInputByteWithTimeout(reader, tuiEscapeTimeout, paused)
 			if readErr != nil {
+				if errors.Is(readErr, errInputPaused) {
+					return ""
+				}
 				return "esc"
 			}
 			sequence = append(sequence, b)
@@ -92,8 +106,11 @@ func readEscapeSequence(reader io.Reader) string {
 		return decodeCSI(sequence)
 	}
 	if second == 'O' {
-		third, readErr := readInputByteWithTimeout(reader, tuiEscapeTimeout)
+		third, readErr := readInputByteWithTimeout(reader, tuiEscapeTimeout, paused)
 		if readErr != nil {
+			if errors.Is(readErr, errInputPaused) {
+				return ""
+			}
 			return "esc"
 		}
 		switch third {
@@ -154,6 +171,16 @@ func decodeCSI(sequence []byte) string {
 		}
 	}
 	return "esc"
+}
+
+func waitUntilInputIdle(busy *atomic.Bool, timeout time.Duration) {
+	if busy == nil {
+		return
+	}
+	deadline := time.Now().Add(timeout)
+	for busy.Load() && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 func readInputByte(reader io.Reader) (byte, error) {
