@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.3
+
+This patch keeps the agy CLI from asking for the macOS login password on every launch.
+
+- Publish the shared `gemini` / `antigravity` session item with `/usr/bin/security add-generic-password -U -A`, the same code identity the agy CLI uses to read it.
+- Update that item in place. A delete followed by a create drops Always Allow on the next launch.
+- Leave the agy-swap account vault on the in-process Keychain path. That vault is a different item and stays with the agy-swap binary.
+
 ## 2.3.2
 
 This patch keeps saved account tokens when the vault file is shared by two processes, when it is corrupt, or when a quota refresh fails.
