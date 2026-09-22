@@ -175,11 +175,13 @@ func decodeJWTClaims(jwt string) map[string]any {
 // and must never establish the identity of a newly imported credential.
 func extractEmailHint(tokenData string) string {
 	decoded := decodeToken(tokenData)
-	inner := tokenObject(decoded)
-	if inner == nil {
+	if decoded == nil {
 		return ""
 	}
-	idToken := firstString(inner["id_token"], getString(decoded, "id_token"))
+	idToken := getString(decoded, "id_token")
+	if inner := tokenObject(decoded); inner != nil {
+		idToken = firstString(getString(inner, "id_token"), idToken)
+	}
 	claims := decodeJWTClaims(idToken)
 	if claims == nil {
 		return ""
@@ -193,8 +195,13 @@ func extractEmailHint(tokenData string) string {
 }
 
 func oauthClientID(decoded map[string]any) string {
-	inner := tokenObject(decoded)
-	idToken := firstString(inner["id_token"], getString(decoded, "id_token"))
+	var idToken string
+	if decoded != nil {
+		idToken = getString(decoded, "id_token")
+		if inner := tokenObject(decoded); inner != nil {
+			idToken = firstString(getString(inner, "id_token"), idToken)
+		}
+	}
 	claims := decodeJWTClaims(idToken)
 	aud := claims["aud"]
 	switch value := aud.(type) {
