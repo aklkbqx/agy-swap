@@ -641,12 +641,16 @@ func (a *Application) saveTokenAccount(ctx context.Context, token string) int {
 		account["name"] = name
 		account["token_data"] = token
 	}
-	if !a.saveAccountSecret(ctx, account, token) {
+	oldRef, saved := a.saveAccountSecret(ctx, account, token)
+	if !saved {
 		fmt.Fprintln(a.Err, "OS credential vault unavailable; token stored in the private accounts file.")
 	}
 	accounts.Set(email, account)
 	if err := a.store.Save(accounts); err != nil {
 		return a.storeError(err)
+	}
+	if saved {
+		a.deleteReplacedSecrets(ctx, []string{oldRef})
 	}
 	fmt.Fprintf(a.Out, "\n%s✓ Successfully saved account: %s <%s>%s [%s]\n", a.p.Green, name, email, a.p.Reset, tierBadge(accounts.ByEmail[email], a.p))
 	return 0
@@ -889,7 +893,6 @@ func (a *Application) cmdNext(ctx context.Context, args cliArgs) int {
 	}
 	for email, failure := range failures {
 		fmt.Fprintf(a.Err, "Quota refresh failed for %s: %s\n", email, failure)
-		delete(accounts.ByEmail[email], "quota_snapshot")
 	}
 	// Explicit next advances the rotation; recommendation sticky policy is for reuse.
 	if settings.Policy.Name == "sticky" {

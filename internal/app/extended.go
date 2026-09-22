@@ -415,6 +415,7 @@ func (a *Application) cmdAccount(ctx context.Context, opts extendedOptions, posi
 			return a.extendedError("account migrate", opts, errors.New("migration changes token storage; rerun with --force"))
 		}
 		migrated, skipped := 0, 0
+		var replaced []string
 		for _, email := range accounts.Order {
 			account := accounts.ByEmail[email]
 			token := getString(account, "token_data")
@@ -422,15 +423,20 @@ func (a *Application) cmdAccount(ctx context.Context, opts extendedOptions, posi
 				skipped++
 				continue
 			}
-			if a.saveAccountSecret(ctx, account, token) {
-				migrated++
-			} else {
+			old, ok := a.saveAccountSecret(ctx, account, token)
+			if !ok {
 				skipped++
+				continue
+			}
+			migrated++
+			if old != "" {
+				replaced = append(replaced, old)
 			}
 		}
 		if err := a.store.Save(accounts); err != nil {
 			return a.extendedError("account migrate", opts, err)
 		}
+		a.deleteReplacedSecrets(ctx, replaced)
 		data := map[string]any{"migrated": migrated, "skipped": skipped, "remaining_plaintext": skipped}
 		if opts.JSON {
 			return a.extendedResult("account migrate", opts, data, nil)

@@ -531,6 +531,13 @@ func tuiAccountColumnWidths(width int) (marker, identity, health int) {
 	return marker, maxInt(1, identity), maxInt(1, health)
 }
 
+func sessionTokenReset(account Account) (string, bool) {
+	if reset, ok := tokenResetInfo(tuiText(getString(account, "token_data"))); ok {
+		return reset, true
+	}
+	return tokenResetFromExpiry(tuiText(getString(account, "access_expires_at")))
+}
+
 // tuiDetailTableLines mirrors the account table with key/value columns for
 // status, quota buckets, and token state. The old free-form detail renderer
 // made the right pane look like a paragraph instead of a data table.
@@ -573,7 +580,7 @@ func (a *Application) tuiDetailTableLines(state *tuiState, width, maxRows int) [
 			}
 		}
 	}
-	if reset, ok := tokenResetInfo(tuiText(getString(account, "token_data"))); ok {
+	if reset, ok := sessionTokenReset(account); ok {
 		rows = append(rows, tuiDetailKV("SESSION TOKEN", reset, width, labelWidth, a.p))
 	}
 	if reason := tuiText(state.quotaErrors[email]); reason != "" {
