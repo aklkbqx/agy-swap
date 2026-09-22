@@ -95,6 +95,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	workerCtx, cancelWorkers := context.WithCancel(ctx)
 	defer cancelWorkers()
 	var inputPaused atomic.Bool
+	var inputBusy atomic.Bool
 	var closeDone sync.Once
 	finish := func() {
 		closeDone.Do(func() { close(done) })
@@ -113,7 +114,9 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			}
 			// readTerminalKey polls the terminal fd, so this worker remains
 			// cancellable even when the terminal is idle.
-			key := readTerminalKey(inFile)
+			inputBusy.Store(true)
+			key := readTerminalKeyPaused(inFile, &inputPaused)
+			inputBusy.Store(false)
 			if key == "" {
 				select {
 				case <-done:
@@ -232,6 +235,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	suspend := func(action func() int) int {
 		invalidateRefresh()
 		inputPaused.Store(true)
+		waitUntilInputIdle(&inputBusy, tuiInputPollTimeout+150*time.Millisecond)
 		defer inputPaused.Store(false)
 		_ = term.Restore(int(inFile.Fd()), oldState)
 		raw = false

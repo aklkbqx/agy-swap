@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.3.2
+
+This patch keeps saved account tokens when the vault file is shared by two processes, when it is corrupt, or when a quota refresh fails.
+
+- Serialize `vault.json` with a cross-process file lock and replace it through the existing atomic write path, including on Windows.
+- Refuse to rewrite a vault file that cannot be parsed, so one save cannot erase the other accounts.
+- Delete a replaced vault entry only after `accounts.json` has been saved. A failed copy or a failed save leaves the previous secret in place.
+- Keep the last quota snapshot when `agy-swap next` cannot refresh an account, so a fresh cache can still be selected.
+- Store the refreshed token hash and a non-secret access expiry with the account. The detail pane shows that expiry without reading the vault on every frame.
+- Reject a refreshed token whose email does not match the account before the account record is changed.
+- Pause the TUI key reader before a suspended login command takes stdin, and leave unread input in the terminal buffer.
+
 ## 2.3.1
 
 This patch release permanently eliminates repeated macOS Keychain authorization prompts, cascades of permission dialogs on launch, and orphaned keychain items.
