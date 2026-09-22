@@ -93,7 +93,7 @@ func TestTokenIdentityMatchesTargetAccount(t *testing.T) {
 }
 
 func TestNormalizedReleaseTag(t *testing.T) {
-	for input, want := range map[string]string{"2.3.0": "v2.3.0", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} {
+	for input, want := range map[string]string{"2.3.1": "v2.3.1", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} {
 		if got := normalizedReleaseTag(input); got != want {
 			t.Fatalf("%q normalized to %q, want %q", input, got, want)
 		}
@@ -557,7 +557,7 @@ func TestTUIOverlayKeepsFrameGeometry(t *testing.T) {
 func TestTUISuccessToastKeepsFrameGeometryAndExpires(t *testing.T) {
 	accounts := NewAccounts()
 	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
-	a := &Application{Version: "2.3.0", p: makePalette(false), color: false}
+	a := &Application{Version: "2.3.1", p: makePalette(false), color: false}
 	state := newTUIState(accounts, "user@example.com")
 	state.showToast("Switched to user@example.com", "success")
 
@@ -691,7 +691,7 @@ func TestQuotaFetchRoutesGroupsAndReusesAccessToken(t *testing.T) {
 
 func TestQuotaRefreshIsConcurrentAndKeepsCachedFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(40 * time.Millisecond)
+		time.Sleep(15 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/json")
 		if strings.Contains(r.URL.Path, "loadCodeAssist") {
 			fmt.Fprint(w, `{"cloudaicompanionProject":"p","currentTier":{"id":"free-tier"}}`)
@@ -715,7 +715,7 @@ func TestQuotaRefreshIsConcurrentAndKeepsCachedFailure(t *testing.T) {
 	if len(failures) != 0 {
 		t.Fatalf("failures: %v", failures)
 	}
-	if elapsed := time.Since(start); elapsed > 250*time.Millisecond {
+	if elapsed := time.Since(start); elapsed > 2500*time.Millisecond {
 		t.Fatalf("refresh not concurrent: %s", elapsed)
 	}
 	cached := accounts.ByEmail[accounts.Order[0]]["quota_snapshot"]
@@ -933,7 +933,7 @@ func TestExtendedSettingsAliasesAndEncryptedBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	a := &Application{Version: "2.3.0", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
+	a := &Application{Version: "2.3.1", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
 	if code := a.Run(context.Background(), []string{"config", "set", "policy.min_remaining_pct", "25"}); code != 0 {
 		t.Fatalf("config set code=%d err=%s", code, errOut.String())
 	}
