@@ -93,7 +93,7 @@ func TestTokenIdentityMatchesTargetAccount(t *testing.T) {
 }
 
 func TestNormalizedReleaseTag(t *testing.T) {
-	for input, want := range map[string]string{"2.3.1": "v2.3.1", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} {
+	for input, want := range map[string]string{"2.3.2": "v2.3.2", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} {
 		if got := normalizedReleaseTag(input); got != want {
 			t.Fatalf("%q normalized to %q, want %q", input, got, want)
 		}
@@ -534,6 +534,26 @@ func TestTUIDetailTableOmitsVaultStorageRow(t *testing.T) {
 	}
 }
 
+func TestTUIDetailShowsStoredTokenExpiryWithoutTokenData(t *testing.T) {
+	accounts := NewAccounts()
+	account := quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour))
+	account["secret_ref"] = "account:user@example.com"
+	delete(account, "token_data")
+	expiry := isoTime(time.Now().Add(90*time.Minute + 30*time.Second))
+	account["access_expires_at"] = expiry
+	accounts.Set("user@example.com", account)
+	label, ok := tokenResetFromExpiry(expiry)
+	if !ok {
+		t.Fatal("expected a reset label")
+	}
+	a := &Application{Version: "2.1.1", p: makePalette(false), color: false}
+	state := newTUIState(accounts, "user@example.com")
+	detail := strings.Join(a.tuiDetailTableLines(state, 52, 12), "\n")
+	if !strings.Contains(detail, "SESSION TOKEN") || !strings.Contains(detail, label) {
+		t.Fatalf("detail = %q, want SESSION TOKEN %q", detail, label)
+	}
+}
+
 func TestTUIOverlayKeepsFrameGeometry(t *testing.T) {
 	accounts := NewAccounts()
 	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
@@ -557,7 +577,7 @@ func TestTUIOverlayKeepsFrameGeometry(t *testing.T) {
 func TestTUISuccessToastKeepsFrameGeometryAndExpires(t *testing.T) {
 	accounts := NewAccounts()
 	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
-	a := &Application{Version: "2.3.1", p: makePalette(false), color: false}
+	a := &Application{Version: "2.3.2", p: makePalette(false), color: false}
 	state := newTUIState(accounts, "user@example.com")
 	state.showToast("Switched to user@example.com", "success")
 
@@ -726,6 +746,125 @@ func TestQuotaRefreshIsConcurrentAndKeepsCachedFailure(t *testing.T) {
 	}
 	if !reflect.DeepEqual(accounts.ByEmail[accounts.Order[0]]["quota_snapshot"], cached) {
 		t.Fatal("cached snapshot was replaced on failure")
+	}
+}
+
+func TestFetchRejectsMismatchedTokenWithoutReplacingSecret(t *testing.T) {
+	vault := newMemoryVault()
+	ref := "account:user@example.com"
+	original := tokenBlob(t, "other@example.com", true, "r", time.Now().Add(time.Hour))
+	if !vault.Set(context.Background(), ref, original) {
+		t.Fatal("seed failed")
+	}
+	quota := NewQuotaService(NewHTTPService(io.Discard), nil)
+	quota.SetVault(vault)
+	account := Account{"email": "user@example.com", "secret_ref": ref}
+	if _, err := quota.Fetch(context.Background(), account); err == nil {
+		t.Fatal("expected identity mismatch")
+	}
+	if getString(account, "secret_ref") != ref || getString(account, "token_data") != "" {
+		t.Fatalf("account mutated: %#v", account)
+	}
+	if got, ok := vault.Get(context.Background(), ref); !ok || got != original {
+		t.Fatalf("vault token = %q ok=%v", got, ok)
+	}
+}
+
+func TestQuotaRefreshPersistsTokenHash(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "oauth"):
+			fmt.Fprint(w, `{"access_token":"refreshed-access","refresh_token":"r2","expires_in":3600,"token_type":"Bearer"}`)
+		case strings.Contains(r.URL.Path, "loadCodeAssist"):
+			fmt.Fprint(w, `{"cloudaicompanionProject":"p","currentTier":{"id":"free-tier"}}`)
+		default:
+			fmt.Fprint(w, `{"groups":[{"buckets":[{"bucketId":"gemini-weekly","displayName":"Weekly","window":"weekly","remainingFraction":0.5,"resetTime":"2030-01-01T00:00:00Z"}]}]}`)
+		}
+	}))
+	defer server.Close()
+	paths := testPaths(t)
+	store := NewStore(paths)
+	vault := NewFileAccountVault(filepath.Join(paths.ConfigDir, "vault.json"))
+	httpService := NewHTTPService(io.Discard)
+	httpService.oauthURL = server.URL + "/oauth"
+	httpService.cloudAPI = server.URL + "/"
+	service := NewQuotaService(httpService, store)
+	service.SetVault(vault)
+	email := "user@example.com"
+	accounts := NewAccounts()
+	accounts.Set(email, Account{"email": email, "name": email, "token_data": tokenBlob(t, email, true, "r", time.Now().Add(-time.Minute))})
+	if failures := service.Refresh(context.Background(), accounts, true, nil); len(failures) != 0 {
+		t.Fatalf("failures: %v", failures)
+	}
+	account := accounts.ByEmail[email]
+	ref := "account:" + email
+	if getString(account, "secret_ref") != ref || getString(account, "token_data") != "" {
+		t.Fatalf("stored account = %#v", account)
+	}
+	stored, ok := vault.Get(context.Background(), ref)
+	if !ok {
+		t.Fatal("refreshed token missing from vault")
+	}
+	if getString(account, "token_hash") != hashToken(stored) {
+		t.Fatalf("token_hash = %q, vault token hash = %q", getString(account, "token_hash"), hashToken(stored))
+	}
+	if getString(account, "access_expires_at") == "" {
+		t.Fatal("access expiry was not recorded")
+	}
+}
+
+func TestNextKeepsFreshQuotaWhenRefreshFails(t *testing.T) {
+	paths := testPaths(t)
+	store := NewStore(paths)
+	email := "user@example.com"
+	accounts := NewAccounts()
+	accounts.Set(email, quotaAccount(email, 0.85, 0.5, time.Now().Add(time.Hour)))
+	if err := store.Save(accounts); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	httpService := NewHTTPService(&output)
+	httpService.cloudAPI = "http://127.0.0.1:1/"
+	quota := NewQuotaService(httpService, store)
+	app := &Application{
+		paths:       paths,
+		store:       store,
+		credentials: NewCredentials(paths),
+		quota:       quota,
+		http:        httpService,
+		vault:       NewFileAccountVault(filepath.Join(paths.ConfigDir, "vault.json")),
+		Out:         &output,
+		Err:         &output,
+		p:           makePalette(false),
+	}
+	quota.SetVault(app.vault)
+	code := app.cmdNext(context.Background(), cliArgs{})
+	text := output.String()
+	if strings.Contains(text, "No eligible account") || !strings.Contains(text, "Rotating to "+email) {
+		t.Fatalf("code=%d output=%s", code, text)
+	}
+}
+
+func TestPausedInputLeavesPendingByte(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	if _, err := writer.Write([]byte{'x'}); err != nil {
+		t.Fatal(err)
+	}
+	var paused atomic.Bool
+	paused.Store(true)
+	if _, err := readInputByteWithTimeout(reader, 200*time.Millisecond, &paused); !errors.Is(err, errInputPaused) {
+		t.Fatalf("paused read returned %v", err)
+	}
+	paused.Store(false)
+	got, err := readInputByteWithTimeout(reader, 200*time.Millisecond, &paused)
+	if err != nil || got != 'x' {
+		t.Fatalf("pending byte = %q err=%v", got, err)
 	}
 }
 
@@ -933,7 +1072,7 @@ func TestExtendedSettingsAliasesAndEncryptedBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	a := &Application{Version: "2.3.1", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
+	a := &Application{Version: "2.3.2", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
 	if code := a.Run(context.Background(), []string{"config", "set", "policy.min_remaining_pct", "25"}); code != 0 {
 		t.Fatalf("config set code=%d err=%s", code, errOut.String())
 	}
