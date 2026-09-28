@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.6.1
+
+- Replace the outdated social preview that showed the removed account picker with the current panorama headline and account artwork. Update the homepage and install page image metadata and dimensions.
+
 ## 2.6.0
 
 - Run the actual Go TUI in the browser against isolated, disposable demo accounts. Native keys and mobile key buttons switch the sample session; blocked system actions stay inside the demo.
