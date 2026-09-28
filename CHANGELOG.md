@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.4.0
+
+This release makes the website easier to understand and use on a first visit.
+
+- Explain the account-health and local-session workflow in the hero, search metadata, README, and install notes.
+- Add a three-step first-run path from installation to the first account switch.
+- Replace the long scroll-driven showcase with three named demo steps and a readable mobile preview. Keep the 3D terminal as an optional desktop view.
+- Show one install command at a time for the selected operating system and move advanced methods into troubleshooting.
+- Align English, Thai, Japanese, and Chinese interface copy with quota snapshots and explicit refresh behavior.
+
 ## 2.3.3
 
 This patch keeps the agy CLI from asking for the macOS login password on every launch.
