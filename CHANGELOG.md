@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.6.0
+
+- Run the actual Go TUI in the browser against isolated, disposable demo accounts. Native keys and mobile key buttons switch the sample session; blocked system actions stay inside the demo.
+- Replace the browser-side account picker and generated terminal fixtures with a private WebSocket/PTy gateway and lazy terminal renderer.
+- Add layered 2D scroll artwork, retain the typing headline, and update the responsive copy and deployment runbook.
+
 ## 2.5.0
 
 Make the website demo a direct, clickable 2D account switcher. Visitors can select a sample account, inspect Accounts or Quota, and switch the simulated local session; the terminal remains available for keyboard exploration. Remove the 3D model, textures, and repeated eyebrow labels. Add a reduced-motion-aware typing title, restrained parallax with generated account/session artwork, and an updated social preview. Review the page against product-specific anti-slop criteria and verify desktop, mobile, and Thai layouts.
