@@ -18,6 +18,7 @@ import (
 
 type Application struct {
 	Version             string
+	demo                bool
 	renderClock         func() time.Time
 	BuildID             string
 	In                  io.Reader
