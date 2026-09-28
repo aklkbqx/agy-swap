@@ -2,7 +2,7 @@
 
 # agy-swap
 
-### High-Performance Account Switcher & Quota Monitor for Google Antigravity (`agy`)
+### See which Google Antigravity account is ready, then switch from your terminal
 
 [![Release](https://img.shields.io/github/v/release/aklkbqx/agy-swap?color=FF891A&label=Release&style=flat-square)](https://github.com/aklkbqx/agy-swap/releases)
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-agy--swap.aklkbqx.com-38BDF8?style=flat-square&logo=google-chrome&logoColor=white)](https://agy-swap.aklkbqx.com)
@@ -12,11 +12,11 @@
 [![Arch](https://img.shields.io/badge/Arch-arm64%20%7C%20x86__64-orange?style=flat-square)](https://github.com/aklkbqx/agy-swap/releases)
 
 <p align="center">
-  <b>Manage Google Antigravity accounts, inspect provider quota snapshots, and switch the shared local session from a native terminal interface.</b>
+  <b>Inspect saved account health and quota freshness before switching the shared local Google Antigravity session.</b>
 </p>
 
 <p align="center">
-  <a href="https://agy-swap.aklkbqx.com"><strong>🌐 Explore Live Interactive Web Demo & 3D Terminal Simulator »</strong></a>
+  <a href="https://agy-swap.aklkbqx.com"><strong>Explore the account switching demo »</strong></a>
 </p>
 
 ---
@@ -53,8 +53,8 @@ Experience `agy-swap` directly in your browser without installing anything:
 
 👉 **[https://agy-swap.aklkbqx.com](https://agy-swap.aklkbqx.com)**
 
-- **Interactive TUI Preview**: Explore sample accounts through over 51,000 Go-rendered fixtures. The browser does not connect to your credentials or reproduce every native operation.
-- **Interactive 3D Perspective Mode**: Real-time 3D hardware terminal visualization with mouse parallax.
+- **Guided three-step preview**: See account health, check quota freshness, and switch a sample local session. The browser does not connect to your credentials or reproduce every native operation.
+- **Optional 3D view**: Desktop visitors can switch from the readable terminal preview to a 3D view.
 - **Responsive Layout Engine**: Live preview adapting across mobile (320px), tablet stacked (640px), and desktop wide (1440px) split-pane modes.
 
 ---
@@ -63,7 +63,7 @@ Experience `agy-swap` directly in your browser without installing anything:
 
 - ⚡ **Native Go CLI**: No application server. macOS uses system frameworks; Linux vault support needs `secret-tool` and an unlocked Secret Service.
 - 🔄 **Session Switching**: Locks and rollback protect session updates. Backup imports also journal their recovery state for interrupted restores.
-- 📊 **Real-Time Quota & Cooldown Tracking**: Proactively tracks Gemini and third-party model limits, reset countdowns, and rate limits.
+- 📊 **Quota & Cooldown Snapshots**: Shows remaining capacity and reset times, with explicit refresh and stale-data checks.
 - 🔐 **Native OS Vault Integration**: Securely integrates with macOS Keychain, Windows Credential Manager, and Linux Secret Service (`libsecret` / DBus).
 - 🎨 **Adaptive Terminal Interface**: Fluid responsive terminal layout with 256-color support, search filter, and Command Palette (`Ctrl-K` / `:`).
 - 🩺 **Built-In System Doctor**: `agy-swap doctor` verifies permissions, OAuth tokens, endpoint health, and config integrity in one command.
@@ -92,6 +92,14 @@ Run in PowerShell (enforces TLS 1.2+ and verifies SHA-256 integrity before insta
 irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex
 ```
 
+### First run
+
+1. Run `agy-swap add` and complete the browser sign-in to save an account.
+2. Run `agy-swap` to open the terminal view. Check the active account and quota snapshot before switching.
+3. Select an account and press Enter to update the shared local Antigravity session. Processes already running may need to reload credentials.
+
+The [install page](https://agy-swap.aklkbqx.com/install.html) shows one command at a time for your operating system. The browser demo uses sample accounts and does not access your local credentials.
+
 ### Go Install (`go install`)
 
 If you already have Go installed (Go 1.26+):
@@ -112,7 +120,7 @@ git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
 
 # Compile native binary with build provenance
-go build -trimpath -ldflags "-s -w -X main.version=2.3.3 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.4.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 
 # Verify installation
 ./agy-swap version
