@@ -170,9 +170,9 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		state.beginAnimation("refresh", 0)
 		a.renderTUI(state, outFile)
 		go func() {
-			fresh, loadErr := a.store.Load(true)
+			fresh, loadErr := a.store.Load(!a.demo)
 			errs := map[string]string{}
-			if loadErr == nil && fresh.Len() > 0 {
+			if loadErr == nil && fresh.Len() > 0 && !a.demo {
 				errs = a.quota.Refresh(workerCtx, fresh, force, nil)
 			}
 			if loadErr != nil {
@@ -231,8 +231,15 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	startActiveResolve()
 	startRefresh(false)
 	armFrame()
+	demoNotice := func() {
+		state.message, state.messageType = errDemoUnavailable.Error(), "info"
+	}
 
 	suspend := func(action func() int) int {
+		if a.demo {
+			demoNotice()
+			return 1
+		}
 		invalidateRefresh()
 		inputPaused.Store(true)
 		waitUntilInputIdle(&inputBusy, tuiInputPollTimeout+150*time.Millisecond)
@@ -298,6 +305,10 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	}
 
 	startDoctor := func(refresh bool) {
+		if a.demo {
+			demoNotice()
+			return
+		}
 		startJob("doctor", "Running health check", func(jobCtx context.Context) tuiJobResult {
 			checks, healthy := a.tuiDoctorSnapshot(jobCtx, refresh)
 			return tuiJobResult{message: "Health check complete", doctorChecks: checks, doctorHealthy: healthy}
@@ -305,6 +316,10 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	}
 
 	startBackupExport := func(path, passphrase string, includeSecrets bool) {
+		if a.demo {
+			demoNotice()
+			return
+		}
 		target := firstString(strings.TrimSpace(path), "agy-swap-backup.json")
 		state.backupPath = target
 		startJob("backup-export", "Writing backup", func(jobCtx context.Context) tuiJobResult {
@@ -314,6 +329,10 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	}
 
 	startBackupImport := func(path, passphrase string, merge bool) {
+		if a.demo {
+			demoNotice()
+			return
+		}
 		target := strings.TrimSpace(path)
 		state.backupPath = target
 		invalidateRefresh()
@@ -324,6 +343,10 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	}
 
 	startBackupVerify := func(path, passphrase string) {
+		if a.demo {
+			demoNotice()
+			return
+		}
 		target := strings.TrimSpace(path)
 		state.backupPath = target
 		startJob("backup-verify", "Verifying backup", func(context.Context) tuiJobResult {
@@ -437,6 +460,19 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		if !ok {
 			return
 		}
+		if a.demo {
+			token, tokenErr := a.accountToken(ctx, account)
+			if tokenErr != nil || !a.applyAccount(ctx, token, email) {
+				state.showToast("Could not switch to "+email, "error")
+			} else {
+				current = a.credentials.Current(ctx)
+				state.current, state.active = current, email
+				state.showToast("Switched to "+email, "success")
+			}
+			a.renderTUI(state, outFile)
+			armFrame()
+			return
+		}
 		alreadyUsing := false
 		var switchErr error
 		code := suspend(func() int {
@@ -475,6 +511,12 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		}
 		form := state.form
 		kind := form.Kind
+		if err := a.allowDemoAction(kind); err != nil {
+			state.form = nil
+			state.mode = tuiBrowse
+			demoNotice()
+			return
+		}
 		if kind == "backup-export" {
 			state.form = nil
 			state.mode = tuiBrowse
@@ -521,6 +563,14 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	}
 
 	runAction := func(id string) {
+		if a.demo {
+			switch id {
+			case "dashboard", "quota", "profiles", "history", "settings", "help", "quit", "switch-account", "refresh", "edit-tags", "toggle-tier", "profile-create", "profile-edit", "profile-remove", "history-clear", "settings-edit", "settings-reset", "alias-create", "split-widen", "split-narrow", "split-reset":
+			default:
+				demoNotice()
+				return
+			}
+		}
 		switch id {
 		case "dashboard":
 			setView(tuiViewDashboard)

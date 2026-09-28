@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -193,15 +192,8 @@ func verifyMetadata(version, root string) error {
 			return fmt.Errorf("version drift in %s: expected %s", name, version)
 		}
 	}
-	names := []string{"site/package.json", "site/package-lock.json", "site/src/generated/tui-initial-fixtures.json"}
-	shards, err := filepath.Glob(filepath.Join(root, "site/src/generated/shards/*.json"))
-	if err != nil {
-		return err
-	}
-	for _, name := range names {
-		shards = append(shards, filepath.Join(root, name))
-	}
-	for _, name := range shards {
+	for _, name := range []string{"site/package.json", "site/package-lock.json"} {
+		name = filepath.Join(root, name)
 		data, err := os.ReadFile(name)
 		if err != nil {
 			return err
@@ -362,19 +354,14 @@ func bumpVersion(target, root string) error {
 	}{
 		{"Makefile", "VERSION ?= " + current, "VERSION ?= " + next},
 		{"cmd/agy-swap/main.go", `version = "` + current + `"`, `version = "` + next + `"`},
+		{"cmd/agy-swap-demo/main.go", `version = "` + current + `"`, `version = "` + next + `"`},
 		{"install.sh", `VERSION="${AGY_SWAP_VERSION:-` + current + `}"`, `VERSION="${AGY_SWAP_VERSION:-` + next + `}"`},
 		{"install.ps1", `$Version = '` + current + `'`, `$Version = '` + next + `'`},
 		{"README.md", `-X main.version=` + current, `-X main.version=` + next},
 		{"site/index.html", `"softwareVersion": "v` + current + `"`, `"softwareVersion": "v` + next + `"`},
 		{"site/package.json", `"version": "` + current + `"`, `"version": "` + next + `"`},
-		{"site/src/components/tuiState.js", `release v` + current + `.`, `release v` + next + `.`},
-		{"site/tests/app.test.mjs", `assert.equal(fullData.version, "` + current + `");`, `assert.equal(fullData.version, "` + next + `");`},
 		{"internal/app/app_test.go", `"` + current + `": "v` + current + `"`, `"` + next + `": "v` + next + `"`},
 		{"internal/app/app_test.go", `Version: "` + current + `"`, `Version: "` + next + `"`},
-		{"internal/app/tui_web_fixtures_test.go", `Version:     "` + current + `"`, `Version:     "` + next + `"`},
-		{"internal/app/tui_web_fixtures_test.go", `Version:           "` + current + `"`, `Version:           "` + next + `"`},
-		{"internal/app/tui_web_fixtures_test.go", `outFirst.Version != "` + current + `"`, `outFirst.Version != "` + next + `"`},
-		{"internal/app/tui_web_fixtures_test.go", `want ` + current + `"`, `want ` + next + `"`},
 	}
 
 	for _, r := range replacements {
@@ -390,18 +377,6 @@ func bumpVersion(target, root string) error {
 
 	if err := updateChangelog(filepath.Join(root, "CHANGELOG.md"), current, next); err != nil {
 		return fmt.Errorf("failed updating CHANGELOG.md: %w", err)
-	}
-
-	// Regenerate web fixtures and shards if generator test is present
-	fixturesTest := filepath.Join(root, "internal", "app", "tui_web_fixtures_test.go")
-	if _, err := os.Stat(fixturesTest); err == nil {
-		fmt.Println("Regenerating web fixtures and shards (UPDATE_TUI_WEB_FIXTURES=1)...")
-		cmd := exec.Command("go", "test", "-run", "TestTUIWebFixtures", "./internal/app")
-		cmd.Dir = root
-		cmd.Env = append(os.Environ(), "UPDATE_TUI_WEB_FIXTURES=1")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to regenerate TUI fixtures: %w\n%s", err, string(out))
-		}
 	}
 
 	if err := verifyMetadata(next, root); err != nil {
