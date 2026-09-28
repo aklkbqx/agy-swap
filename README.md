@@ -53,8 +53,7 @@ Experience `agy-swap` directly in your browser without installing anything:
 
 👉 **[https://agy-swap.aklkbqx.com](https://agy-swap.aklkbqx.com)**
 
-- **Guided three-step preview**: See account health, check quota freshness, and switch a sample local session. The browser does not connect to your credentials or reproduce every native operation.
-- **Optional 3D view**: Desktop visitors can switch from the readable terminal preview to a 3D view.
+- **Clickable account preview**: Select a sample account, inspect account or quota views, and switch the simulated local session. The browser does not connect to your credentials or reproduce every native operation.
 - **Responsive Layout Engine**: Live preview adapting across mobile (320px), tablet stacked (640px), and desktop wide (1440px) split-pane modes.
 
 ---
@@ -120,7 +119,7 @@ git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
 
 # Compile native binary with build provenance
-go build -trimpath -ldflags "-s -w -X main.version=2.4.1 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.5.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 
 # Verify installation
 ./agy-swap version
