@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.7.0
+
+- Open AGY Live automatically when its section approaches the viewport. Keep the real, isolated Go TUI visible from the first render, with a retry action if the demo gateway is unavailable.
+- Replace the standalone install notes markup with a Vite page that shares the site's language, theme, platform picker, and copyable install commands.
+- Add a custom agy-swap wordmark, favicon, and account-switch artwork. Give each homepage scene its own restrained two-depth scroll motion, with a static reduced-motion experience.
+- Use a warm white primary action in the dark theme and refine the homepage copy and visual hierarchy around the actual account-switch workflow.
+
 ## 2.6.1
 
 - Replace the outdated social preview that showed the removed account picker with the current panorama headline and account artwork. Update the homepage and install page image metadata and dimensions.
