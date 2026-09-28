@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.5.0
+
+Make the website demo a direct, clickable 2D account switcher. Visitors can select a sample account, inspect Accounts or Quota, and switch the simulated local session; the terminal remains available for keyboard exploration. Remove the 3D model, textures, and repeated eyebrow labels. Add a reduced-motion-aware typing title, restrained parallax with generated account/session artwork, and an updated social preview. Review the page against product-specific anti-slop criteria and verify desktop, mobile, and Thai layouts.
+
 ## 2.4.1
 
 Fix the guided website demo so the terminal visibly updates to the selected
