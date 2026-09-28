@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.4.1
+
+Fix the guided website demo so the terminal visibly updates to the selected
+account after the sample switch. The demo now loads the full dashboard fixture
+before applying the switch, including when visitors jump directly to step 3.
+
 ## 2.4.0
 
 This release makes the website easier to understand and use on a first visit.
