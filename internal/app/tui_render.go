@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/term"
 )
@@ -719,12 +720,13 @@ func (a *Application) tuiToastOverlay(base []string, state *tuiState, width, hei
 	bottom := color + "╰" + strings.Repeat("─", innerWidth) + "╯" + a.p.Reset
 	box := []string{top, body, bottom}
 	base = fitFrameLines(base, g, a.p)
-	rowStart := maxInt(1, g.frameHeight-len(box)-4)
+	// Sit above the status divider so the box never merges with a frame rule.
+	rowStart := maxInt(1, g.frameHeight-len(box)-5)
 	left := maxInt(1, g.frameWidth-boxWidth-2)
 	for index, line := range box {
 		row := rowStart + index
 		if row >= 0 && row < len(base) {
-			base[row] = fitVisible(strings.Repeat(" ", left)+line, g.frameWidth, a.p)
+			base[row] = overlayVisible(base[row], line, left, a.p)
 		}
 	}
 	return base
@@ -833,8 +835,9 @@ func (a *Application) tuiOverlay(base, overlay []string, width, height int) []st
 	for i, line := range dialog {
 		row := start + i
 		if row >= 0 && row < len(base) {
+			// Clear the row behind the dialog but keep the frame's side borders.
 			left := maxInt(0, (g.frameWidth-visibleWidth(line))/2)
-			base[row] = fitVisible(strings.Repeat(" ", left)+line, g.frameWidth, a.p)
+			base[row] = overlayVisible(frameRow("", g, a.p), line, left, a.p)
 		}
 	}
 	return fitFrameLines(base, g, a.p)
@@ -902,6 +905,47 @@ func fitVisible(value string, width int, p palette) string {
 		return truncateVisible(value, width, p)
 	}
 	return value + strings.Repeat(" ", width-valueWidth)
+}
+
+// overlayVisible draws overlay over base from visible column left. The base
+// columns on both sides stay in place, so a toast or dialog never erases the
+// frame border beside it.
+func overlayVisible(base, overlay string, left int, p palette) string {
+	width := visibleWidth(base)
+	left = maxInt(0, left)
+	if left >= width {
+		return base
+	}
+	overlay = fitVisible(overlay, minInt(visibleWidth(overlay), width-left), p)
+	right := left + visibleWidth(overlay)
+	return visibleSpan(base, 0, left) + p.Reset + overlay + p.Reset + visibleSpan(base, right, width)
+}
+
+// visibleSpan returns columns [from, to) of s. Every escape sequence is kept,
+// so the span starts and ends with the colors of the original row. A wide rune
+// cut by either edge becomes spaces to preserve the column count.
+func visibleSpan(s string, from, to int) string {
+	var b strings.Builder
+	col := 0
+	for len(s) > 0 {
+		if s[0] == '\x1b' {
+			if size := ansiPrefixLen(s); size > 0 {
+				b.WriteString(s[:size])
+				s = s[size:]
+				continue
+			}
+		}
+		r, size := utf8.DecodeRuneInString(s)
+		runeWidth := terminalRuneWidth(r)
+		if col >= from && col+runeWidth <= to {
+			b.WriteString(s[:size])
+		} else if col < to && col+runeWidth > from {
+			b.WriteString(strings.Repeat(" ", minInt(col+runeWidth, to)-maxInt(col, from)))
+		}
+		col += runeWidth
+		s = s[size:]
+	}
+	return b.String()
 }
 
 func stateVersion(version string) string {
