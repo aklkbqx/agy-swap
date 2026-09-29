@@ -53,7 +53,7 @@ Experience `agy-swap` directly in your browser without installing anything:
 
 👉 **[https://agy-swap.aklkbqx.com](https://agy-swap.aklkbqx.com)**
 
-- **AGY Live browser demo**: Operate the real Go TUI with isolated sample accounts in a browser terminal. Each visitor gets a disposable session; the demo cannot access your credentials or provider network.
+- **AGY Live (local)**: `make live` runs the real Go TUI with sample accounts in a browser terminal on this machine, for testing. The public site does not include it.
 - **Responsive Layout Engine**: Live preview adapting across mobile (320px), tablet stacked (640px), and desktop wide (1440px) split-pane modes.
 
 ---
@@ -97,7 +97,7 @@ irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex
 2. Run `agy-swap` to open the terminal view. Check the active account and quota snapshot before switching.
 3. Select an account and press Enter to update the shared local Antigravity session. Processes already running may need to reload credentials.
 
-The [install page](https://agy-swap.aklkbqx.com/install.html) shows one command at a time for your operating system. AGY Live runs the native TUI with sample accounts in a disposable server-side session; it does not access your local credentials.
+The [install page](https://agy-swap.aklkbqx.com/install.html) shows one command at a time for your operating system.
 
 ### Go Install (`go install`)
 
