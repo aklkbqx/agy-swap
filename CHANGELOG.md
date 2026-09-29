@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.8.0
+
+- Give Google Antigravity a distinct place in the homepage headline while keeping agy-swap's orange action color and independent-product attribution.
+- Connect the hero, account, quota-refresh, switching, live demo, and install sections with a scroll-drawn signal path. Keep the route static and subdued when reduced motion is preferred.
+- Move the hero explanation and actions beside the headline, add localized account-to-session chapters, and refresh the social preview for the new layout.
+
 ## 2.7.0
 
 - Open AGY Live automatically when its section approaches the viewport. Keep the real, isolated Go TUI visible from the first render, with a retry action if the demo gateway is unavailable.
