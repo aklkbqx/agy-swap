@@ -17,7 +17,7 @@ help:
 	@echo "  tui-smoke       Run terminal UI smoke tests"
 	@echo "  qa              Run complete QA pipeline (gofmt, test, race, vet, tui-smoke)"
 	@echo "  release-assets  Cross-compile release assets for all platforms"
-	@echo "  live            Run AGY Live locally (demo gateway + Vite on :5174)"
+	@echo "  live            Run AGY Live locally (demo gateway + Vite, first free ports)"
 	@echo "  site-preview    Build and serve the production site image locally on :4796"
 	@echo "  site-release    Build, smoke-test, and (PUSH=1) publish the site image for VERSION"
 
