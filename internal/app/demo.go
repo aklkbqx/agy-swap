@@ -13,6 +13,7 @@ import (
 
 type DemoOptions struct {
 	Home string
+	Now  time.Time
 }
 
 // NewDemo uses the production TUI with an isolated, disposable home and fake credentials.
@@ -23,7 +24,10 @@ func NewDemo(version string, in io.Reader, out, errOut io.Writer, options DemoOp
 	paths := demoPaths(options.Home)
 	store := NewStore(paths)
 	accounts := NewAccounts()
-	now := time.Now().UTC()
+	now := options.Now.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
 	for i, fixture := range []struct {
 		email, name string
 		remaining   float64
@@ -65,11 +69,15 @@ func NewDemo(version string, in io.Reader, out, errOut io.Writer, options DemoOp
 		reader = bufio.NewReader(in)
 	}
 	httpService := NewHTTPService(errOut)
+	renderClock := time.Now
+	if !options.Now.IsZero() {
+		renderClock = func() time.Time { return now }
+	}
 	application := &Application{
 		Version: version, BuildID: "demo", In: in, Out: out, Err: errOut,
 		lineReader: reader, paths: paths, store: store, credentials: credentials,
 		http: httpService, stdinTTY: readerTerminal(in), stdoutTTY: writerTerminal(out),
-		demo: true, color: writerTerminal(out), renderClock: time.Now,
+		demo: true, color: writerTerminal(out), renderClock: renderClock,
 	}
 	application.p = makePalette(application.color)
 	if err := application.appendHistory("switch", "alpha@example.invalid", nil); err != nil {

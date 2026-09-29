@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.8.4
+
+- Replace the handmade hero preview and three story illustrations with responsive snapshots from the actual Go TUI renderer: account list, quota view, and a completed account switch.
+- Keep the snapshots in sync with the release version and native demo data through a deterministic Go fixture test. Add a narrower native layout for 320px screens and refresh the social preview.
+
 ## 2.8.3
 
 - Replace the decorative account-card image in the homepage hero with a terminal-style account and quota preview using the demo's sample account values.
