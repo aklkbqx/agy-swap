@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.8.7
+
+- Use one accessible dropdown component for the navbar language menu and the system picker on both install surfaces.
+
 ## 2.8.6
 
 - Render the hero and three account-flow scenes in the same xterm emulator as AGY Live, using frames produced by the Go TUI instead of HTML/CSS terminal facsimiles.
