@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.8.1
+
+- Give the account artwork more vertical space on narrow screens so the privacy note remains clear and unobstructed.
+
 ## 2.8.0
 
 - Give Google Antigravity a distinct place in the homepage headline while keeping agy-swap's orange action color and independent-product attribution.
