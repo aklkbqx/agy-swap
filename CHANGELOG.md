@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.8.3
+
+- Replace the decorative account-card image in the homepage hero with a terminal-style account and quota preview using the demo's sample account values.
+- Keep the interactive Go TUI in AGY Live, remove the unused hero image, and refresh the social preview to show the terminal.
+
 ## 2.8.2
 
 - Self-host Manrope for Latin text, Noto Sans Thai for Thai text, and JetBrains Mono for technical labels and commands; retain system CJK fallbacks.
