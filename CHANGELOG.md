@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.8.2
+
+- Self-host Manrope for Latin text, Noto Sans Thai for Thai text, and JetBrains Mono for technical labels and commands; retain system CJK fallbacks.
+- Refine the hero and install heading rhythm for Thai and Japanese, keep the narrowest mobile header within the viewport, and update the social preview to match the new type.
+
 ## 2.8.1
 
 - Give the account artwork more vertical space on narrow screens so the privacy note remains clear and unobstructed.
