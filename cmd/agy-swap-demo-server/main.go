@@ -19,8 +19,17 @@ func main() {
 		binary = "/usr/local/bin/agy-swap-demo"
 	}
 	server := &http.Server{
-		Addr: ":8080", ReadHeaderTimeout: 5 * time.Second,
+		Addr: listenAddr(), ReadHeaderTimeout: 5 * time.Second,
 		Handler: demoserver.New(demoserver.Config{Origin: origin, Binary: binary, TempRoot: os.Getenv("AGY_DEMO_TMP")}),
 	}
 	log.Fatal(server.ListenAndServe())
+}
+
+// listenAddr keeps the local-only demo gateway on loopback unless the
+// developer asks for another address.
+func listenAddr() string {
+	if addr := os.Getenv("AGY_DEMO_ADDR"); addr != "" {
+		return addr
+	}
+	return "127.0.0.1:8787"
 }

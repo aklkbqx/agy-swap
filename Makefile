@@ -3,7 +3,7 @@ BUILD_ID ?= dev
 GOCACHE ?= /tmp/agy-swap-go-cache
 TARGET_DIR ?= $(HOME)/.local/bin
 
-.PHONY: help build test race vet lint benchmark tui-smoke qa bump install release-assets
+.PHONY: help build test race vet lint benchmark tui-smoke qa bump install release-assets live
 
 help:
 	@echo "Available make targets:"
@@ -17,6 +17,7 @@ help:
 	@echo "  tui-smoke       Run terminal UI smoke tests"
 	@echo "  qa              Run complete QA pipeline (gofmt, test, race, vet, tui-smoke)"
 	@echo "  release-assets  Cross-compile release assets for all platforms"
+	@echo "  live            Run AGY Live locally (demo gateway + Vite on :5174)"
 
 build:
 	GOCACHE=$(GOCACHE) go build -trimpath -ldflags "-s -w -X main.version=$(VERSION) -X main.buildID=$(BUILD_ID)" -o agy-swap ./cmd/agy-swap
@@ -31,6 +32,9 @@ bump:
 
 release-assets:
 	./scripts/build-release.sh $(VERSION) $(BUILD_ID) dist/release
+
+live:
+	./scripts/agy-live-dev.sh
 
 test:
 	GOCACHE=$(GOCACHE) go test ./...
