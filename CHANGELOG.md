@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.8.8
+
+- TUI: toasts and dialogs keep the frame's side borders instead of blanking whole rows; the success toast sits above the status rule.
+- TUI: the quota view labels the selected account once instead of repeating its email above the detail block.
+- Site: "How it works" pins one terminal while its three steps scroll past, with a progress rule on the current step. Small or short screens keep each step's frame inline.
+- Site: removed decorative filler: the gradient route line, hero glow, gradient headline text, and uppercase eyebrow labels. The independence note moved into the hero footnote.
+- Site: the feature list now covers the credential vault, rollback-protected switching, `doctor`, and backups instead of repeating the story. Install uses the same heading-and-content layout, with first-run commands shown as code.
+- Site: the AGY Live status dot follows the connection state; terminal key labels, footer copy, and install link text are translated in every language; Thai, Japanese, and Chinese quota and account terms are consistent.
+- Site: fixed the skip link peeking out at the top edge, the wordmark using an unloaded font, the install page's smaller wordmark, and low-contrast selected dropdown text in light theme.
+
 ## 2.8.7
 
 - Use one accessible dropdown component for the navbar language menu and the system picker on both install surfaces.

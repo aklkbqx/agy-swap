@@ -390,11 +390,16 @@ func (a *Application) tuiQuotaViewRows(state *tuiState, width, height int) []str
 		color := a.tuiHealthColor(tuiHealthToneForGroups(quotaGroupHealths(account), account, a.renderTime()))
 		rows = append(rows, color+"● "+tuiText(name)+a.p.Reset+"  "+a.p.Gray+tuiText(email)+a.p.Reset+"  "+color+tuiText(health)+a.p.Reset)
 	}
-	if email, _, ok := state.selectedAccount(); ok && len(rows) < height {
-		rows = append(rows, "", a.p.Bold+"Selected account"+a.p.Reset+"  "+tuiText(email))
-		for _, detail := range a.tuiDetailLines(state, width, maxInt(1, height-len(rows))) {
+	if _, _, ok := state.selectedAccount(); ok && len(rows) < height {
+		// The detail block names the account and email, so this label only
+		// introduces it instead of repeating the email.
+		rows = append(rows, "", a.p.Bold+"Selected account"+a.p.Reset)
+		for _, detail := range a.tuiDetailLines(state, width, maxInt(1, height-len(rows))+1) {
 			if len(rows) >= height {
 				break
+			}
+			if strings.TrimSpace(ansiPattern.ReplaceAllString(detail, "")) == "SELECTED ACCOUNT" {
+				continue
 			}
 			rows = append(rows, detail)
 		}
