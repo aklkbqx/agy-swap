@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.8.5
+
+- Align the full install notes header and page sections with the landing page's 1536px container and responsive gutters. Keep install command content at the same readable width on both pages.
+- Refresh the native TUI story frames and social preview for this release version.
+
 ## 2.8.4
 
 - Replace the handmade hero preview and three story illustrations with responsive snapshots from the actual Go TUI renderer: account list, quota view, and a completed account switch.
