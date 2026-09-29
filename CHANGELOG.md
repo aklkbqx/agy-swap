@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.8.6
+
+- Render the hero and three account-flow scenes in the same xterm emulator as AGY Live, using frames produced by the Go TUI instead of HTML/CSS terminal facsimiles.
+- Give desktop scenes the native wide two-pane layout, retain native tablet and mobile layouts, and keep the terminal frame fully visible at each size.
+
 ## 2.8.5
 
 - Align the full install notes header and page sections with the landing page's 1536px container and responsive gutters. Keep install command content at the same readable width on both pages.

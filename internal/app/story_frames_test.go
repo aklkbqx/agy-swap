@@ -50,23 +50,25 @@ func TestSiteStoryFrames(t *testing.T) {
 	for _, scene := range []string{"hero", "accounts", "quota", "switch"} {
 		frames.Frames[scene] = map[string][]string{}
 		for layout, size := range map[string]struct{ width, height int }{
-			"desktop": {72, 22},
+			"desktop": {120, 24},
+			"tablet":  {80, 22},
 			"mobile":  {48, 22},
 			"narrow":  {40, 22},
 		} {
-			if (scene == "accounts" || scene == "switch") && layout == "desktop" {
-				size.width = 48
-			}
-			if scene == "quota" && layout == "desktop" {
-				size.width = 64
-			}
 			switch scene {
 			case "hero":
+				if layout == "desktop" {
+					size.width = 72
+				}
 				size.height = 20
 			case "accounts":
-				size.height = 16
+				if layout == "mobile" || layout == "narrow" {
+					size.height = 16
+				}
 			case "switch":
-				size.height = 18
+				if layout == "mobile" || layout == "narrow" {
+					size.height = 18
+				}
 			}
 			state := newTUIState(accounts, application.credentials.Current(context.Background()))
 			state.motionEnabled = false
