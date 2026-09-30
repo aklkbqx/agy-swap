@@ -53,6 +53,7 @@ func (a *Application) cmdDoctor(ctx context.Context, opts extendedOptions) int {
 		if missing > 0 {
 			add("vault_entries", "error", fmt.Sprintf("%d account secret(s) cannot be read", missing))
 		}
+		add("vault", "ok", describeVault(a.vault))
 	}
 	current := a.credentials.Current(ctx)
 	if current == "" {

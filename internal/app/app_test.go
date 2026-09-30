@@ -1425,3 +1425,47 @@ func BenchmarkLogScan64MBCached(b *testing.B) {
 		}
 	}
 }
+
+func TestDescribeVaultFollowsVaultMode(t *testing.T) {
+	paths := testPaths(t)
+	file := filepath.Join(paths.ConfigDir, "vault.json")
+	for mode, want := range map[string]string{
+		"":         file + " (0600, not encrypted); OS credential store read only for older tokens",
+		"file":     file + " (0600, not encrypted)",
+		"keychain": "OS credential store (AGY_SWAP_VAULT=keychain)",
+		"os":       "OS credential store (AGY_SWAP_VAULT=keychain)",
+	} {
+		t.Setenv("AGY_SWAP_VAULT", mode)
+		if got := describeVault(NewAccountVault(paths)); got != want {
+			t.Fatalf("AGY_SWAP_VAULT=%q: describeVault = %q, want %q", mode, got, want)
+		}
+	}
+	if got := describeVault(fakeAccountVault{}); got != "custom vault" {
+		t.Fatalf("fake vault = %q", got)
+	}
+}
+
+func TestDoctorReportsWhereTokensLive(t *testing.T) {
+	t.Setenv("AGY_SWAP_VAULT", "")
+	paths := testPaths(t)
+	var out, errOut bytes.Buffer
+	a := &Application{Version: "test", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: NewStore(paths), credentials: NewCredentials(paths), vault: NewAccountVault(paths), p: makePalette(false)}
+	a.Run(context.Background(), []string{"doctor", "--json"})
+	var envelope struct {
+		Data struct {
+			Checks []doctorCheck `json:"checks"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("doctor --json: %v\n%s", err, out.String())
+	}
+	for _, check := range envelope.Data.Checks {
+		if check.Name == "vault" {
+			if check.Status != "ok" || !strings.Contains(check.Message, "vault.json (0600, not encrypted)") {
+				t.Fatalf("vault check = %+v", check)
+			}
+			return
+		}
+	}
+	t.Fatalf("doctor has no vault check: %+v", envelope.Data.Checks)
+}
