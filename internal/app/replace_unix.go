@@ -2,6 +2,6 @@
 
 package app
 
-import "os"
+import "github.com/aklkbqx/agy-swap/internal/store"
 
-func replaceFile(source, target string) error { return os.Rename(source, target) }
+func replaceFile(source, target string) error { return store.ReplaceFile(source, target) }
