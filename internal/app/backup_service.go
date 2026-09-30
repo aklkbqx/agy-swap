@@ -206,7 +206,7 @@ func (a *Application) importBackup(ctx context.Context, path, passphrase string,
 			continue
 		}
 		if a.vault == nil {
-			fmt.Fprintln(a.Err, "Warning: OS vault unavailable; imported credentials remain in local plaintext with restricted file permissions.")
+			fmt.Fprintln(a.Err, "Warning: vault unavailable; imported credentials remain in local plaintext with restricted file permissions.")
 			continue
 		}
 		if err := ctx.Err(); err != nil {
@@ -224,7 +224,7 @@ func (a *Application) importBackup(ctx context.Context, path, passphrase string,
 			account["secret_ref"] = ref
 			delete(account, "token_data")
 		} else {
-			fmt.Fprintln(a.Err, "Warning: OS vault write failed; imported credentials remain in local plaintext with restricted file permissions.")
+			fmt.Fprintln(a.Err, "Warning: vault write failed; imported credentials remain in local plaintext with restricted file permissions.")
 		}
 	}
 	if err := s.saveUnlocked(incoming); err != nil {

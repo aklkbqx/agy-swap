@@ -42,7 +42,7 @@ func tuiActions(state *tuiState) []tuiAction {
 		{ID: "refresh", Label: "Refresh quota", Description: "Fetch fresh usage from the provider", Shortcut: "r", Section: "Accounts", Enabled: hasAccounts},
 		{ID: "edit-tags", Label: "Edit account tags", Description: "Add searchable labels to the selected account", Shortcut: "e", Section: "Accounts", Enabled: hasAccounts},
 		{ID: "toggle-tier", Label: "Toggle manual tier", Description: "Set or clear a local tier override", Shortcut: "t", Section: "Accounts", Enabled: hasAccounts},
-		{ID: "migrate-vault", Label: "Migrate secrets to OS vault", Description: "Move legacy plaintext tokens into secure storage", Shortcut: "m", Section: "Security", Enabled: hasAccounts},
+		{ID: "migrate-vault", Label: "Move tokens into the vault", Description: "Move legacy tokens from accounts.json into the vault", Shortcut: "m", Section: "Security", Enabled: hasAccounts},
 		{ID: "profile-create", Label: "Create profile", Description: "Save a named account preset", Shortcut: "c", Section: "Profiles", Enabled: hasAccounts},
 		{ID: "profile-edit", Label: "Edit selected profile", Description: "Change the selected profile", Shortcut: "e", Section: "Profiles", Enabled: state != nil && state.view == tuiViewProfiles && len(state.profileNames) > 0},
 		{ID: "profile-remove", Label: "Remove selected profile", Description: "Delete the selected profile", Shortcut: "d", Section: "Profiles", Enabled: state != nil && state.view == tuiViewProfiles && len(state.profileNames) > 0},
