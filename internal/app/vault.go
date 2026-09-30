@@ -234,6 +234,21 @@ func NewAccountVault(paths ...Paths) AccountVault {
 	return &hybridVault{primary: fileVault, fallback: osAccountVault{}}
 }
 
+// describeVault names where saved account tokens live, for doctor and docs.
+func describeVault(v AccountVault) string {
+	switch vault := v.(type) {
+	case *hybridVault:
+		if file, ok := vault.primary.(*fileAccountVault); ok {
+			return file.path + " (0600, not encrypted); OS credential store read only for older tokens"
+		}
+	case *fileAccountVault:
+		return vault.path + " (0600, not encrypted)"
+	case osAccountVault:
+		return "OS credential store (AGY_SWAP_VAULT=keychain)"
+	}
+	return "custom vault"
+}
+
 func accountSecretRef(email string) string {
 	email = normalizeEmail(email)
 	if email == "" {
