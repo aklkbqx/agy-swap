@@ -32,7 +32,7 @@ func TestLiveNativeTUISwitchAndCleanup(t *testing.T) {
 	defer func() { _ = server.Shutdown(context.Background()) }()
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
-	conn, _, err := websocket.Dial(ctx, "ws://"+listener.Addr().String()+"/demo/ws", &websocket.DialOptions{HTTPHeader: http.Header{"Origin": []string{origin}}})
+	conn, _, err := websocket.Dial(ctx, "ws://"+listener.Addr().String()+"/demo/ws", &websocket.DialOptions{HTTPHeader: http.Header{"Origin": []string{origin}}}) //nolint:bodyclose // coder/websocket: callers never close the Dial response body
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestLiveNativeTUISwitchAndCleanup(t *testing.T) {
 		}
 		seen += string(data)
 	}
-	second, _, err := websocket.Dial(ctx, "ws://"+listener.Addr().String()+"/demo/ws", &websocket.DialOptions{HTTPHeader: http.Header{"Origin": []string{origin}}})
+	second, _, err := websocket.Dial(ctx, "ws://"+listener.Addr().String()+"/demo/ws", &websocket.DialOptions{HTTPHeader: http.Header{"Origin": []string{origin}}}) //nolint:bodyclose // coder/websocket: callers never close the Dial response body
 	if err != nil {
 		t.Fatal(err)
 	}

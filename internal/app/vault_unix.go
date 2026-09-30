@@ -38,12 +38,13 @@ func platformVaultSet(parent context.Context, ref, token string) bool {
 	ctx, cancel := vaultContext(parent, 10*time.Second)
 	defer cancel()
 	var command *exec.Cmd
-	if runtime.GOOS == "darwin" {
+	switch runtime.GOOS {
+	case "darwin":
 		return keychainSet(ctx, "agy-swap", ref, token)
-	} else if runtime.GOOS == "linux" {
+	case "linux":
 		command = exec.CommandContext(ctx, "secret-tool", "store", "--label=agy-swap account token", "service", "agy-swap", "username", ref)
 		command.Stdin = bytes.NewBufferString(token)
-	} else {
+	default:
 		return false
 	}
 	return command.Run() == nil

@@ -47,7 +47,7 @@ func keychainGet(ctx context.Context, service, account string) string {
 	defer C.free(unsafe.Pointer(a))
 	var buffer unsafe.Pointer
 	var size C.long
-	if C.loadSecret(s, a, &buffer, &size) == 0 {
+	if C.loadSecret(s, a, &buffer, &size) == 0 { //nolint:gocritic // cgo call result, not a self-comparison
 		return ""
 	}
 	defer C.free(buffer)

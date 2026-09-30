@@ -145,15 +145,16 @@ func (a *Application) tuiLines(state *tuiState, width, height int) []string {
 	lines = append(lines, a.tuiStatusLines(state, g.innerWidth)...)
 	lines = append(lines, a.tuiFooterLines(state, g.innerWidth)...)
 	lines = fitFrameLines(lines, g, a.p)
-	if state.mode == tuiHelp {
+	switch state.mode {
+	case tuiHelp:
 		lines = a.tuiOverlay(lines, a.tuiHelpLines(g.innerWidth), g.innerWidth, g.frameHeight)
-	} else if state.mode == tuiConfirmDelete {
+	case tuiConfirmDelete:
 		lines = a.tuiOverlay(lines, a.tuiDeleteLines(state, g.innerWidth), g.innerWidth, g.frameHeight)
-	} else if state.mode == tuiConfirmAction {
+	case tuiConfirmAction:
 		lines = a.tuiOverlay(lines, a.tuiConfirmActionLines(state, g.innerWidth), g.innerWidth, g.frameHeight)
-	} else if state.mode == tuiPalette {
+	case tuiPalette:
 		lines = a.tuiOverlay(lines, a.tuiPaletteLines(state, g.innerWidth), g.innerWidth, g.frameHeight)
-	} else if state.mode == tuiForm {
+	case tuiForm:
 		lines = a.tuiOverlay(lines, a.tuiFormLines(state, g.innerWidth), g.innerWidth, g.frameHeight)
 	}
 	if state.toastActive(a.renderTime()) {
@@ -166,12 +167,13 @@ func (a *Application) tuiTopLines(state *tuiState, width int) []string {
 	g := newTUIGeometry(width, 12)
 	left := a.p.Bold + a.p.Orange + "AGY SWAP" + a.p.Reset + "  v" + stateVersion(a.Version)
 	right := a.p.Gray + tuiCredit + "  ·  LOCAL" + a.p.Reset
-	if state.refreshing {
+	switch {
+	case state.refreshing:
 		frames := []string{"◐", "◓", "◑", "◒"}
 		right = a.p.Gray + tuiCredit + "  ·  " + a.p.Cyan + frames[state.animationPhase()] + " SYNCING" + a.p.Reset
-	} else if state.animation.kind == "success" && state.animation.active {
+	case state.animation.kind == "success" && state.animation.active:
 		right = a.p.Gray + tuiCredit + "  ·  " + a.p.Green + "✓ SYNCED" + a.p.Reset
-	} else if state.animation.kind == "error" && state.animation.active {
+	case state.animation.kind == "error" && state.animation.active:
 		right = a.p.Gray + tuiCredit + "  ·  " + a.p.Yellow + "⚠ SYNC WARNINGS" + a.p.Reset
 	}
 	if visibleWidth(left) > g.contentWidth {
@@ -664,33 +666,35 @@ func (a *Application) tuiDetailLines(state *tuiState, width, maxRows int) []stri
 func (a *Application) tuiStatusLines(state *tuiState, width int) []string {
 	g := newTUIGeometry(width, 12)
 	content := ""
-	if state.mode == tuiSearch {
+	switch {
+	case state.mode == tuiSearch:
 		content = a.p.Cyan + "/" + cleanText(state.search) + "▌" + a.p.Reset
-	} else if state.mode == tuiConfirmDelete {
+	case state.mode == tuiConfirmDelete:
 		content = a.p.Yellow + "Delete " + cleanText(state.confirmEmail) + "?  [y] confirm  [n] cancel" + a.p.Reset
-	} else if state.mode == tuiConfirmAction {
+	case state.mode == tuiConfirmAction:
 		content = a.p.Yellow + firstString(state.confirmTitle, "Confirm action") + "?  [y] confirm  [n] cancel" + a.p.Reset
-	} else if state.mode == tuiPalette {
+	case state.mode == tuiPalette:
 		content = a.p.Cyan + "Action palette · type to filter · Enter to run" + a.p.Reset
-	} else if state.mode == tuiForm {
+	case state.mode == tuiForm:
 		content = a.p.Cyan + "Editing · choose a field, then Enter to save" + a.p.Reset
-	} else if state.job != nil && !state.job.Done {
+	case state.job != nil && !state.job.Done:
 		content = a.p.Cyan + "◐ " + cleanText(state.job.Label) + "…" + a.p.Reset
-	} else if state.refreshing {
+	case state.refreshing:
 		content = a.p.Cyan + "◐ Syncing usage…" + a.p.Reset
-	} else if state.resolvingToken != "" {
+	case state.resolvingToken != "":
 		content = a.p.Cyan + "⌁ Resolving active session…" + a.p.Reset
-	} else if state.message != "" {
+	case state.message != "":
 		prefix, color := "› ", a.p.Cyan
-		if state.messageType == "success" {
+		switch state.messageType {
+		case "success":
 			prefix, color = "✓ ", a.p.Green
-		} else if state.messageType == "error" {
+		case "error":
 			prefix, color = "✕ ", a.p.Red
 		}
 		content = color + prefix + cleanText(state.message) + a.p.Reset
-	} else if state.accounts == nil || state.accounts.Len() == 0 {
+	case state.accounts == nil || state.accounts.Len() == 0:
 		content = a.p.Yellow + "No accounts yet · press a to add your first account" + a.p.Reset
-	} else {
+	default:
 		content = a.p.Gray + "Ready · select an account to inspect health" + a.p.Reset
 	}
 	return []string{
@@ -750,15 +754,16 @@ func (a *Application) tuiFooterLines(state *tuiState, width int) []string {
 			footer = "c Create   Enter/e Edit   d Delete   b Dashboard   Ctrl-K/: Actions"
 		}
 	}
-	if state.mode == tuiSearch {
+	switch state.mode {
+	case tuiSearch:
 		footer = "Type to filter   Enter Apply   Esc Cancel   Backspace Erase"
-	} else if state.mode == tuiHelp {
+	case tuiHelp:
 		footer = "Esc or any key · Close help"
-	} else if state.mode == tuiPalette {
+	case tuiPalette:
 		footer = "↑↓ Move   Enter Run   Type Filter   Esc Close"
-	} else if state.mode == tuiForm {
+	case tuiForm:
 		footer = "↑↓ Field   ←→ Choice   Enter Next/Save   Esc Cancel"
-	} else if state.mode == tuiConfirmAction {
+	case tuiConfirmAction:
 		footer = "y Confirm   n / Esc Cancel"
 	}
 	return []string{

@@ -71,16 +71,17 @@ func platformCredentialSet(parent context.Context, token string) bool {
 	ctx, cancel := credentialContext(parent, 10*time.Second)
 	defer cancel()
 	var command *exec.Cmd
-	if runtime.GOOS == "darwin" {
+	switch runtime.GOOS {
+	case "darwin":
 		if token == "" {
 			return false
 		}
 		_, err := runGeminiSecurity(ctx, geminiSecurityArgs("set", token))
 		return err == nil
-	} else if runtime.GOOS == "linux" {
+	case "linux":
 		command = exec.CommandContext(ctx, "secret-tool", "store", "--label=gemini", "service", "gemini", "username", "antigravity")
 		command.Stdin = bytes.NewBufferString(token)
-	} else {
+	default:
 		return false
 	}
 	return command.Run() == nil
