@@ -334,14 +334,22 @@ func formatQuotaBarResponsive(bucket map[string]any, p palette, now time.Time, w
 	if visibleWidth(full) <= maxWidth {
 		return full
 	}
-	if remaining != "" && maxWidth >= width+16 {
+	if remaining != "" {
+		// Narrow frames keep the reset window by giving up the decimal and
+		// then the minutes before they give up the window itself.
+		fields := strings.Fields(remaining)
 		short := remaining
-		if fields := strings.Fields(short); len(fields) > 2 {
+		if len(fields) > 2 {
 			short = strings.Join(fields[:2], " ")
 		}
-		candidate := fmt.Sprintf("[%s] %.1f%% · %s", bar, fraction*100, short)
-		if visibleWidth(candidate) <= maxWidth {
-			return candidate
+		for _, candidate := range []string{
+			fmt.Sprintf("[%s] %.1f%% · %s", bar, fraction*100, short),
+			fmt.Sprintf("[%s] %.0f%% · %s", bar, fraction*100, short),
+			fmt.Sprintf("[%s] %.0f%% · %s", bar, fraction*100, fields[0]),
+		} {
+			if visibleWidth(candidate) <= maxWidth {
+				return candidate
+			}
 		}
 	}
 	return fmt.Sprintf("[%s] %.0f%%", bar, fraction*100)
