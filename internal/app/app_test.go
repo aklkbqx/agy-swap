@@ -1498,3 +1498,29 @@ func TestUserFacingCopyDoesNotPromiseTheOSVault(t *testing.T) {
 		}
 	}
 }
+
+func TestBackupExportReportsEnvelopeMarshalError(t *testing.T) {
+	if _, err := encodeBackupEnvelope(map[string]any{"bad": make(chan int)}); err == nil {
+		t.Fatal("marshal error was swallowed")
+	}
+	data, err := encodeBackupEnvelope(map[string]any{"ok": 1})
+	if err != nil || !strings.Contains(string(data), "\"ok\": 1") {
+		t.Fatalf("encodeBackupEnvelope = %q, %v", data, err)
+	}
+}
+
+func TestTitleWordMatchesTheDeprecatedStringsTitle(t *testing.T) {
+	for input, want := range map[string]string{
+		"claude":         "Claude",
+		"free-tier":      "Free-Tier",
+		"g1-ultra-tier":  "G1-Ultra-Tier",
+		"google ai pro":  "Google Ai Pro",
+		"":               "",
+		"already Title":  "Already Title",
+		"snake_case one": "Snake_case One",
+	} {
+		if got := titleWord(input); got != want {
+			t.Fatalf("titleWord(%q) = %q, want %q", input, got, want)
+		}
+	}
+}

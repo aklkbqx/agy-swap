@@ -153,7 +153,7 @@ func tierBadge(account Account, p palette) string {
 		}
 		return c + name + p.Reset
 	}
-	plan := strings.Title(strings.ToLower(cleanText(firstString(account["plan"], getString(account, "tier")))))
+	plan := titleWord(strings.ToLower(cleanText(firstString(account["plan"], getString(account, "tier")))))
 	if getString(account, "tier_source") != "manual" || !oneOf(plan, "Pro", "Starter", "Free") {
 		return p.Gray + "Unknown" + p.Reset
 	}
@@ -498,4 +498,19 @@ func truncateVisible(s string, width int, p palette) string {
 		s = s[size:]
 	}
 	return b.String() + "…" + p.Reset
+}
+
+// titleWord upper-cases the first letter of each word the way the deprecated
+// strings.Title did: a word starts after any character that is not a letter,
+// digit, underscore, or apostrophe.
+func titleWord(value string) string {
+	prev := ' '
+	return strings.Map(func(r rune) rune {
+		start := !unicode.IsLetter(prev) && !unicode.IsDigit(prev) && prev != '_' && prev != '\''
+		prev = r
+		if start {
+			return unicode.ToTitle(r)
+		}
+		return r
+	}, value)
 }
