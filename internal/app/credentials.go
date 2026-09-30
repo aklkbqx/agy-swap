@@ -157,14 +157,15 @@ func (c *Credentials) applyUnlocked(ctx context.Context, tokenData, email string
 	updated := c.Set(ctx, tokenData)
 	if !updated {
 		current := c.Secure(ctx)
-		if current == tokenData {
+		switch {
+		case current == tokenData:
 			updated = true
-		} else if previous != "" {
+		case previous != "":
 			if current != previous {
 				_ = c.Set(ctx, previous)
 			}
 			return false
-		} else if current != "" {
+		case current != "":
 			return false
 		}
 	}

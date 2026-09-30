@@ -94,7 +94,7 @@ func TestTokenIdentityMatchesTargetAccount(t *testing.T) {
 }
 
 func TestNormalizedReleaseTag(t *testing.T) {
-	for input, want := range map[string]string{"2.9.0": "v2.9.0", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} {
+	for input, want := range map[string]string{"2.9.0": "v2.9.0", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} { //nolint:gocritic // the padded key tests trimming
 		if got := normalizedReleaseTag(input); got != want {
 			t.Fatalf("%q normalized to %q, want %q", input, got, want)
 		}

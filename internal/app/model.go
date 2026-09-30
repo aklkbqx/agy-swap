@@ -160,7 +160,7 @@ func encodeOrderedAccounts(accounts *Accounts) ([]byte, error) {
 
 func cleanText(value string) string {
 	return strings.TrimSpace(strings.Map(func(r rune) rune {
-		if r == '\t' || r == ' ' || !unicode.IsControl(r) && unicode.In(r, unicode.Cf) == false {
+		if r == '\t' || r == ' ' || !unicode.IsControl(r) && !unicode.In(r, unicode.Cf) {
 			return r
 		}
 		return -1

@@ -80,11 +80,12 @@ func (s *tuiState) paletteActions() []tuiAction {
 		}
 		result = append(result, action)
 	}
-	if len(result) == 0 {
+	switch {
+	case len(result) == 0:
 		s.paletteIndex = 0
-	} else if s.paletteIndex >= len(result) {
+	case s.paletteIndex >= len(result):
 		s.paletteIndex = len(result) - 1
-	} else if s.paletteIndex < 0 {
+	case s.paletteIndex < 0:
 		s.paletteIndex = 0
 	}
 	return result

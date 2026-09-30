@@ -115,9 +115,10 @@ func quotaWait(account Account, now time.Time, family string) (time.Duration, bo
 		return 0, false
 	}
 	groupID := ""
-	if family == "gemini" {
+	switch family {
+	case "gemini":
 		groupID = "gemini"
-	} else if family == "claude" || family == "gpt" {
+	case "claude", "gpt":
 		groupID = "third_party"
 	}
 	matched := false
@@ -370,15 +371,16 @@ func formatCooldownBar(limit map[string]any, p palette, now time.Time, width int
 func avatar(name, email string, color bool) string {
 	parts := strings.Fields(cleanText(name))
 	initials := "GU"
-	if len(parts) >= 2 {
+	switch {
+	case len(parts) >= 2:
 		initials = strings.ToUpper(firstRune(parts[0]) + firstRune(parts[1]))
-	} else if len(parts) == 1 {
+	case len(parts) == 1:
 		r := []rune(parts[0])
 		if len(r) > 2 {
 			r = r[:2]
 		}
 		initials = strings.ToUpper(string(r))
-	} else if len(email) >= 2 {
+	case len(email) >= 2:
 		initials = strings.ToUpper(email[:2])
 	}
 	label := "[" + initials + "]"

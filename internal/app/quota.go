@@ -49,7 +49,7 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 	}
 	project := getString(info, "cloudaicompanionProject")
 	if project == "" {
-		return nil, fmt.Errorf("Google returned no Code Assist project")
+		return nil, fmt.Errorf("Google returned no Code Assist project") //nolint:staticcheck // "Google" is a proper noun
 	}
 	summary, err := q.http.cloudPost(ctx, access, "retrieveUserQuotaSummary", map[string]any{"project": project})
 	if err != nil {
@@ -61,7 +61,7 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 	}
 	tierID := cleanText(getString(tier, "id"))
 	if tierID == "" {
-		return nil, fmt.Errorf("Google returned no account tier")
+		return nil, fmt.Errorf("Google returned no account tier") //nolint:staticcheck // "Google" is a proper noun
 	}
 	tierName := tierNames[tierID]
 	if tierName == "" {
@@ -94,7 +94,7 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 		}
 	}
 	if len(groups) == 0 {
-		return nil, fmt.Errorf("Google returned no quota groups")
+		return nil, fmt.Errorf("Google returned no quota groups") //nolint:staticcheck // "Google" is a proper noun
 	}
 	return normalizeQuotaSnapshot(map[string]any{"observed_at": isoTime(time.Now()), "tier": map[string]any{"id": tierID, "name": tierName}, "groups": groups}, getString(account, "email"))
 }

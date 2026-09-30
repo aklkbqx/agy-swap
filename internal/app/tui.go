@@ -489,15 +489,16 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			}
 			return 1
 		})
-		if code == 0 {
+		switch {
+		case code == 0:
 			if alreadyUsing {
 				state.showToast("Already using "+email, "info")
 			} else {
 				state.showToast("Switched to "+email, "success")
 			}
-		} else if switchErr != nil {
+		case switchErr != nil:
 			state.showToast("Switch failed: "+switchErr.Error(), "error")
-		} else {
+		default:
 			state.showToast("Could not switch to "+email, "error")
 		}
 		a.renderTUI(state, outFile)
@@ -701,13 +702,9 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		case <-frameC:
 			now := time.Now()
 			state.expireToast(now)
-			if state.advanceAnimation(now) {
-				a.renderTUI(state, outFile)
-				armFrame()
-			} else {
-				a.renderTUI(state, outFile)
-				armFrame()
-			}
+			state.advanceAnimation(now)
+			a.renderTUI(state, outFile)
+			armFrame()
 		case event := <-events:
 			switch value := event.(type) {
 			case tuiAccountsEvent:
@@ -779,11 +776,12 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					continue
 				}
 				if state.mode == tuiConfirmDelete {
-					if key == "y" || key == "enter" {
+					switch key {
+					case "y", "enter":
 						email := state.confirmEmail
 						state.mode, state.confirmEmail = tuiBrowse, ""
 						performDelete(email)
-					} else if key == "n" || key == "esc" {
+					case "n", "esc":
 						state.mode, state.confirmEmail = tuiBrowse, ""
 						state.message, state.messageType = "Delete canceled", "info"
 					}
@@ -792,7 +790,8 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					continue
 				}
 				if state.mode == tuiConfirmAction {
-					if key == "y" || key == "enter" {
+					switch key {
+					case "y", "enter":
 						action := state.confirmAction
 						state.mode, state.confirmAction, state.confirmTitle = tuiBrowse, "", ""
 						switch action {
@@ -831,7 +830,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 						case "update":
 							suspend(func() int { return a.cmdUpdate(ctx, cliArgs{}) })
 						}
-					} else if key == "n" || key == "esc" {
+					case "n", "esc":
 						state.mode, state.confirmAction, state.confirmTitle = tuiBrowse, "", ""
 						state.message, state.messageType = "Action canceled", "info"
 					}
@@ -919,41 +918,46 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 						state.move(1)
 					}
 				case "page-up":
-					if state.view == tuiViewProfiles {
+					switch state.view {
+					case tuiViewProfiles:
 						state.moveProfile(-5)
-					} else if state.view == tuiViewHistory {
+					case tuiViewHistory:
 						state.moveHistory(-5)
-					} else {
+					default:
 						state.move(-maxInt(1, len(state.visibleEmails())/2))
 					}
 				case "page-down":
-					if state.view == tuiViewProfiles {
+					switch state.view {
+					case tuiViewProfiles:
 						state.moveProfile(5)
-					} else if state.view == tuiViewHistory {
+					case tuiViewHistory:
 						state.moveHistory(5)
-					} else {
+					default:
 						state.move(maxInt(1, len(state.visibleEmails())/2))
 					}
 				case "home":
-					if state.view == tuiViewProfiles {
+					switch state.view {
+					case tuiViewProfiles:
 						state.profileIndex = 0
-					} else if state.view == tuiViewHistory {
+					case tuiViewHistory:
 						state.historyIndex = 0
-					} else {
+					default:
 						state.moveToBoundary(false)
 					}
 				case "end":
-					if state.view == tuiViewProfiles {
+					switch state.view {
+					case tuiViewProfiles:
 						state.profileIndex = maxInt(0, len(state.profileNames)-1)
-					} else if state.view == tuiViewHistory {
+					case tuiViewHistory:
 						state.historyIndex = maxInt(0, len(state.history)-1)
-					} else {
+					default:
 						state.moveToBoundary(true)
 					}
 				case "r":
-					if state.view == tuiViewDoctor {
+					switch state.view {
+					case tuiViewDoctor:
 						startDoctor(false)
-					} else if state.view == tuiViewDashboard || state.view == tuiViewQuota {
+					case tuiViewDashboard, tuiViewQuota:
 						state.message, state.messageType = "Refreshing quota…", "info"
 						startRefresh(true)
 					}
@@ -982,15 +986,16 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 				case "l":
 					suspend(func() int { return a.cmdLogout(ctx) })
 				case "enter":
-					if state.view == tuiViewDashboard || state.view == tuiViewQuota {
+					switch state.view {
+					case tuiViewDashboard, tuiViewQuota:
 						performSwitch()
-					} else if state.view == tuiViewProfiles {
+					case tuiViewProfiles:
 						if len(state.profileNames) > 0 {
 							a.beginTUIForm(state, "profile-edit")
 						}
-					} else if state.view == tuiViewSettings {
+					case tuiViewSettings:
 						a.beginTUIForm(state, "settings")
-					} else if state.view == tuiViewDoctor {
+					case tuiViewDoctor:
 						startDoctor(false)
 					}
 				case "p":
@@ -1005,11 +1010,12 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					setView(tuiViewDoctor)
 					startDoctor(false)
 				case "b":
-					if state.view == tuiViewSettings {
+					switch state.view {
+					case tuiViewSettings:
 						a.beginTUIForm(state, "binding")
-					} else if state.view == tuiViewDashboard {
+					case tuiViewDashboard:
 						setView(tuiViewBackup)
-					} else {
+					default:
 						setView(tuiViewDashboard)
 					}
 				case "v":
@@ -1029,13 +1035,14 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 						a.beginTUIForm(state, "backup-import")
 					}
 				case "e":
-					if state.view == tuiViewSettings {
+					switch state.view {
+					case tuiViewSettings:
 						a.beginTUIForm(state, "settings")
-					} else if state.view == tuiViewProfiles {
+					case tuiViewProfiles:
 						if len(state.profileNames) > 0 {
 							a.beginTUIForm(state, "profile-edit")
 						}
-					} else if state.view == tuiViewDashboard || state.view == tuiViewQuota {
+					case tuiViewDashboard, tuiViewQuota:
 						a.beginTUIForm(state, "tags")
 					}
 				case "c":

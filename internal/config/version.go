@@ -66,13 +66,14 @@ func CompareVersions(a, b string) (int, error) {
 	for i := 0; i < len(ap) && i < len(bp); i++ {
 		an, bn := numericIdentifier(ap[i]), numericIdentifier(bp[i])
 		c := 0
-		if an && bn {
+		switch {
+		case an && bn:
 			c = number(ap[i], bp[i])
-		} else if an {
+		case an:
 			c = -1
-		} else if bn {
+		case bn:
 			c = 1
-		} else {
+		default:
 			c = strings.Compare(ap[i], bp[i])
 		}
 		if c != 0 {
