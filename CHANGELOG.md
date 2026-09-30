@@ -1,11 +1,14 @@
 # Changelog
 
-## 2.8.9
+## 2.9.0
 
 - Site: production runs as one Watchtower-managed container. AGY Live runs only locally on loopback with `make live`, and the site image is built, previewed, and published from the local machine.
 - Site: the story, commands, and install band follow one scroll clock, with an arc drawn down the margin on every device and a particle arc in 3D on capable desktops. Wheel scrolling is smoothed while touch and reduced motion stay native.
 - Site: one floating glass capsule serves as the navbar on both pages. Cards, panels, dropdowns, and buttons share one radius scale and one set of glass tokens. Buttons use a soft orange gradient with white text, and a quiet backdrop fills the empty background. The AU/BU/GU account coins are gone.
 - Site: the dev server picks a free port instead of pinning 5173.
+- TUI: narrow quota views keep the reset window (`43% · 2d 4h`) and show account health before the email.
+- Site: the browser tab title follows the selected language.
+- Docs: a shorter README, plus CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, architecture, and development guides.
 - Internal: atomic writes, file locks, and the release-check client moved into `internal/store`, `internal/client`, and `internal/config`. Behavior is unchanged.
 - Keep local AI instruction links, planning documents, worktrees, and environment files out of Git while allowing environment examples.
 - Stop tracking the previously committed AI implementation plan. Earlier Git history is unchanged.
