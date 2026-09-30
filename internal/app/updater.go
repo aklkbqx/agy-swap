@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -16,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aklkbqx/agy-swap/internal/client"
 )
 
 type releaseAsset struct {
@@ -29,11 +30,7 @@ type githubRelease struct {
 }
 
 func normalizedReleaseTag(tag string) string {
-	tag = strings.TrimSpace(tag)
-	if tag != "" && !strings.HasPrefix(tag, "v") {
-		return "v" + tag
-	}
-	return tag
+	return client.NormalizedReleaseTag(tag)
 }
 
 func (h *HTTPService) getBytes(ctx context.Context, endpoint string, headers map[string]string, timeout time.Duration, limit int64) ([]byte, int, error) {
@@ -68,19 +65,7 @@ func (h *HTTPService) getBytes(ctx context.Context, endpoint string, headers map
 }
 
 func expectedChecksum(manifest []byte, name string) (string, error) {
-	scanner := bufio.NewScanner(strings.NewReader(string(manifest)))
-	for scanner.Scan() {
-		fields := strings.Fields(scanner.Text())
-		if len(fields) >= 2 && strings.TrimPrefix(fields[len(fields)-1], "*") == name {
-			sum := strings.ToLower(fields[0])
-			if len(sum) == 64 {
-				if _, err := hex.DecodeString(sum); err == nil {
-					return sum, nil
-				}
-			}
-		}
-	}
-	return "", fmt.Errorf("checksum for %s not found", name)
+	return client.ExpectedChecksum(manifest, name)
 }
 
 func (a *Application) cmdUpdate(ctx context.Context, args cliArgs) int {
