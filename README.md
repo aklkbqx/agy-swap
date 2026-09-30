@@ -5,182 +5,122 @@
 ### See which Google Antigravity account is ready, then switch from your terminal
 
 [![Release](https://img.shields.io/github/v/release/aklkbqx/agy-swap?color=FF891A&label=Release&style=flat-square)](https://github.com/aklkbqx/agy-swap/releases)
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-agy--swap.aklkbqx.com-38BDF8?style=flat-square&logo=google-chrome&logoColor=white)](https://agy-swap.aklkbqx.com)
-[![Go Report Card](https://goreportcard.com/badge/github.com/aklkbqx/agy-swap)](https://goreportcard.com/report/github.com/aklkbqx/agy-swap)
+[![Website](https://img.shields.io/badge/Website-agy--swap.aklkbqx.com-38BDF8?style=flat-square)](https://agy-swap.aklkbqx.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-34C759.svg?style=flat-square)](LICENSE)
 [![Platform Support](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-blue?style=flat-square&logo=apple&logoColor=white)](https://github.com/aklkbqx/agy-swap/releases)
 [![Arch](https://img.shields.io/badge/Arch-arm64%20%7C%20x86__64-orange?style=flat-square)](https://github.com/aklkbqx/agy-swap/releases)
 
-<p align="center">
-  <b>Inspect saved account health and quota freshness before switching the shared local Google Antigravity session.</b>
-</p>
-
-<p align="center">
-  <a href="https://agy-swap.aklkbqx.com"><strong>Explore the account switching demo »</strong></a>
-</p>
-
----
-
 </div>
 
-## 📑 Table of Contents
+agy-swap keeps several Google Antigravity accounts on one machine. It shows each account's remaining quota and when it resets, then switches the shared local Antigravity session to the account you pick. Everything runs locally; tokens stay in your OS credential store.
 
-- [🌐 Live Web Demo](#-live-web-demo)
-- [✨ Key Features](#-key-features)
-- [🚀 Quick Start & Installation](#-quick-start--installation)
-  - [macOS / Linux Automated Installer](#macos--linux-automated-installer)
-  - [Go Install (`go install`)](#go-install-go-install)
-  - [Windows PowerShell](#windows-powershell)
-  - [Build from Source](#build-from-source)
-  - [Corporate Networks & SSL Proxy Troubleshooting](#corporate-networks--ssl-proxy-troubleshooting)
-- [🖥️ Interactive Terminal UI (TUI)](#️-interactive-terminal-ui-tui)
-  - [Keyboard Shortcuts Cheat Sheet](#keyboard-shortcuts-cheat-sheet)
-- [⌨️ CLI Command Reference](#️-cli-command-reference)
-  - [Account Management & Fast Switching](#account-management--fast-switching)
-  - [Quota Tracking & Cooldowns](#quota-tracking--cooldowns)
-  - [Profiles, Aliases & Project Bindings](#profiles-aliases--project-bindings)
-  - [Diagnostics, Statusline & Metrics](#diagnostics-statusline--metrics)
-  - [Backups & OS Keyring Migration](#backups--os-keyring-migration)
-- [🔒 Security & Architecture](#-security--architecture)
-- [🛠️ Development & Testing](#️-development--testing)
-- [📄 License](#-license)
-
----
-
-## 🌐 Live Web Demo
-
-Experience `agy-swap` directly in your browser without installing anything:
-
-👉 **[https://agy-swap.aklkbqx.com](https://agy-swap.aklkbqx.com)**
-
-- **AGY Live (local)**: `make live` runs the real Go TUI with sample accounts in a browser terminal on this machine, for testing. The public site does not include it.
-- **Responsive Layout Engine**: Live preview adapting across mobile (320px), tablet stacked (640px), and desktop wide (1440px) split-pane modes.
-
----
-
-## ✨ Key Features
-
-- ⚡ **Native Go CLI**: No application server. macOS uses system frameworks; Linux vault support needs `secret-tool` and an unlocked Secret Service.
-- 🔄 **Session Switching**: Locks and rollback protect session updates. Backup imports also journal their recovery state for interrupted restores.
-- 📊 **Quota & Cooldown Snapshots**: Shows remaining capacity and reset times, with explicit refresh and stale-data checks.
-- 🔐 **Native OS Vault Integration**: Securely integrates with macOS Keychain, Windows Credential Manager, and Linux Secret Service (`libsecret` / DBus).
-- 🎨 **Adaptive Terminal Interface**: Fluid responsive terminal layout with 256-color support, search filter, and Command Palette (`Ctrl-K` / `:`).
-- 🩺 **Built-In System Doctor**: `agy-swap doctor` verifies permissions, OAuth tokens, endpoint health, and config integrity in one command.
-- 📁 **Project Bindings**: `run now` resolves the current directory to a profile. Choose recommend, prompt, or explicitly enabled auto mode.
-- 🛡️ **100% Private & Telemetry-Free**: Completely local operation. Zero data collection, analytics, or remote telemetry.
-
----
-
-## 🚀 Quick Start & Installation
+## Install
 
 Shell and PowerShell installers verify downloaded release binaries against SHA-256 checksums. Go builds use the Go module toolchain.
 
-### macOS / Linux Automated Installer
-
-Single command installer with intelligent System CA certificate auto-detection:
+macOS and Linux:
 
 ```bash
 curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash
 ```
 
-### Windows PowerShell
-
-Run in PowerShell (enforces TLS 1.2+ and verifies SHA-256 integrity before installation):
+Windows (PowerShell):
 
 ```powershell
 irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex
 ```
 
-### First run
-
-1. Run `agy-swap add` and complete the browser sign-in to save an account.
-2. Run `agy-swap` to open the terminal view. Check the active account and quota snapshot before switching.
-3. Select an account and press Enter to update the shared local Antigravity session. Processes already running may need to reload credentials.
-
-The [install page](https://agy-swap.aklkbqx.com/install.html) shows one command at a time for your operating system.
-
-### Go Install (`go install`)
-
-If you already have Go installed (Go 1.26+):
+With Go 1.26 or later:
 
 ```bash
 go install github.com/aklkbqx/agy-swap/cmd/agy-swap@latest
 ```
 
-*Pre-built standalone binaries for all architectures (`darwin/amd64`, `darwin/arm64`, `linux/amd64`, `linux/arm64`, `windows/amd64`, `windows/arm64`) with checksums are also available directly on [GitHub Releases](https://github.com/aklkbqx/agy-swap/releases).*
+Pre-built binaries for `darwin/amd64`, `darwin/arm64`, `linux/amd64`, `linux/arm64`, `windows/amd64`, and `windows/arm64`, with checksums, are on [GitHub Releases](https://github.com/aklkbqx/agy-swap/releases). The [install page](https://agy-swap.aklkbqx.com/install.html) shows one command at a time for your operating system.
 
-### Build from Source
+### Build from source
 
 Requirements: Go 1.26 or later. macOS source builds require Xcode Command Line Tools and `CGO_ENABLED=1` for Keychain writes.
 
 ```bash
-# Clone repository
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-
-# Compile native binary with build provenance
 go build -trimpath -ldflags "-s -w -X main.version=2.8.9 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
-
-# Verify installation
 ./agy-swap version
 ```
 
-### Corporate Networks & SSL Proxy Troubleshooting
+### Behind a TLS-inspecting proxy
 
-If you are behind an enterprise firewall, VPN, or corporate proxy (e.g. Zscaler, Fortinet, Netskope) performing TLS inspection, `curl` may report `SSL certificate problem: self signed certificate`:
+If an enterprise firewall, VPN, or proxy (for example Zscaler, Fortinet, or Netskope) inspects TLS, `curl` may report `SSL certificate problem: self signed certificate`. The installer can skip certificate checks for the download while still verifying the SHA-256 checksum:
 
-- **Automated Installer with Proxy Tolerance** (SHA-256 cryptographic verification remains strictly active):
-  ```bash
-  curl -k -fsSL https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | AGY_SWAP_INSECURE=1 bash
-  ```
-- **Alternative (Offline / Direct Go Build)**:
-  Install directly via `go install` or build from source using the instructions above.
+```bash
+curl -k -fsSL https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | AGY_SWAP_INSECURE=1 bash
+```
 
----
+You can also use `go install` or build from source as shown above.
 
-## 🖥️ Interactive Terminal UI (TUI)
+## First run
 
-Launch the full visual manager by running `agy-swap` with no arguments:
+1. Run `agy-swap add` and complete the browser sign-in to save an account.
+2. Run `agy-swap` to open the terminal view. Check the active account and quota snapshot before switching.
+3. Select an account and press Enter to update the shared local Antigravity session. Processes already running may need to reload credentials.
+
+## Using the terminal UI
+
+Run `agy-swap` with no arguments to open the terminal UI:
 
 ```bash
 agy-swap
 ```
 
-The TUI intelligently detects your terminal dimensions:
-- **Wide Mode (≥92 terminal columns and ≥18 rows)**: Displays a split-pane layout with the active account list on the left and comprehensive health metrics on the right.
-- **Stacked Mode (≥64 columns and ≥16 rows when wide mode does not fit)**: Vertically arranged panels optimized for mid-sized terminals.
-- **Compact Mode (<64 columns or <16 rows)**: Minimalist stream-lined interface ideal for split terminal panes and mobile SSH.
+The layout follows your terminal size:
 
-### Keyboard Shortcuts Cheat Sheet
+- **Wide (at least 92 columns and 18 rows):** the account list on the left, health details on the right.
+- **Stacked (at least 64 columns and 16 rows, when wide does not fit):** the panels stacked vertically.
+- **Compact (fewer than 64 columns or 16 rows):** one column for split panes and SSH from a phone.
 
-| Key | Action | Description |
-| :--- | :--- | :--- |
-| `↑` / `↓` or `j` / `k` | **Navigate** | Move highlighted cursor up or down |
-| `[` / `]` or `<` / `>` | **Resize Split** | Narrow or widen the accounts pane split in Wide Mode |
-| `=` | **Reset Split** | Reset layout pane split to default width |
-| `Enter` | **Switch Account** | Activate highlighted account session immediately |
-| `1` – `9` | **Quick Jump** | Select an account by index; press Enter to switch |
-| `n` | **Cycle Next** | Refresh and rotate to an eligible account |
-| `/` | **Search** | Filter accounts by name or email |
-| `Ctrl-K` or `:` | **Command Palette** | Access all operations, views, and commands |
-| `r` | **Refresh Quota** | Pull live quota data from endpoints in background |
-| `p` / `h` / `s` | **Switch View** | Jump to Profiles (`p`), History (`h`), Settings (`s`) |
-| `o` / `b` / `v` | **Tool Views** | Doctor Health Check (`o`), Backup (`b`), Quota Overview (`v`) |
-| `a` | **Add Account** | Connect a new Google account via OAuth browser flow |
-| `d` / `Delete` | **Delete** | Remove account from local store (with confirmation) |
-| `e` | **Edit** | Edit tags, aliases, or active view items |
-| `m` | **Migrate Vault** | Migrate plain tokens into OS Keychain/Vault |
-| `u` | **Update** | Self-update to latest release with checksum verification |
-| `?` | **Help** | Toggle in-app keyboard shortcut cheat sheet |
-| `q` / `Esc` | **Quit / Back** | Close overlay or exit application |
+| Key | Action |
+| :--- | :--- |
+| `↑` / `↓` or `j` / `k` | Move the highlight up or down |
+| `[` / `]` or `<` / `>` | Narrow or widen the account pane in wide layout |
+| `=` | Reset the pane split |
+| `Enter` | Switch to the highlighted account |
+| `1` – `9` | Select an account by number; press Enter to switch |
+| `n` | Refresh and move to the next eligible account |
+| `/` | Filter accounts by name or email |
+| `Ctrl-K` or `:` | Open the command palette |
+| `r` | Refresh quota in the background |
+| `p` / `h` / `s` | Open Profiles, History, or Settings |
+| `o` / `b` / `v` | Open Doctor, Backup, or the quota overview |
+| `a` | Add a Google account through the browser sign-in |
+| `d` / `Delete` | Remove the account from the local store, after confirmation |
+| `e` | Edit tags, aliases, or the selected item |
+| `m` | Move plaintext tokens into the OS credential store |
+| `u` | Update agy-swap to the latest release, checking its checksum |
+| `?` | Show or hide the shortcut list |
+| `q` / `Esc` | Close an overlay or quit |
 
----
+## Commands
 
-## ⌨️ CLI Command Reference
+Every TUI action is also a command, so you can script it.
 
-`agy-swap` can be automated seamlessly in shell scripts, CI pipelines, and terminal prompts.
+| Command | What it does |
+| :--- | :--- |
+| `add` | Sign in with Google and save the account |
+| `list` | List saved accounts with status and quota health |
+| `switch` | Switch the local session to an account by email, alias, or number |
+| `next` | Refresh, then switch to the next account with quota left |
+| `status` | Show the active account |
+| `limits` | Show quota for every account |
+| `profile` / `bind` | Define profiles and bind directories to them |
+| `recommend` | Explain which account is safest to use now |
+| `run now` | Launch the configured CLI with the right account |
+| `doctor` | Check storage, credentials, vault, and platform readiness |
+| `statusline` | Render or install a statusline for your prompt |
+| `backup` | Export or import accounts |
+| `update` | Update agy-swap to the latest release |
 
-### Account Management & Fast Switching
+### Accounts and switching
 
 ```bash
 # Add a new account (interactive OAuth browser login)
@@ -210,7 +150,7 @@ agy-swap status
 agy-swap logout
 ```
 
-### Quota Tracking & Cooldowns
+### Quota and cooldowns
 
 ```bash
 # Check quota usage across all accounts
@@ -224,7 +164,7 @@ agy-swap limit set 1 6h --group claude
 agy-swap limit set dev@company.com reset --group claude
 ```
 
-### Profiles, Aliases & Project Bindings
+### Profiles, aliases, and project bindings
 
 ```bash
 # Create custom account aliases
@@ -245,7 +185,7 @@ agy-swap recommend --profile work-profile --refresh
 agy-swap run now
 ```
 
-### Diagnostics, Statusline & Metrics
+### Diagnostics, statusline, and metrics
 
 ```bash
 # Run comprehensive diagnostic health check
@@ -263,7 +203,7 @@ agy-swap run now
 agy-swap run now --account dev@company.com -- -p "Audit codebase"
 ```
 
-### Backups & OS Keyring Migration
+### Backups and credential migration
 
 ```bash
 # Securely migrate plaintext tokens to macOS Keychain / Linux Secret Service / Windows Vault
@@ -279,9 +219,7 @@ printf '%s' "$BACKUP_PASSPHRASE" | agy-swap backup export --include-secrets --pa
 agy-swap backup import agy-swap-backup.json --merge
 ```
 
----
-
-## Selection and session behavior
+## How account selection works
 
 `recommend` ranks eligible accounts first. Eligibility requires a quota snapshot no older than two minutes, positive remaining capacity at or above the policy reserve, and no matching manual or log cooldown. Without `--family`, the most restrictive model group and window govern readiness. `recommend --apply`, `next`, and bound runs refresh before selecting; failed refreshes cannot authorize a switch. Use `switch ACCOUNT` for an explicit override.
 
@@ -289,53 +227,24 @@ agy-swap backup import agy-swap-backup.json --merge
 
 Bindings take effect in `run now`, not when a shell merely changes directory. `--account` overrides a binding. Recommend mode prints a suggestion, prompt mode asks in a terminal, and auto mode requires `policy.allow_apply=true`. These profiles update one shared local Antigravity session; they do not isolate simultaneous processes. Targets launch executables and do not translate Google credentials into credentials for other providers.
 
-## 🔒 Security & Architecture
+## Security and privacy
 
-`agy-swap` is engineered from the ground up with a security-first posture:
+- **OS credential store:** Bearer tokens are stored in the host OS credential manager ([macOS Keychain](https://support.apple.com/guide/security/keychain-data-protection-secb0694df1a/web), [Windows Credential Manager](https://learn.microsoft.com/en-us/windows/win32/secauthn/credentials-management), or [Linux FreeDesktop Secret Service](https://specifications.freedesktop.org/secret-service/)).
+- **Storage boundaries:** Legacy or fallback account tokens and active Antigravity OAuth files can be plaintext protected by local permissions. Vault fallback is reported. macOS releases write secrets directly to Security.framework without passing secrets in process arguments. Old vault references may remain to support local backup recovery.
+- **Identity:** Adding a credential requires a verified email returned by Google userinfo. Decoded JWT claims are only local identity hints, not signature verification.
+- **Portable backups:** Metadata exports omit secrets and machine-local vault references. Merge keeps an existing credential when the backup has none. Secret exports use AES-GCM with PBKDF2-HMAC-SHA256 (600,000 iterations); legacy encrypted backups remain readable. Verify and import use the same validation. Imports use a recovery journal; do not delete it after an interrupted restore.
+- **History:** Switch and quota events are local JSONL records with locking and retention. This is not an immutable audit ledger.
+- **Atomic writes:** Configuration writes use advisory file locks (`flock` on Unix, `LockFileEx` on Windows) and write-to-temp-then-rename.
+- **Token handling:** OAuth tokens are scrubbed from CLI logs and terminal output. Tokens can be passed on stdin.
+- **No telemetry:** The CLI contacts Google for account and quota data and GitHub for releases and updates.
+- **TLS verification:** Verification is enabled by default. Prefer a trusted corporate CA bundle; the explicit insecure option disables certificate authentication.
 
-- **OS Keyring Integration**: Bearer tokens are stored in the host OS credential manager ([macOS Keychain](https://support.apple.com/guide/security/keychain-data-protection-secb0694df1a/web), [Windows Credential Manager](https://learn.microsoft.com/en-us/windows/win32/secauthn/credentials-management), or [Linux FreeDesktop Secret Service](https://specifications.freedesktop.org/secret-service/)).
-- **Storage boundaries**: Legacy or fallback account tokens and active Antigravity OAuth files can be plaintext protected by local permissions. Vault fallback is reported. macOS releases write secrets directly to Security.framework without passing secrets in process arguments. Old vault references may remain to support local backup recovery.
-- **Identity**: Adding a credential requires a verified email returned by Google userinfo. Decoded JWT claims are only local identity hints, not signature verification.
-- **Portable backups**: Metadata exports omit secrets and machine-local vault references. Merge keeps an existing credential when the backup has none. Secret exports use AES-GCM with PBKDF2-HMAC-SHA256 (600,000 iterations); legacy encrypted backups remain readable. Verify and import use the same validation. Imports use a recovery journal; do not delete it after an interrupted restore.
-- **History**: Switch and quota events are local JSONL records with locking and retention. This is not an immutable audit ledger.
-- **Atomic File Transactions**: Configuration writes use advisory filesystem locks (`flock` on Unix, `LockFileEx` on Windows) and write-to-temp-then-rename semantics to prevent race conditions.
-- **Memory Safety & Token Sanitization**: OAuth tokens are scrubbed from CLI logs and terminal outputs. Tokens are accepted securely via stdin streams.
-- **No CLI Telemetry**: The CLI contacts Google for account and quota data and GitHub for releases and updates.
-- **TLS Verification**: Verification is enabled by default. Prefer a trusted corporate CA bundle; the explicit insecure option disables certificate authentication.
+To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
----
+## Contributing
 
-## 🛠️ Development & Testing
+See [CONTRIBUTING.md](CONTRIBUTING.md), [docs/development.md](docs/development.md) for build and test commands, and [docs/architecture.md](docs/architecture.md) for how the code is organized.
 
-```bash
-# Clone the repository
-git clone https://github.com/aklkbqx/agy-swap.git
-cd agy-swap
+## License
 
-# Run complete Go test suite with race detector
-go test -race ./...
-
-# Run Go linter & static analysis
-go vet ./...
-
-# Run performance benchmarks
-go test -bench . ./internal/app
-
-# Build and test web application
-cd site
-npm ci
-bun run build
-bun run test
-```
-
----
-
-## 📄 License
-
-Distributed under the **MIT License**. See [LICENSE](LICENSE) for full details.
-
----
-
-<div align="center">
-  <sub>Crafted with precision by <b><a href="https://github.com/aklkbqx">@aklkbqx</a></b> • Designed for the Google Antigravity developer ecosystem.</sub>
-</div>
+Distributed under the MIT License. See [LICENSE](LICENSE).
