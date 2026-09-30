@@ -212,7 +212,7 @@ func (s *Store) LoadSettings() (AppSettings, error) {
 	if err != nil {
 		return AppSettings{}, err
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	return s.readSettingsUnlocked()
 }
 
@@ -242,7 +242,7 @@ func (s *Store) SaveSettings(settings AppSettings) error {
 	if err != nil {
 		return err
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	return s.saveSettingsUnlocked(settings)
 }
 
@@ -270,7 +270,7 @@ func (s *Store) UpdateSettings(fn func(*AppSettings) error) (AppSettings, error)
 	if err != nil {
 		return AppSettings{}, err
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	settings, err := s.readSettingsUnlocked()
 	if err != nil {
 		return AppSettings{}, err

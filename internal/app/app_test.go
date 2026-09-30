@@ -895,8 +895,8 @@ func TestPausedInputLeavesPendingByte(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
-	defer writer.Close()
+	defer func() { _ = reader.Close() }()
+	defer func() { _ = writer.Close() }()
 	if _, err := writer.Write([]byte{'x'}); err != nil {
 		t.Fatal(err)
 	}

@@ -471,7 +471,7 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 	if err != nil {
 		return a.storeError(err)
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	current := a.credentials.Current(ctx)
 	backupSecure := a.credentials.Secure(ctx)
 	snapshot, err := snapshotFiles(a.paths.OAuthToken, a.paths.OAuthCredentials, a.paths.GoogleAccounts)
@@ -909,7 +909,7 @@ func (a *Application) cmdNext(ctx context.Context, args cliArgs) int {
 	if err != nil {
 		return a.storeError(err)
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	fmt.Fprintf(a.Out, "Rotating to %s...\n", getString(next, "email"))
 	token, tokenErr := a.accountToken(ctx, next)
 	if tokenErr == nil && a.credentials.applyUnlocked(ctx, token, getString(next, "email")) {

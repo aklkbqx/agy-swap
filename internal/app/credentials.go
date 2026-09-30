@@ -191,7 +191,7 @@ func (c *Credentials) Apply(ctx context.Context, tokenData, email string) bool {
 	if err != nil {
 		return false
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	return c.applyUnlocked(ctx, tokenData, email)
 }
 
@@ -215,6 +215,6 @@ func (c *Credentials) Clear(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	return c.clearUnlocked(ctx)
 }

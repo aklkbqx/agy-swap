@@ -29,7 +29,7 @@ func (a *Application) appendHistory(kind, email string, data map[string]any) err
 	if err != nil {
 		return err
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	event := historyEvent{Schema: historySchema, At: isoTime(time.Now().UTC()), Kind: cleanText(kind), Email: normalizeEmail(email), Data: data}
 	encoded, err := json.Marshal(event)
 	if err != nil {
@@ -59,7 +59,7 @@ func (a *Application) trimHistory(maxBytes, retentionDays int) error {
 	if err != nil {
 		return err
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	return a.trimHistoryUnlocked(maxBytes, retentionDays)
 }
 
@@ -459,7 +459,7 @@ func (a *Application) clearHistory() error {
 	if err != nil {
 		return err
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	if err := os.Remove(a.paths.History); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
