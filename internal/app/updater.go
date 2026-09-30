@@ -186,16 +186,16 @@ func (a *Application) cmdUpdate(ctx context.Context, args cliArgs) int {
 		fmt.Fprintf(a.Err, "%s✕ Failed to write update: %v%s\n", a.p.Red, err, a.p.Reset)
 		return 1
 	}
-	if err := verifyUpdateBinary(ctx, tmpName, latest); err != nil {
-		fmt.Fprintln(a.Err, "Update candidate failed self-test:", err)
+	if verifyErr := verifyUpdateBinary(ctx, tmpName, latest); verifyErr != nil {
+		fmt.Fprintln(a.Err, "Update candidate failed self-test:", verifyErr)
 		return 1
 	}
 	backup := current + ".bak"
 	if runtime.GOOS == "windows" {
 		command := exec.Command(tmpName, "__update-finalize", strconv.Itoa(os.Getpid()), current, backup, latest)
 		command.Stdout, command.Stderr = a.Out, a.Err
-		if err := command.Start(); err != nil {
-			fmt.Fprintf(a.Err, "%s✕ Failed to launch update finalizer: %v%s\n", a.p.Red, err, a.p.Reset)
+		if startErr := command.Start(); startErr != nil {
+			fmt.Fprintf(a.Err, "%s✕ Failed to launch update finalizer: %v%s\n", a.p.Red, startErr, a.p.Reset)
 			return 1
 		}
 		cleanup = false

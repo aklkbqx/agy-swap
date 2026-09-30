@@ -120,12 +120,12 @@ func (s *Store) saveUnlocked(accounts *Accounts) error {
 		if accounts.revisionHash != "" && accounts.revisionHash != contentRevision(previous) {
 			return errStoreConflict
 		}
-		if err := atomicWrite(s.paths.AccountsBackup, previous, 0o600); err != nil {
-			return err
+		if backupErr := atomicWrite(s.paths.AccountsBackup, previous, 0o600); backupErr != nil {
+			return backupErr
 		}
 	}
-	if err := atomicWrite(s.paths.Accounts, payload, 0o600); err != nil {
-		return err
+	if writeErr := atomicWrite(s.paths.Accounts, payload, 0o600); writeErr != nil {
+		return writeErr
 	}
 	stat, err := os.Stat(s.paths.Accounts)
 	if err != nil {

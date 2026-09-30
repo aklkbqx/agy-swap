@@ -225,8 +225,8 @@ func TestFileVaultRetainsBothKeysAndRejectsCorruptJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
-		t.Fatal(err)
+	if writeErr := os.WriteFile(path, []byte("{"), 0o600); writeErr != nil {
+		t.Fatal(writeErr)
 	}
 	if vault.Set(ctx, "account:three@example.com", "three") {
 		t.Fatal("set replaced a corrupt vault")

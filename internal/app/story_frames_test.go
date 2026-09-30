@@ -29,8 +29,8 @@ func TestSiteStoryFrames(t *testing.T) {
 	var manifest struct {
 		Version string `json:"version"`
 	}
-	if err := json.Unmarshal(packageData, &manifest); err != nil {
-		t.Fatal(err)
+	if decodeErr := json.Unmarshal(packageData, &manifest); decodeErr != nil {
+		t.Fatal(decodeErr)
 	}
 	if manifest.Version == "" {
 		t.Fatal("site package version is empty")
@@ -106,11 +106,11 @@ func TestSiteStoryFrames(t *testing.T) {
 	}
 	fixturePath := filepath.Join(siteDir, "src", "generated", "tui-story-frames.json")
 	if os.Getenv("AGY_SWAP_UPDATE_STORY_FRAMES") == "1" {
-		if err := os.MkdirAll(filepath.Dir(fixturePath), 0o755); err != nil {
-			t.Fatal(err)
+		if mkdirErr := os.MkdirAll(filepath.Dir(fixturePath), 0o755); mkdirErr != nil {
+			t.Fatal(mkdirErr)
 		}
-		if err := os.WriteFile(fixturePath, data, 0o644); err != nil {
-			t.Fatal(err)
+		if writeErr := os.WriteFile(fixturePath, data, 0o644); writeErr != nil {
+			t.Fatal(writeErr)
 		}
 		return
 	}
