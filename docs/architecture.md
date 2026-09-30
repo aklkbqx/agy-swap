@@ -18,7 +18,7 @@
 ## Data and credentials
 
 - Account metadata and settings are JSON files under the agy-swap config directory, written atomically under a file lock.
-- Tokens go to the OS credential store: macOS Keychain through Security.framework, Windows Credential Manager, and Linux Secret Service through `secret-tool`. `agy-swap doctor` reports accounts that still hold legacy plaintext tokens and secrets it cannot read.
+- Saved account tokens go to `vault.json` in the config directory (`0600`, not encrypted). `AGY_SWAP_VAULT=keychain` uses the OS credential store instead (macOS Keychain through Security.framework, Windows Credential Manager, Linux Secret Service through `secret-tool`); by default that store is read only for older tokens. `agy-swap doctor` reports the vault in use, accounts that still hold legacy plaintext tokens, and secrets it cannot read.
 - Switching snapshots the shared local Antigravity session files, writes the new ones, and restores the snapshot if a step fails.
 - History is local JSONL trimmed by size and age; backups are JSON, and `--include-secrets` exports are encrypted with a passphrase.
 
