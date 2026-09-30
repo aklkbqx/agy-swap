@@ -28,15 +28,15 @@ func TestLiveNativeTUISwitchAndCleanup(t *testing.T) {
 	root := t.TempDir()
 	handler := New(Config{Origin: origin, Binary: binary, TempRoot: root})
 	server := &http.Server{Handler: handler}
-	go server.Serve(listener)
-	defer server.Shutdown(context.Background())
+	go func() { _ = server.Serve(listener) }()
+	defer func() { _ = server.Shutdown(context.Background()) }()
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 	conn, _, err := websocket.Dial(ctx, "ws://"+listener.Addr().String()+"/demo/ws", &websocket.DialOptions{HTTPHeader: http.Header{"Origin": []string{origin}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 	seen := ""
 	for !strings.Contains(seen, "Alpha User") {
 		_, data, err := conn.Read(ctx)

@@ -84,7 +84,7 @@ func (s *Store) Save(accounts *Accounts) error {
 	if err != nil {
 		return err
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	return s.saveUnlocked(accounts)
 }
 

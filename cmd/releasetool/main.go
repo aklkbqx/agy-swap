@@ -137,7 +137,7 @@ func readChecksums(path string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	checksums := map[string]string{}
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {

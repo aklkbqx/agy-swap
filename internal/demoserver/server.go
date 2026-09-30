@@ -94,7 +94,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 	conn.SetReadLimit(2048)
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Minute)
 	defer cancel()
