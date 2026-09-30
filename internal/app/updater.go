@@ -50,7 +50,7 @@ func (h *HTTPService) getBytes(ctx context.Context, endpoint string, headers map
 	if err != nil {
 		return nil, 0, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, response.StatusCode, fmt.Errorf("HTTP %d", response.StatusCode)
 	}

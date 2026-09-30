@@ -121,7 +121,7 @@ func (v *fileAccountVault) Get(_ context.Context, ref string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	m, err := v.readMap()
 	if err != nil {
 		return "", false
@@ -142,7 +142,7 @@ func (v *fileAccountVault) Set(_ context.Context, ref, token string) bool {
 	if err != nil {
 		return false
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	m, err := v.readMap()
 	if err != nil {
 		return false
@@ -162,7 +162,7 @@ func (v *fileAccountVault) Delete(_ context.Context, ref string) bool {
 	if err != nil {
 		return false
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	m, err := v.readMap()
 	if err != nil {
 		return false
