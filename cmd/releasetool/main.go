@@ -23,7 +23,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: releasetool <checksums|verify-version|verify-assets|verify-metadata|bump> ...")
+		return errors.New("usage: releasetool <checksums|verify-version|verify-assets|verify-metadata|bump> [args]")
 	}
 	switch args[0] {
 	case "bump":

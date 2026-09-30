@@ -165,23 +165,24 @@ func (a *Application) Run(ctx context.Context, argv []string) int {
 		return 0
 	}
 	command := args.command
-	if args.legacyAdd || args.token != "" {
+	switch {
+	case args.legacyAdd || args.token != "":
 		command = "add"
-	} else if args.legacyList {
+	case args.legacyList:
 		command = "list"
-	} else if args.legacyLogout {
+	case args.legacyLogout:
 		command = "logout"
-	} else if args.legacyNext {
+	case args.legacyNext:
 		command = "next"
-	} else if args.stringSwitch != "" {
+	case args.stringSwitch != "":
 		command = "switch"
 		args.account = args.stringSwitch
-	} else if args.legacySwitch {
+	case args.legacySwitch:
 		command = "switch"
-	} else if args.legacyRemove != "" {
+	case args.legacyRemove != "":
 		command = "remove"
 		args.account = args.legacyRemove
-	} else if args.legacyStatus {
+	case args.legacyStatus:
 		command = "status"
 	}
 	if command == "" {
@@ -366,11 +367,12 @@ func parseCLI(argv []string) (cliArgs, error) {
 				}
 				result.account = arg
 			case "limit":
-				if result.account == "" {
+				switch {
+				case result.account == "":
 					result.account = arg
-				} else if result.duration == "" {
+				case result.duration == "":
 					result.duration = arg
-				} else {
+				default:
 					return result, fmt.Errorf("too many arguments")
 				}
 			default:
@@ -525,10 +527,8 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 		}
 	}
 	fmt.Fprintf(a.Out, "\n%sAdd / Login Google Account%s\n%s1. A browser window will open to authenticate with Google.%s\n%s2. Complete login in Google Antigravity.%s\n", a.p.Bold, a.p.Reset, a.p.Gray, a.p.Reset, a.p.Gray, a.p.Reset)
-	for {
-		if a.readLine(a.p.Cyan+"Press Enter when ready to start login (no password is required here)..."+a.p.Reset) == "" {
-			break
-		}
+	for a.readLine(a.p.Cyan+"Press Enter when ready to start login (no password is required here)..."+a.p.Reset) != "" {
+
 		fmt.Fprintln(a.Out, "Please press Enter without entering a password; authentication happens in the browser.")
 	}
 	if !a.credentials.clearUnlocked(ctx) {

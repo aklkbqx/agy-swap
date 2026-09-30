@@ -202,11 +202,12 @@ func (a *Application) tuiDoctorSnapshot(ctx context.Context, refresh bool) ([]do
 		}
 	}
 	current := a.credentials.Current(ctx)
-	if current == "" {
+	switch {
+	case current == "":
 		add("active_session", "warning", "no active Antigravity credential detected")
-	} else if decodeToken(current) == nil {
+	case decodeToken(current) == nil:
 		add("active_session", "error", "active credential is not a recognized OAuth token")
-	} else {
+	default:
 		add("active_session", "ok", "OAuth credential detected")
 	}
 	if runtime.GOOS == "windows" {
