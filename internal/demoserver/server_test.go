@@ -14,8 +14,16 @@ func TestResizeRejectsUnknownAndClampsDimensions(t *testing.T) {
 		t.Fatal("trailing control frame accepted")
 	}
 	cols, rows, err := parseResize([]byte(`{"type":"resize","cols":999,"rows":1}`))
-	if err != nil || cols != 180 || rows != 15 {
+	if err != nil || cols != 180 || rows != 12 {
 		t.Fatalf("clamped size = %d x %d, %v", cols, rows, err)
+	}
+	cols, rows, err = parseResize([]byte(`{"type":"resize","cols":28,"rows":12}`))
+	if err != nil || cols != 28 || rows != 12 {
+		t.Fatalf("smallest TUI size = %d x %d, %v; want 28 x 12", cols, rows, err)
+	}
+	cols, rows, err = parseResize([]byte(`{"type":"resize","cols":1,"rows":1}`))
+	if err != nil || cols != 28 || rows != 12 {
+		t.Fatalf("tiny size clamps to %d x %d, %v; want 28 x 12", cols, rows, err)
 	}
 }
 

@@ -8,9 +8,10 @@ import (
 )
 
 const (
-	minCols = 40
+	// The TUI renders down to 28x12 (make tui-smoke), so the gateway allows it.
+	minCols = 28
 	maxCols = 180
-	minRows = 15
+	minRows = 12
 	maxRows = 60
 )
 
