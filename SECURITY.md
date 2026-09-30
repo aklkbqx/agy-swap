@@ -19,11 +19,11 @@ Security fixes are actively released for the latest stable release line:
 
 `agy-swap` is architected as a **100% local, privacy-first tool**:
 
-1. **Native Hardware Keystores**:
-   - **macOS**: Credentials are saved into the macOS Keychain using system `Security.framework` (`SecItemAdd`, `SecItemCopyMatching`).
-   - **Windows**: Stored in the Windows Credential Manager via Win32 Credential Management APIs (`CredWriteW`, `CredReadW`).
-   - **Linux**: Stored in the desktop Secret Service via `secret-tool` / DBus.
-   - **Encrypted Local Fallback**: When OS keychains are unavailable or headless, credentials use authenticated AES-GCM encryption with restrictive filesystem permissions (`0600`).
+1. **Where tokens live**:
+   - **Saved account tokens** go to `vault.json` in the agy-swap config directory (`~/.gemini/agy-swap/`), written atomically with `0600` permissions. The file is **not encrypted**: anything that can read files as your user can read it.
+   - **`AGY_SWAP_VAULT=keychain`** keeps them in the OS credential store instead: macOS Keychain through `Security.framework`, Windows Credential Manager, or the Linux Secret Service through `secret-tool`. `AGY_SWAP_VAULT=file` uses the file only. By default the OS store is read only for tokens saved by older versions.
+   - **The active Antigravity session** is written where Antigravity reads it: its OS credential store entry and the OAuth files under `~/.gemini`.
+   - `agy-swap doctor` shows which vault is in use.
 
 2. **Atomic Session Swapping**:
    - Session files are swapped using atomic file replacement operations (`os.Rename` on POSIX systems, `MoveFileEx` with replace flags on Windows) guarded by system file locks (`flock` / `LockFileEx`) to prevent partial writes, corruption, or race conditions.
