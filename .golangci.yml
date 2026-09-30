@@ -15,6 +15,12 @@ linters:
     - gocritic
     - revive
   settings:
+    errcheck:
+      # Writes to the terminal or a caller's writer have no useful recovery.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
     govet:
       enable:
         - shadow
@@ -42,8 +48,5 @@ linters:
         - name: errorf
 
 issues:
-  # Existing code has a lint backlog (mostly errcheck). Lint only changes
-  # made after this commit until the backlog is cleared.
-  new-from-rev: b4e6d21b4e158a05e1b47ac6b555cbbdace3e94a
   max-issues-per-linter: 0
   max-same-issues: 0
