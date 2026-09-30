@@ -26,8 +26,8 @@ func readBackup(path, passphrase string) (*backupContents, error) {
 		return nil, err
 	}
 	var envelope encryptedBackup
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return nil, fmt.Errorf("invalid backup: %w", err)
+	if decodeErr := json.Unmarshal(raw, &envelope); decodeErr != nil {
+		return nil, fmt.Errorf("invalid backup: %w", decodeErr)
 	}
 	if envelope.Encrypted {
 		raw, err = decryptBackup(passphrase, envelope)
@@ -40,8 +40,8 @@ func readBackup(path, passphrase string) (*backupContents, error) {
 		Accounts json.RawMessage `json:"accounts"`
 		Settings json.RawMessage `json:"settings"`
 	}
-	if err := json.Unmarshal(raw, &document); err != nil {
-		return nil, fmt.Errorf("invalid backup document: %w", err)
+	if decodeErr := json.Unmarshal(raw, &document); decodeErr != nil {
+		return nil, fmt.Errorf("invalid backup document: %w", decodeErr)
 	}
 	if document.Schema != stateSchema {
 		return nil, fmt.Errorf("unsupported backup document schema %d", document.Schema)
@@ -69,8 +69,8 @@ func readBackup(path, passphrase string) (*backupContents, error) {
 		if string(document.Settings) == "null" {
 			return nil, errors.New("backup settings must be an object")
 		}
-		if err := json.Unmarshal(document.Settings, &settings); err != nil {
-			return nil, err
+		if decodeErr := json.Unmarshal(document.Settings, &settings); decodeErr != nil {
+			return nil, decodeErr
 		}
 		settings, err = normalizeSettings(settings)
 		if err != nil {
@@ -151,8 +151,8 @@ func (a *Application) importBackup(ctx context.Context, path, passphrase string,
 		return 0, 0, err
 	}
 	defer func() { _ = settingsLock.Close() }()
-	if err := s.recoverRestoreUnlocked(); err != nil {
-		return 0, 0, err
+	if recoverErr := s.recoverRestoreUnlocked(); recoverErr != nil {
+		return 0, 0, recoverErr
 	}
 	existing, err := s.readAccountsUnlocked()
 	if err != nil {
@@ -175,8 +175,8 @@ func (a *Application) importBackup(ctx context.Context, path, passphrase string,
 	} else {
 		incoming.Revision, incoming.revisionHash = existing.Revision, existing.revisionHash
 	}
-	if err := validateAccounts(incoming); err != nil {
-		return 0, 0, err
+	if validateErr := validateAccounts(incoming); validateErr != nil {
+		return 0, 0, validateErr
 	}
 	snapshot, err := snapshotFiles(s.paths.Accounts, s.paths.AccountsBackup, s.paths.Settings)
 	if err != nil {
