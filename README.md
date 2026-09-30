@@ -12,7 +12,7 @@
 
 </div>
 
-agy-swap keeps several Google Antigravity accounts on one machine. It shows each account's remaining quota and when it resets, then switches the shared local Antigravity session to the account you pick. Everything runs locally; tokens stay in your OS credential store.
+agy-swap keeps several Google Antigravity accounts on one machine. It shows each account's remaining quota and when it resets, then switches the shared local Antigravity session to the account you pick. Everything runs locally; saved tokens stay in a private `vault.json` readable only by your user, or in your OS credential store with `AGY_SWAP_VAULT=keychain`.
 
 ## Install
 

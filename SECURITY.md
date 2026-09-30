@@ -23,6 +23,7 @@ Security fixes are actively released for the latest stable release line:
    - **Saved account tokens** go to `vault.json` in the agy-swap config directory (`~/.gemini/agy-swap/`), written atomically with `0600` permissions. The file is **not encrypted**: anything that can read files as your user can read it.
    - **`AGY_SWAP_VAULT=keychain`** keeps them in the OS credential store instead: macOS Keychain through `Security.framework`, Windows Credential Manager, or the Linux Secret Service through `secret-tool`. `AGY_SWAP_VAULT=file` uses the file only. By default the OS store is read only for tokens saved by older versions.
    - **The active Antigravity session** is written where Antigravity reads it: its OS credential store entry and the OAuth files under `~/.gemini`.
+   - If the vault cannot be written (for example `secret-tool` fails in keychain mode), the token stays as plaintext `token_data` in `accounts.json` (`0600`) and `agy-swap doctor` warns with `vault_migration`; run `agy-swap account migrate --force` once the vault works.
    - `agy-swap doctor` shows which vault is in use.
 
 2. **Atomic Session Swapping**:
