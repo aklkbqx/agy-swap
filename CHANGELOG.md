@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.9.1
+
+- Docs and site: saved account tokens are described as they are stored, in `vault.json` (`0600`, not encrypted), with `AGY_SWAP_VAULT=keychain` for the OS credential store. SECURITY.md no longer claims an encrypted fallback.
+- CLI: `doctor` reports where saved tokens are stored; messages, the palette, the help screen, and the first-run note say "the vault" instead of "the OS vault".
+- Internal: `internal/app` uses `internal/config` for paths and version checks; unused release-client code is removed.
+- Site: the live arc draws as a line with a little sparkle over a faint guide, and the session ring appears only on the switch beat.
+- AGY Live (local): the browser terminal shrinks to the TUI's 28x12 minimum.
+- Backups: encrypted export reports an encoding error instead of writing empty output.
+- Internal: golangci-lint now checks the whole codebase with no baseline; dead helpers are removed.
+
 ## 2.9.0
 
 - Site: production runs as one Watchtower-managed container. AGY Live runs only locally on loopback with `make live`, and the site image is built, previewed, and published from the local machine.
@@ -12,6 +22,7 @@
 - Internal: atomic writes, file locks, and the release-check client moved into `internal/store`, `internal/client`, and `internal/config`. Behavior is unchanged.
 - Keep local AI instruction links, planning documents, worktrees, and environment files out of Git while allowing environment examples.
 - Stop tracking the previously committed AI implementation plan. Earlier Git history is unchanged.
+- Site: story terminals size to the drawn screen, so the hero has no empty strip and the pinned terminal keeps its right border.
 
 ## 2.8.8
 
