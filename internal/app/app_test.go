@@ -432,6 +432,49 @@ func TestTUIResponsiveDetailPreservesResetWindow(t *testing.T) {
 	}
 }
 
+func TestTUINarrowQuotaValueKeepsResetWindow(t *testing.T) {
+	now := time.Date(2026, time.September, 29, 12, 0, 0, 0, time.UTC)
+	bucket := map[string]any{"remaining_fraction": 0.43, "reset_at": isoTime(now.Add(2*24*time.Hour + 4*time.Hour + 10*time.Minute))}
+	got := formatQuotaBarResponsive(bucket, makePalette(false), now, 6, 21)
+	if want := "[███░░░] 43% · 2d 4h"; got != want {
+		t.Fatalf("narrow quota value = %q, want %q", got, want)
+	}
+	if visibleWidth(got) > 21 {
+		t.Fatalf("narrow quota value is %d columns, want at most 21", visibleWidth(got))
+	}
+}
+
+func TestTUINarrowQuotaValueWithoutResetOrDue(t *testing.T) {
+	now := time.Date(2026, time.September, 29, 12, 0, 0, 0, time.UTC)
+	noReset := map[string]any{"remaining_fraction": 0.43}
+	if got := formatQuotaBarResponsive(noReset, makePalette(false), now, 6, 21); got != "[███░░░] 43%" {
+		t.Fatalf("no-reset value = %q", got)
+	}
+	due := map[string]any{"remaining_fraction": 0.43, "reset_at": isoTime(now.Add(-time.Minute))}
+	if got := formatQuotaBarResponsive(due, makePalette(false), now, 6, 21); got != "[███░░░] 43.0% · due" {
+		t.Fatalf("due value = %q", got)
+	}
+}
+
+func TestTUIQuotaListDropsEmailBeforeHealthAtNarrowWidth(t *testing.T) {
+	accounts := NewAccounts()
+	account := quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(50*time.Hour))
+	account["name"] = "Alpha Tester"
+	accounts.Set("user@example.com", account)
+	a := &Application{Version: "test", p: makePalette(false), color: false}
+	state := newTUIState(accounts, "user@example.com")
+	state.view = tuiViewQuota
+
+	narrow := a.tuiQuotaViewRows(state, 36, 12)
+	if want := "● Alpha Tester  Gemini 85% ready"; narrow[0] != want {
+		t.Fatalf("narrow row = %q, want %q", narrow[0], want)
+	}
+	wide := a.tuiQuotaViewRows(state, 80, 12)
+	if !strings.Contains(wide[0], "user@example.com") || !strings.Contains(wide[0], "Gemini 85% ready") {
+		t.Fatalf("wide row lost email or health: %q", wide[0])
+	}
+}
+
 func TestTUICompactTallViewportKeepsSelectedDetail(t *testing.T) {
 	accounts := NewAccounts()
 	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))

@@ -388,7 +388,12 @@ func (a *Application) tuiQuotaViewRows(state *tuiState, width, height int) []str
 		name := firstString(tuiText(getString(account, "name")), "Google User")
 		health := accountHealthCompact(account, a.renderTime())
 		color := a.tuiHealthColor(tuiHealthToneForGroups(quotaGroupHealths(account), account, a.renderTime()))
-		rows = append(rows, color+"● "+tuiText(name)+a.p.Reset+"  "+a.p.Gray+tuiText(email)+a.p.Reset+"  "+color+tuiText(health)+a.p.Reset)
+		row := color + "● " + tuiText(name) + a.p.Reset + "  " + a.p.Gray + tuiText(email) + a.p.Reset + "  " + color + tuiText(health) + a.p.Reset
+		if visibleWidth(row) > width {
+			// The detail block below names the email; keep health visible.
+			row = color + "● " + tuiText(name) + a.p.Reset + "  " + color + tuiText(health) + a.p.Reset
+		}
+		rows = append(rows, row)
 	}
 	if _, _, ok := state.selectedAccount(); ok && len(rows) < height {
 		// The detail block names the account and email, so this label only
