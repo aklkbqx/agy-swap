@@ -22,8 +22,8 @@ func TestAtomicWriteAndReplace(t *testing.T) {
 
 	// Update atomically
 	data2 := []byte("updated content")
-	if err := AtomicWrite(target, data2, 0o600); err != nil {
-		t.Fatalf("AtomicWrite update failed: %v", err)
+	if writeErr := AtomicWrite(target, data2, 0o600); writeErr != nil {
+		t.Fatalf("AtomicWrite update failed: %v", writeErr)
 	}
 
 	read, err = os.ReadFile(target)
@@ -78,8 +78,8 @@ func TestFileLock(t *testing.T) {
 		t.Fatalf("AcquireFileLock failed: %v", err)
 	}
 
-	if err := lock1.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
+	if closeErr := lock1.Close(); closeErr != nil {
+		t.Fatalf("Close failed: %v", closeErr)
 	}
 
 	// Should be able to acquire again
