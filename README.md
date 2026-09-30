@@ -95,7 +95,7 @@ The layout follows your terminal size:
 | `a` | Add a Google account through the browser sign-in |
 | `d` / `Delete` | Remove the account from the local store, after confirmation |
 | `e` | Edit tags, aliases, or the selected item |
-| `m` | Move plaintext tokens into the OS credential store |
+| `m` | Move legacy tokens from accounts.json into the vault |
 | `u` | Update agy-swap to the latest release, checking its checksum |
 | `?` | Show or hide the shortcut list |
 | `q` / `Esc` | Close an overlay or quit |
@@ -206,7 +206,7 @@ agy-swap run now --account dev@company.com -- -p "Audit codebase"
 ### Backups and credential migration
 
 ```bash
-# Securely migrate plaintext tokens to macOS Keychain / Linux Secret Service / Windows Vault
+# Move legacy plaintext tokens from accounts.json into the vault
 agy-swap account migrate --force
 
 # Export portable metadata backup
@@ -229,8 +229,8 @@ Bindings take effect in `run now`, not when a shell merely changes directory. `-
 
 ## Security and privacy
 
-- **OS credential store:** Bearer tokens are stored in the host OS credential manager ([macOS Keychain](https://support.apple.com/guide/security/keychain-data-protection-secb0694df1a/web), [Windows Credential Manager](https://learn.microsoft.com/en-us/windows/win32/secauthn/credentials-management), or [Linux FreeDesktop Secret Service](https://specifications.freedesktop.org/secret-service/)).
-- **Storage boundaries:** Legacy or fallback account tokens and active Antigravity OAuth files can be plaintext protected by local permissions. Vault fallback is reported. macOS releases write secrets directly to Security.framework without passing secrets in process arguments. Old vault references may remain to support local backup recovery.
+- **Saved account tokens:** stored in `vault.json` in the agy-swap config directory, readable only by your user (`0600`). The file is not encrypted. Set `AGY_SWAP_VAULT=keychain` to keep them in the OS credential store instead ([macOS Keychain](https://support.apple.com/guide/security/keychain-data-protection-secb0694df1a/web), [Windows Credential Manager](https://learn.microsoft.com/en-us/windows/win32/secauthn/credentials-management), or [Linux Secret Service](https://specifications.freedesktop.org/secret-service/)); `AGY_SWAP_VAULT=file` uses the file only. `agy-swap doctor` shows which one is in use.
+- **Active session:** switching writes the Antigravity session where Antigravity reads it, in its OS credential store entry and OAuth files under `~/.gemini`, protected by local permissions. In keychain mode, macOS releases write through Security.framework, not through process arguments. Old vault references may remain to support local backup recovery.
 - **Identity:** Adding a credential requires a verified email returned by Google userinfo. Decoded JWT claims are only local identity hints, not signature verification.
 - **Portable backups:** Metadata exports omit secrets and machine-local vault references. Merge keeps an existing credential when the backup has none. Secret exports use AES-GCM with PBKDF2-HMAC-SHA256 (600,000 iterations); legacy encrypted backups remain readable. Verify and import use the same validation. Imports use a recovery journal; do not delete it after an interrupted restore.
 - **History:** Switch and quota events are local JSONL records with locking and retention. This is not an immutable audit ledger.
