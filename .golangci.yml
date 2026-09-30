@@ -1,0 +1,49 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - unused
+    - ineffassign
+    - bodyclose
+    - gocritic
+    - revive
+  settings:
+    govet:
+      enable:
+        - shadow
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+          disabled: true
+        - name: if-return
+        - name: increment-decrement
+        - name: var-naming
+        - name: var-declaration
+        - name: package-comments
+          disabled: true
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+
+issues:
+  # Existing code has a lint backlog (mostly errcheck). Lint only changes
+  # made after this commit until the backlog is cleared.
+  new-from-rev: b4e6d21b4e158a05e1b47ac6b555cbbdace3e94a
+  max-issues-per-linter: 0
+  max-same-issues: 0
