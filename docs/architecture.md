@@ -11,7 +11,7 @@
 | `cmd/releasetool` | Version bumps, checksums, and release asset and metadata checks. |
 | `internal/app` | CLI commands (`cli.go`, `extended.go`), TUI (`tui*.go`), account store (`store.go`, `model.go`), credentials and OS vaults (`credentials.go`, `vault*.go`, `keychain_darwin.go`, `credential_*.go`), OAuth (`oauth.go`), quota (`quota.go`, `display.go`), history and logs, backups, doctor, statusline, metrics, targets, and self-update (`updater.go`). |
 | `internal/store` | Private directories, atomic write-then-rename, and per-OS file locks (`flock` on Unix, `LockFileEx` on Windows). |
-| `internal/config` | The private directory mode the store uses, plus path and version helpers that `internal/app` does not call yet. |
+| `internal/config` | Paths, the private directory mode, and semantic version comparison, shared by `internal/app` and `internal/store`. |
 | `internal/client` | Release tag normalization and checksum lookup used by the updater. |
 | `site/` | Marketing and install site (React + Vite), served by one Nginx container. |
 
