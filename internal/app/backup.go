@@ -183,7 +183,10 @@ func (a *Application) cmdBackup(ctx context.Context, opts extendedOptions, posit
 			if encryptErr != nil {
 				return a.extendedError("backup export", opts, encryptErr)
 			}
-			output, err = json.MarshalIndent(envelope, "", "  ")
+			output, err = encodeBackupEnvelope(envelope)
+			if err != nil {
+				return a.extendedError("backup export", opts, err)
+			}
 			encrypted = true
 		} else {
 			output = plaintext
@@ -252,4 +255,7 @@ func (a *Application) cmdBackup(ctx context.Context, opts extendedOptions, posit
 	}
 }
 
-func mustJSON(value any) []byte { data, _ := json.Marshal(value); return data }
+// encodeBackupEnvelope formats an encrypted backup envelope for writing.
+func encodeBackupEnvelope(envelope any) ([]byte, error) {
+	return json.MarshalIndent(envelope, "", "  ")
+}

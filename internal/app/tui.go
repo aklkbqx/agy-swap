@@ -378,7 +378,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	}
 
 	toggleTier := func() {
-		email, account, ok := state.selectedAccount()
+		email, _, ok := state.selectedAccount()
 		if !ok {
 			return
 		}
@@ -388,7 +388,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			state.message, state.messageType = loadErr.Error(), "error"
 			return
 		}
-		account = fresh.ByEmail[email]
+		account := fresh.ByEmail[email]
 		if account == nil {
 			state.message, state.messageType = "Account changed outside TUI; refresh and try again", "error"
 			return
