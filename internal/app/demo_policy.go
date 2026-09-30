@@ -2,7 +2,7 @@ package app
 
 import "errors"
 
-var errDemoUnavailable = errors.New("Unavailable in demo")
+var errDemoUnavailable = errors.New("Unavailable in demo") //nolint:staticcheck // shown verbatim in the TUI status line
 
 // allowDemoAction is deny-by-default for the demo binary. Non-demo CLI use is unchanged.
 func (a *Application) allowDemoAction(action string) error {

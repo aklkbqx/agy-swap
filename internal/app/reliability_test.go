@@ -107,7 +107,7 @@ func TestRefreshedOAuthCredentialPersistsOnQuotaFailure(t *testing.T) {
 			fmt.Fprint(w, `{"access_token":"new-access","refresh_token":"rotated-refresh","expires_in":3600}`)
 			return
 		}
-		http.Error(w, "unavailable", 503)
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
 	h := NewHTTPService(&bytes.Buffer{})

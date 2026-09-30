@@ -52,7 +52,6 @@ func TestLoginCommandHelper(t *testing.T) {
 	case "wait-for-interrupt":
 		interrupt := make(chan os.Signal, 1)
 		signal.Notify(interrupt, os.Interrupt)
-		defer signal.Stop(interrupt)
 		if err := os.WriteFile(os.Getenv("AGY_SWAP_LOGIN_READY_FILE"), []byte("ready"), 0o600); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(24)
