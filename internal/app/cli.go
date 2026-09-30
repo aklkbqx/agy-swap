@@ -644,7 +644,7 @@ func (a *Application) saveTokenAccount(ctx context.Context, token string) int {
 	}
 	oldRef, saved := a.saveAccountSecret(ctx, account, token)
 	if !saved {
-		fmt.Fprintln(a.Err, "OS credential vault unavailable; token stored in the private accounts file.")
+		fmt.Fprintln(a.Err, "Vault unavailable; token stored in the private accounts file.")
 	}
 	accounts.Set(email, account)
 	if err := a.store.Save(accounts); err != nil {

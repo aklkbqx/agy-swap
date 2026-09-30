@@ -228,7 +228,7 @@ func (a *Application) cmdBackup(ctx context.Context, opts extendedOptions, posit
 		if opts.JSON {
 			return a.extendedResult("backup import", opts, data, nil)
 		}
-		fmt.Fprintf(a.Out, "Imported %d account(s); migrated %d secret(s) to the OS vault.\n", count, migrated)
+		fmt.Fprintf(a.Out, "Imported %d account(s); moved %d secret(s) into the vault.\n", count, migrated)
 		return 0
 	case "verify":
 		if len(positional) < 2 {
