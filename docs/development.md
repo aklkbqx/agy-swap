@@ -76,7 +76,7 @@ Release binaries are compiled for 6 target architectures using `./scripts/build-
 | Platform | Architecture | CGO Enabled | Keystore with AGY_SWAP_VAULT=keychain |
 | :--- | :--- | :--- | :--- |
 | **macOS** | `arm64` / `amd64` | Yes (`CGO_ENABLED=1`) | Apple `Security.framework` |
-| **Linux** | `arm64` / `amd64` | No (`CGO_ENABLED=0`) | Secret Service / fallback vault |
+| **Linux** | `arm64` / `amd64` | No (`CGO_ENABLED=0`) | Secret Service |
 | **Windows**| `arm64` / `amd64` | No (`CGO_ENABLED=0`) | Windows Credential Manager |
 
 By default every platform keeps saved tokens in `vault.json`; the keystore column applies only when `AGY_SWAP_VAULT=keychain` is set.
