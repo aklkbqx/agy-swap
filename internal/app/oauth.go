@@ -232,11 +232,6 @@ func tokenExpiry(inner map[string]any) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-func (h *HTTPService) accessToken(ctx context.Context, tokenData string) (string, error) {
-	access, _, err := h.accessTokenData(ctx, tokenData)
-	return access, err
-}
-
 func (h *HTTPService) accessTokenData(ctx context.Context, tokenData string) (string, string, error) {
 	decoded := decodeToken(tokenData)
 	inner := tokenObject(decoded)

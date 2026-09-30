@@ -1002,7 +1002,7 @@ func (a *Application) cmdSetLimit(_ context.Context, args cliArgs) int {
 		return 0
 	}
 	now := time.Now().UTC()
-	name := strings.Title(args.group)
+	name := titleWord(args.group)
 	if args.group == "gpt" {
 		name = "GPT"
 	}
@@ -1011,7 +1011,7 @@ func (a *Application) cmdSetLimit(_ context.Context, args cliArgs) int {
 	if err := a.store.Save(accounts); err != nil {
 		return a.storeError(err)
 	}
-	fmt.Fprintf(a.Out, "%s✓ Set %s rate limit cooldown for '%s' (%s).%s\n", a.p.Green, strings.Title(args.group), email, now.Add(duration).Format("15:04:05 UTC"), a.p.Reset)
+	fmt.Fprintf(a.Out, "%s✓ Set %s rate limit cooldown for '%s' (%s).%s\n", a.p.Green, titleWord(args.group), email, now.Add(duration).Format("15:04:05 UTC"), a.p.Reset)
 	return 0
 }
 

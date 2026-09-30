@@ -883,18 +883,6 @@ func fitFrameLines(lines []string, g tuiGeometry, p palette) []string {
 	return result
 }
 
-func prefixRows(rows []string, left, right string, contentWidth int) []string {
-	result := make([]string, 0, len(rows))
-	for _, row := range rows {
-		result = append(result, left+padVisible(row, contentWidth)+right)
-	}
-	return result
-}
-
-func padVisible(value string, width int) string {
-	return fitVisible(value, width, palette{})
-}
-
 func fitVisible(value string, width int, p palette) string {
 	width = maxInt(0, width)
 	if width == 0 {
@@ -958,20 +946,6 @@ func ioWriteString(writer interface{ Write([]byte) (int, error) }, value string)
 
 func termGetSize(file *os.File) (int, int, error) {
 	return term.GetSize(int(file.Fd()))
-}
-
-func maxFloat(a, b float64) float64 {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func minFloat(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func maxInt(a, b int) int {

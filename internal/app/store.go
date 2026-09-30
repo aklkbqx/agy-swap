@@ -279,7 +279,6 @@ func migrateAndExpire(accounts *Accounts, now time.Time) bool {
 				if value, ok := account[key]; ok {
 					legacy[key] = value
 					delete(account, key)
-					changed = true
 				}
 			}
 			if len(legacy) > 0 {

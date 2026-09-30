@@ -7,7 +7,6 @@ import (
 	"io"
 	"math"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -250,13 +249,4 @@ func numberInt(value any) (int64, bool) {
 		return v, err == nil
 	}
 	return 0, false
-}
-
-func sortedMapKeys(m map[string]any) []string {
-	keys := make([]string, 0, len(m))
-	for key := range m {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }
