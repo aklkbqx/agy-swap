@@ -36,8 +36,8 @@ func (a *Application) appendHistory(kind, email string, data map[string]any) err
 		return err
 	}
 	encoded = append(encoded, '\n')
-	if err := ensurePrivateDir(a.paths.ConfigDir); err != nil {
-		return err
+	if dirErr := ensurePrivateDir(a.paths.ConfigDir); dirErr != nil {
+		return dirErr
 	}
 	file, err := os.OpenFile(a.paths.History, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {

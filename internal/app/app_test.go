@@ -165,8 +165,8 @@ func TestOrderedAccountStorePreservesOrderAndUnknownFields(t *testing.T) {
 		t.Fatal("unknown field lost")
 	}
 	accounts.ByEmail["first@example.com"]["name"] = "Changed"
-	if err := store.Save(accounts); err != nil {
-		t.Fatal(err)
+	if saveErr := store.Save(accounts); saveErr != nil {
+		t.Fatal(saveErr)
 	}
 	reloaded, err := store.Load(false)
 	if err != nil {
@@ -897,13 +897,13 @@ func TestPausedInputLeavesPendingByte(t *testing.T) {
 	}
 	defer func() { _ = reader.Close() }()
 	defer func() { _ = writer.Close() }()
-	if _, err := writer.Write([]byte{'x'}); err != nil {
-		t.Fatal(err)
+	if _, writeErr := writer.Write([]byte{'x'}); writeErr != nil {
+		t.Fatal(writeErr)
 	}
 	var paused atomic.Bool
 	paused.Store(true)
-	if _, err := readInputByteWithTimeout(reader, 200*time.Millisecond, &paused); !errors.Is(err, errInputPaused) {
-		t.Fatalf("paused read returned %v", err)
+	if _, readErr := readInputByteWithTimeout(reader, 200*time.Millisecond, &paused); !errors.Is(readErr, errInputPaused) {
+		t.Fatalf("paused read returned %v", readErr)
 	}
 	paused.Store(false)
 	got, err := readInputByteWithTimeout(reader, 200*time.Millisecond, &paused)
@@ -1145,8 +1145,8 @@ func TestExtendedSettingsAliasesAndEncryptedBackup(t *testing.T) {
 	}
 	encoded, _ := json.Marshal(envelope)
 	var decoded encryptedBackup
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
-		t.Fatal(err)
+	if decodeErr := json.Unmarshal(encoded, &decoded); decodeErr != nil {
+		t.Fatal(decodeErr)
 	}
 	plaintext, err := decryptBackup("long-test-passphrase", decoded)
 	if err != nil || !bytes.Equal(plaintext, secret) {

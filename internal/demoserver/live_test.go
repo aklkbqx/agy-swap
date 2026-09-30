@@ -39,37 +39,37 @@ func TestLiveNativeTUISwitchAndCleanup(t *testing.T) {
 	defer func() { _ = conn.CloseNow() }()
 	seen := ""
 	for !strings.Contains(seen, "Alpha User") {
-		_, data, err := conn.Read(ctx)
-		if err != nil {
-			t.Fatalf("native initial frame: %v", err)
+		_, data, readErr := conn.Read(ctx)
+		if readErr != nil {
+			t.Fatalf("native initial frame: %v", readErr)
 		}
 		seen += string(data)
 	}
-	if err := conn.Write(ctx, websocket.MessageBinary, []byte("\x1b[B")); err != nil {
-		t.Fatal(err)
+	if writeErr := conn.Write(ctx, websocket.MessageBinary, []byte("\x1b[B")); writeErr != nil {
+		t.Fatal(writeErr)
 	}
-	if err := conn.Write(ctx, websocket.MessageBinary, []byte("\r")); err != nil {
-		t.Fatal(err)
+	if writeErr := conn.Write(ctx, websocket.MessageBinary, []byte("\r")); writeErr != nil {
+		t.Fatal(writeErr)
 	}
 	seen = ""
 	for !strings.Contains(seen, "Switched to beta@example.invalid") {
-		_, data, err := conn.Read(ctx)
-		if err != nil {
-			t.Fatalf("native switch frame: %v, output=%q", err, seen)
+		_, data, readErr := conn.Read(ctx)
+		if readErr != nil {
+			t.Fatalf("native switch frame: %v, output=%q", readErr, seen)
 		}
 		seen += string(data)
 		if len(seen) > 200000 {
 			t.Fatalf("no native switch feedback: %q", seen[len(seen)-1000:])
 		}
 	}
-	if err := conn.Write(ctx, websocket.MessageBinary, []byte("a")); err != nil {
-		t.Fatal(err)
+	if writeErr := conn.Write(ctx, websocket.MessageBinary, []byte("a")); writeErr != nil {
+		t.Fatal(writeErr)
 	}
 	seen = ""
 	for !strings.Contains(seen, "Unavailable in demo") {
-		_, data, err := conn.Read(ctx)
-		if err != nil {
-			t.Fatalf("native denied action: %v, output=%q", err, seen)
+		_, data, readErr := conn.Read(ctx)
+		if readErr != nil {
+			t.Fatalf("native denied action: %v, output=%q", readErr, seen)
 		}
 		seen += string(data)
 	}

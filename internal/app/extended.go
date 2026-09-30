@@ -814,11 +814,11 @@ func (a *Application) cmdProfile(opts extendedOptions, positional []string) int 
 		if opts.ReservesSet {
 			profile.ReserveAccounts = nil
 			for _, target := range opts.Reserves {
-				email, err := resolveConfiguredTarget(target, accounts, settings)
-				if err != nil || email == "" {
+				reserve, err := resolveConfiguredTarget(target, accounts, settings)
+				if err != nil || reserve == "" {
 					return a.extendedError("profile set", opts, errors.New("reserve account not found"))
 				}
-				profile.ReserveAccounts = append(profile.ReserveAccounts, email)
+				profile.ReserveAccounts = append(profile.ReserveAccounts, reserve)
 			}
 		}
 		if opts.Family != "" {
