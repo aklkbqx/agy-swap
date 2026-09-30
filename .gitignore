@@ -10,6 +10,10 @@ site/src/generated/tui-fixtures.json
 /coverage.out
 graft/
 .env.graft
+.env
+.env.*
+!.env.example
+!.env.*.example
 /.github/
 .claude/
 .cursor/
@@ -20,5 +24,10 @@ graft/
 opencode.json
 AGENTS.md
 GEMINI.md
+CLAUDE.md
+GROK.md
 .impeccable.md
 .ignore
+/.superpowers/
+/.worktrees/
+/docs/superpowers/
