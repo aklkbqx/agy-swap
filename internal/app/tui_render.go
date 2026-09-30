@@ -509,7 +509,7 @@ func (a *Application) tuiWelcomeRows(width, maxRows int) []string {
 		a.p.Bold + a.p.White + "Welcome to AGY SWAP" + a.p.Reset,
 		"No saved accounts yet.",
 		"Press " + a.p.Orange + "a" + a.p.Reset + " to sign in, or " + a.p.Cyan + "Ctrl-K" + a.p.Reset + " for every action.",
-		"Your tokens are stored in the OS vault after sign-in.",
+		"Your tokens go to a private local vault after sign-in.",
 	}
 	if maxRows < len(rows) {
 		rows = rows[:maxRows]
@@ -783,7 +783,7 @@ func (a *Application) tuiHelpLines(width int) []string {
 		"d           Delete selected account",
 		"n           Choose next available account",
 		"t           Toggle manual tier",
-		"m           Migrate secrets to OS vault",
+		"m           Move tokens into the vault",
 		"l           Log out",
 		"e           Edit tags / selected item",
 		"x / i / v   Export, import, or verify in managers",

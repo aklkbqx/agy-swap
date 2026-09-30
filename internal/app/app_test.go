@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -1468,4 +1469,32 @@ func TestDoctorReportsWhereTokensLive(t *testing.T) {
 		}
 	}
 	t.Fatalf("doctor has no vault check: %+v", envelope.Data.Checks)
+}
+
+func TestUserFacingCopyDoesNotPromiseTheOSVault(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	literal := regexp.MustCompile("\"[^\"\\n]*\"")
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, text := range literal.FindAllString(string(data), -1) {
+			if strings.Contains(text, "OS vault") || strings.Contains(text, "OS credential vault") {
+				t.Errorf("%s: %s: saved tokens live in the vault chosen by AGY_SWAP_VAULT (vault.json by default)", name, text)
+			}
+		}
+	}
+	for _, action := range tuiActions(newTUIState(NewAccounts(), "")) {
+		if action.ID == "migrate-vault" && action.Label != "Move tokens into the vault" {
+			t.Fatalf("migrate-vault label = %q", action.Label)
+		}
+	}
 }

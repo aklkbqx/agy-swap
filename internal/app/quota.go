@@ -184,7 +184,7 @@ func (q *QuotaService) refreshSelected(ctx context.Context, accounts *Accounts, 
 				app := &Application{vault: q.vault}
 				old, ok := app.saveAccountSecret(ctx, result.item.account, updated)
 				if !ok {
-					errorsByEmail["storage"] = "OS vault unavailable; refreshed token stored in private accounts file"
+					errorsByEmail["storage"] = "Vault unavailable; refreshed token stored in private accounts file"
 				} else if old != "" {
 					replaced = append(replaced, old)
 				}
