@@ -108,12 +108,12 @@ func (s *Store) recoverRestore() error {
 	if err != nil {
 		return err
 	}
-	defer accountsLock.Close()
+	defer func() { _ = accountsLock.Close() }()
 	settingsLock, err := acquireFileLock(s.paths.Settings + ".lock")
 	if err != nil {
 		return err
 	}
-	defer settingsLock.Close()
+	defer func() { _ = settingsLock.Close() }()
 	return s.recoverRestoreUnlocked()
 }
 
@@ -145,12 +145,12 @@ func (a *Application) importBackup(ctx context.Context, path, passphrase string,
 	if err != nil {
 		return 0, 0, err
 	}
-	defer accountsLock.Close()
+	defer func() { _ = accountsLock.Close() }()
 	settingsLock, err := acquireFileLock(s.paths.Settings + ".lock")
 	if err != nil {
 		return 0, 0, err
 	}
-	defer settingsLock.Close()
+	defer func() { _ = settingsLock.Close() }()
 	if err := s.recoverRestoreUnlocked(); err != nil {
 		return 0, 0, err
 	}

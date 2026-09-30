@@ -100,7 +100,7 @@ func (h *HTTPService) jsonRequest(ctx context.Context, method, endpoint string, 
 	if err != nil {
 		return nil, 0, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, response.StatusCode, fmt.Errorf("HTTP %d", response.StatusCode)
 	}
@@ -261,7 +261,7 @@ func (h *HTTPService) accessTokenData(ctx context.Context, tokenData string) (st
 	if err != nil {
 		return "", tokenData, fmt.Errorf("OAuth refresh failed: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return "", tokenData, fmt.Errorf("OAuth refresh failed (HTTP %d)", response.StatusCode)
 	}

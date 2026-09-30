@@ -301,7 +301,7 @@ func scanLogFile(path string, info os.FileInfo) (map[string]map[string]EvidenceR
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	offset := max(int64(0), info.Size()-logScanBytes)
 	if _, err := file.Seek(offset, io.SeekStart); err != nil {
 		return nil, err
