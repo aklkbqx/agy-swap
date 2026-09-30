@@ -1,12 +1,6 @@
 package client
 
-import (
-	"context"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"testing"
-)
+import "testing"
 
 func TestNormalizedReleaseTag(t *testing.T) {
 	cases := []struct {
@@ -43,20 +37,4 @@ f2ca1bb6c7e907d06dafe4687e579fce76b37e4e93b7605022da52e6ccc26fd2 *agy-swap_v2.3.
 	if _, err := ExpectedChecksum(manifest, "nonexistent"); err == nil {
 		t.Fatal("expected error for nonexistent asset")
 	}
-}
-
-func TestFetchLatestReleaseMock(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"tag_name":"v2.3.1","html_url":"https://github.com/test/release","assets":[{"name":"bin","browser_download_url":"http://test"}]}`)
-	}))
-	defer server.Close()
-
-	client := server.Client()
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
-	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != 200 {
-		t.Fatalf("mock failed: %v", err)
-	}
-	defer resp.Body.Close()
 }

@@ -2,10 +2,9 @@ package app
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
-	"runtime"
 	"time"
+
+	"github.com/aklkbqx/agy-swap/internal/config"
 )
 
 const (
@@ -38,53 +37,10 @@ var tierNames = map[string]string{
 	"g1-ultra-lite-tier": "Google AI Ultra Lite",
 }
 
-type Paths struct {
-	Home             string
-	ConfigDir        string
-	Accounts         string
-	AccountsBackup   string
-	AccountsLock     string
-	SessionLock      string
-	LogCache         string
-	Settings         string
-	History          string
-	RuntimeState     string
-	JournalDir       string
-	OAuthToken       string
-	OAuthCredentials string
-	GoogleAccounts   string
-}
+// Paths is shared with internal/store through internal/config.
+type Paths = config.Paths
 
-func defaultPaths() (Paths, error) {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return Paths{}, errors.New("cannot determine user home directory")
-	}
-	config := filepath.Join(home, ".gemini", "agy-swap")
-	return Paths{
-		Home:             home,
-		ConfigDir:        config,
-		Accounts:         filepath.Join(config, "accounts.json"),
-		AccountsBackup:   filepath.Join(config, "accounts.json.bak"),
-		AccountsLock:     filepath.Join(config, ".accounts.lock"),
-		SessionLock:      filepath.Join(config, ".session.lock"),
-		LogCache:         filepath.Join(config, "log-cache-v1.json"),
-		Settings:         filepath.Join(config, "config.json"),
-		History:          filepath.Join(config, "history-v1.jsonl"),
-		RuntimeState:     filepath.Join(config, "runtime-state.json"),
-		JournalDir:       filepath.Join(config, "journals"),
-		OAuthToken:       filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"),
-		OAuthCredentials: filepath.Join(home, ".gemini", "oauth_creds.json"),
-		GoogleAccounts:   filepath.Join(home, ".gemini", "google_accounts.json"),
-	}, nil
-}
-
-func privateDirMode() os.FileMode {
-	if runtime.GOOS == "windows" {
-		return 0o777
-	}
-	return 0o700
-}
+func defaultPaths() (Paths, error) { return config.DefaultPaths() }
 
 var (
 	errStoreConflict = errors.New("accounts.json changed in another process; retry the command")
