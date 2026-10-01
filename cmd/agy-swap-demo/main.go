@@ -8,7 +8,7 @@ import (
 	"github.com/aklkbqx/agy-swap/internal/app"
 )
 
-var version = "2.9.1"
+var version = "2.10.0"
 
 func main() {
 	home, err := os.UserHomeDir()

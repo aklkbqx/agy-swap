@@ -14,13 +14,61 @@ import (
 
 type palette struct {
 	Orange, Green, Blue, Red, Yellow, Cyan, Gray, DarkGray, White, Bold, Reset string
+	SelectionBg                                                                string
+	TrackBg                                                                    string
+}
+
+func isTrueColorSupported() bool {
+	if os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
+		return false
+	}
+	ct := strings.ToLower(os.Getenv("COLORTERM"))
+	if ct == "truecolor" || ct == "24bit" {
+		return true
+	}
+	term := strings.ToLower(os.Getenv("TERM"))
+	return strings.Contains(term, "ghostty") ||
+		strings.Contains(term, "alacritty") ||
+		strings.Contains(term, "kitty") ||
+		strings.Contains(term, "iterm")
 }
 
 func makePalette(color bool) palette {
 	if !color || os.Getenv("NO_COLOR") != "" {
 		return palette{}
 	}
-	return palette{Orange: "\x1b[38;5;208m", Green: "\x1b[38;5;78m", Blue: "\x1b[38;5;75m", Red: "\x1b[38;5;203m", Yellow: "\x1b[38;5;220m", Cyan: "\x1b[38;5;86m", Gray: "\x1b[38;5;244m", DarkGray: "\x1b[38;5;238m", White: "\x1b[38;5;255m", Bold: "\x1b[1m", Reset: "\x1b[0m"}
+	if isTrueColorSupported() {
+		return palette{
+			Orange:      "\x1b[38;2;255;137;26m",
+			Green:       "\x1b[38;2;52;211;153m",
+			Blue:        "\x1b[38;2;56;189;248m",
+			Red:         "\x1b[38;2;248;113;113m",
+			Yellow:      "\x1b[38;2;251;191;36m",
+			Cyan:        "\x1b[38;2;56;189;248m",
+			Gray:        "\x1b[38;2;139;148;158m",
+			DarkGray:    "\x1b[38;2;48;54;61m",
+			White:       "\x1b[38;2;240;246;252m",
+			Bold:        "\x1b[1m",
+			Reset:       "\x1b[0m",
+			SelectionBg: "\x1b[48;2;22;27;34m",
+			TrackBg:     "\x1b[38;2;33;38;45m",
+		}
+	}
+	return palette{
+		Orange:      "\x1b[38;5;208m",
+		Green:       "\x1b[38;5;78m",
+		Blue:        "\x1b[38;5;75m",
+		Red:         "\x1b[38;5;203m",
+		Yellow:      "\x1b[38;5;220m",
+		Cyan:        "\x1b[38;5;86m",
+		Gray:        "\x1b[38;5;244m",
+		DarkGray:    "\x1b[38;5;238m",
+		White:       "\x1b[38;5;255m",
+		Bold:        "\x1b[1m",
+		Reset:       "\x1b[0m",
+		SelectionBg: "\x1b[48;5;235m",
+		TrackBg:     "\x1b[38;5;236m",
+	}
 }
 
 func formatDuration(seconds float64) string {
@@ -280,17 +328,53 @@ func accountStatus(account Account, p palette, now time.Time) string {
 	return fmt.Sprintf("[%s] %sUsage unavailable · no recent cooldown error%s", tier, p.Gray, p.Reset)
 }
 
+var fractionalBlocks = []string{"", "▏", "▎", "▍", "▌", "▋", "▊", "▉"}
+
+func renderFractionalBar(fraction float64, width int, filledColor, emptyColor, reset string) string {
+	width = maxInt(1, width)
+	fraction = max(0, min(1, fraction))
+	total := fraction * float64(width)
+	full := int(math.Floor(total))
+	if full >= width {
+		return filledColor + strings.Repeat("█", width) + reset
+	}
+	fracIndex := int(math.Round((total - float64(full)) * 8))
+	if fracIndex >= 8 {
+		full++
+		fracIndex = 0
+	}
+	if full >= width {
+		return filledColor + strings.Repeat("█", width) + reset
+	}
+
+	var sb strings.Builder
+	if full > 0 {
+		sb.WriteString(filledColor)
+		sb.WriteString(strings.Repeat("█", full))
+	}
+	if fracIndex > 0 && full < width {
+		sb.WriteString(filledColor)
+		sb.WriteString(fractionalBlocks[fracIndex])
+		full++
+	}
+	if remaining := width - full; remaining > 0 {
+		sb.WriteString(emptyColor)
+		sb.WriteString(strings.Repeat("░", remaining))
+	}
+	sb.WriteString(reset)
+	return sb.String()
+}
+
 func formatQuotaBar(bucket map[string]any, p palette, now time.Time, width int) string {
 	fraction, _ := getFloat(bucket["remaining_fraction"])
 	fraction = max(0, min(1, fraction))
-	filled := int(math.Round(fraction * float64(width)))
 	color := p.Green
 	if fraction <= .1 {
 		color = p.Red
 	} else if fraction <= .3 {
 		color = p.Yellow
 	}
-	bar := color + strings.Repeat("█", filled) + p.DarkGray + strings.Repeat("░", width-filled) + p.Reset
+	bar := renderFractionalBar(fraction, width, color, p.DarkGray, p.Reset)
 	reset := ""
 	if at, err := parseUTC(getString(bucket, "reset_at")); err == nil {
 		remaining := at.Sub(now)
@@ -312,14 +396,13 @@ func formatQuotaBarResponsive(bucket map[string]any, p palette, now time.Time, w
 	maxWidth = maxInt(1, maxWidth)
 	fraction, _ := getFloat(bucket["remaining_fraction"])
 	fraction = max(0, min(1, fraction))
-	filled := int(math.Round(fraction * float64(width)))
 	color := p.Green
 	if fraction <= .1 {
 		color = p.Red
 	} else if fraction <= .3 {
 		color = p.Yellow
 	}
-	bar := color + strings.Repeat("█", filled) + p.DarkGray + strings.Repeat("░", width-filled) + p.Reset
+	bar := renderFractionalBar(fraction, width, color, p.DarkGray, p.Reset)
 	remaining := ""
 	if at, err := parseUTC(getString(bucket, "reset_at")); err == nil {
 		if left := at.Sub(now); left > 0 {
@@ -363,8 +446,7 @@ func formatCooldownBar(limit map[string]any, p palette, now time.Time, width int
 		return ""
 	}
 	ratio := max(0, min(1, reset.Sub(now).Seconds()/reset.Sub(observed).Seconds()))
-	filled := int(math.Round(ratio * float64(width)))
-	bar := p.Red + strings.Repeat("█", filled) + p.DarkGray + strings.Repeat("░", width-filled) + p.Reset
+	bar := renderFractionalBar(ratio, width, p.Red, p.DarkGray, p.Reset)
 	return fmt.Sprintf("[%s] %.1f%% time left", bar, ratio*100)
 }
 

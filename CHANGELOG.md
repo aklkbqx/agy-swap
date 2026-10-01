@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.10.0
+
+- TUI: unified operator deck redesign with TrueColor palette engine, rounded container borders (`╭─╮`, `╰─╯`), brand pill header, active capsule, and pill keycaps footer.
+- TUI: precision Unicode fractional quota meters (`█ ▉ ▊ ▋ ▌ ▍ ▎ ▏`) with clear track and reset countdown.
+- TUI: modern chevron cursor (`❯`) for account selection across stacked and wide views.
+- TUI: header displays dev build indicator (`v2.10.0-dev`) when running from local dev installation.
+
 ## 2.9.1
 
 - Docs and site: saved account tokens are described as they are stored, in `vault.json` (`0600`, not encrypted), with `AGY_SWAP_VAULT=keychain` for the OS credential store. SECURITY.md no longer claims an encrypted fallback.

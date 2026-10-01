@@ -25,7 +25,7 @@ func assertFrameBorders(t *testing.T, lines []string, marker string) {
 		}
 		found = true
 		runes := []rune(plain)
-		if first, last := runes[0], runes[len(runes)-1]; !strings.ContainsRune("│├", first) || !strings.ContainsRune("│┤", last) {
+		if first, last := runes[0], runes[len(runes)-1]; !strings.ContainsRune("│├╭╰", first) || !strings.ContainsRune("│┤╮╯", last) {
 			t.Fatalf("line %d lost the frame border: %q", i, plain)
 		}
 	}
@@ -87,5 +87,13 @@ func TestTUIQuotaViewShowsSelectedEmailOnce(t *testing.T) {
 		if !strings.Contains(joined, "Selected account") || strings.Contains(joined, "SELECTED ACCOUNT") {
 			t.Fatalf("width=%d: want one selected-account label:\n%s", width, joined)
 		}
+	}
+}
+
+func TestTUIFrameCorners(t *testing.T) {
+	app := &Application{p: makePalette(false)}
+	lines := app.tuiHeaderLines("AGY SWAP", "v2.9.1", 80)
+	if !strings.HasPrefix(lines[0], "╭") || !strings.HasSuffix(lines[0], "╮") {
+		t.Errorf("Header top border = %q, want rounded corners ╭...╮", lines[0])
 	}
 }
