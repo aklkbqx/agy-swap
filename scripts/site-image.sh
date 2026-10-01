@@ -37,13 +37,13 @@ case "${1:-}" in
   release)
     version=${2:?usage: site-image.sh release VERSION [--push]}
     push=${3:-}
-    commit=$(git -C "$root" rev-parse --short "v$version^{commit}")
+    commit=$(git -C "$root/site" rev-parse --short "v$version^{commit}")
     work=$(mktemp -d)
-    trap 'docker rm -f "$container" >/dev/null 2>&1 || true; git -C "$root" worktree remove --force "$work/src" >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
-    git -C "$root" worktree add --detach "$work/src" "v$version" >/dev/null
-    (cd "$work/src/site" && bun install --frozen-lockfile && bun run build)
+    trap 'docker rm -f "$container" >/dev/null 2>&1 || true; git -C "$root/site" worktree remove --force "$work/src" >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
+    git -C "$root/site" worktree add --detach "$work/src" "v$version" >/dev/null
+    (cd "$work/src" && bun install --frozen-lockfile && bun run build)
     tag="$repo:v$version-$commit"
-    docker buildx build --platform linux/amd64 --load -t "$tag" -t "$repo:latest" "$work/src/site"
+    docker buildx build --platform linux/amd64 --load -t "$tag" -t "$repo:latest" "$work/src"
     smoke "$tag" "$version"
     if [ "$push" = --push ]; then
       docker push "$tag"
