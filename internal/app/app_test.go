@@ -94,7 +94,7 @@ func TestTokenIdentityMatchesTargetAccount(t *testing.T) {
 }
 
 func TestNormalizedReleaseTag(t *testing.T) {
-	for input, want := range map[string]string{"2.9.1": "v2.9.1", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} { //nolint:gocritic // the padded key tests trimming
+	for input, want := range map[string]string{"2.10.0": "v2.10.0", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} { //nolint:gocritic // the padded key tests trimming
 		if got := normalizedReleaseTag(input); got != want {
 			t.Fatalf("%q normalized to %q, want %q", input, got, want)
 		}
@@ -383,7 +383,7 @@ func TestTUIResponsiveRenderersShareVisualContract(t *testing.T) {
 	wide := a.tuiAccountTableRows(state, 56, 4)
 	for name, rows := range map[string][]string{"stacked": stacked, "wide": wide} {
 		joined := strings.Join(rows, "\n")
-		for _, want := range []string{">", "[US]", "Gemini 85% ready"} {
+		for _, want := range []string{"❯", "[US]", "Gemini 85% ready"} {
 			if !strings.Contains(joined, want) {
 				t.Fatalf("%s renderer missing %q: %q", name, want, rows)
 			}
@@ -437,7 +437,7 @@ func TestTUINarrowQuotaValueKeepsResetWindow(t *testing.T) {
 	now := time.Date(2026, time.September, 29, 12, 0, 0, 0, time.UTC)
 	bucket := map[string]any{"remaining_fraction": 0.43, "reset_at": isoTime(now.Add(2*24*time.Hour + 4*time.Hour + 10*time.Minute))}
 	got := formatQuotaBarResponsive(bucket, makePalette(false), now, 6, 21)
-	if want := "[███░░░] 43% · 2d 4h"; got != want {
+	if want := "[██▋░░░] 43% · 2d 4h"; got != want {
 		t.Fatalf("narrow quota value = %q, want %q", got, want)
 	}
 	if visibleWidth(got) > 21 {
@@ -448,11 +448,11 @@ func TestTUINarrowQuotaValueKeepsResetWindow(t *testing.T) {
 func TestTUINarrowQuotaValueWithoutResetOrDue(t *testing.T) {
 	now := time.Date(2026, time.September, 29, 12, 0, 0, 0, time.UTC)
 	noReset := map[string]any{"remaining_fraction": 0.43}
-	if got := formatQuotaBarResponsive(noReset, makePalette(false), now, 6, 21); got != "[███░░░] 43%" {
+	if got := formatQuotaBarResponsive(noReset, makePalette(false), now, 6, 21); got != "[██▋░░░] 43%" {
 		t.Fatalf("no-reset value = %q", got)
 	}
 	due := map[string]any{"remaining_fraction": 0.43, "reset_at": isoTime(now.Add(-time.Minute))}
-	if got := formatQuotaBarResponsive(due, makePalette(false), now, 6, 21); got != "[███░░░] 43.0% · due" {
+	if got := formatQuotaBarResponsive(due, makePalette(false), now, 6, 21); got != "[██▋░░░] 43.0% · due" {
 		t.Fatalf("due value = %q", got)
 	}
 }
@@ -505,7 +505,7 @@ func TestTUIWideAccountTableUsesStableColumns(t *testing.T) {
 	if !strings.Contains(rows[0], "ACCOUNT") || !strings.Contains(rows[0], "HEALTH") {
 		t.Fatalf("missing table headers: %q", rows[0])
 	}
-	if !strings.Contains(rows[2], "> · [AL]") || !strings.Contains(rows[2], "Alpha") {
+	if !strings.Contains(rows[2], "❯ · [AL]") || !strings.Contains(rows[2], "Alpha") {
 		t.Fatalf("selected row lost its identity: %q", rows[2])
 	}
 	for i, row := range rows {
@@ -621,7 +621,7 @@ func TestTUIOverlayKeepsFrameGeometry(t *testing.T) {
 func TestTUISuccessToastKeepsFrameGeometryAndExpires(t *testing.T) {
 	accounts := NewAccounts()
 	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
-	a := &Application{Version: "2.9.1", p: makePalette(false), color: false}
+	a := &Application{Version: "2.10.0", p: makePalette(false), color: false}
 	state := newTUIState(accounts, "user@example.com")
 	state.showToast("Switched to user@example.com", "success")
 
@@ -1116,7 +1116,7 @@ func TestExtendedSettingsAliasesAndEncryptedBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	a := &Application{Version: "2.9.1", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
+	a := &Application{Version: "2.10.0", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
 	if code := a.Run(context.Background(), []string{"config", "set", "policy.min_remaining_pct", "25"}); code != 0 {
 		t.Fatalf("config set code=%d err=%s", code, errOut.String())
 	}
@@ -1522,5 +1522,91 @@ func TestTitleWordMatchesTheDeprecatedStringsTitle(t *testing.T) {
 		if got := titleWord(input); got != want {
 			t.Fatalf("titleWord(%q) = %q, want %q", input, got, want)
 		}
+	}
+}
+
+func TestPaletteTrueColor(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("COLORTERM", "truecolor")
+	t.Setenv("TERM", "xterm-256color")
+
+	p := makePalette(true)
+	// Brand orange #FF891A -> 255, 137, 26
+	if want := "\x1b[38;2;255;137;26m"; p.Orange != want {
+		t.Errorf("Orange = %q, want %q", p.Orange, want)
+	}
+	// Cyan #38BDF8 -> 56, 189, 248
+	if want := "\x1b[38;2;56;189;248m"; p.Cyan != want {
+		t.Errorf("Cyan = %q, want %q", p.Cyan, want)
+	}
+	// Green #34D399 -> 52, 211, 153
+	if want := "\x1b[38;2;52;211;153m"; p.Green != want {
+		t.Errorf("Green = %q, want %q", p.Green, want)
+	}
+	// Red #F87171 -> 248, 113, 113
+	if want := "\x1b[38;2;248;113;113m"; p.Red != want {
+		t.Errorf("Red = %q, want %q", p.Red, want)
+	}
+}
+
+func TestPaletteFallback(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("COLORTERM", "")
+	t.Setenv("TERM", "xterm-256color")
+
+	p := makePalette(true)
+	if want := "\x1b[38;5;208m"; p.Orange != want {
+		t.Errorf("Fallback Orange = %q, want %q", p.Orange, want)
+	}
+}
+
+func TestPaletteNoColor(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	p := makePalette(true)
+	if p.Orange != "" || p.Green != "" || p.Reset != "" {
+		t.Errorf("NO_COLOR set but palette contains colors: %+v", p)
+	}
+}
+
+func TestRenderFractionalBar(t *testing.T) {
+	// 0% on 4-char bar: all empty blocks
+	if got := renderFractionalBar(0.0, 4, "", "", ""); got != "░░░░" {
+		t.Errorf("0%% = %q, want %q", got, "░░░░")
+	}
+	// 100% on 4-char bar: all full blocks
+	if got := renderFractionalBar(1.0, 4, "", "", ""); got != "████" {
+		t.Errorf("100%% = %q, want %q", got, "████")
+	}
+	// 50% on 4-char bar: 2 full, 2 empty
+	if got := renderFractionalBar(0.5, 4, "", "", ""); got != "██░░" {
+		t.Errorf("50%% = %q, want %q", got, "██░░")
+	}
+	// 43% on 6-char bar: 43% * 6 = 2.58 -> 2 full blocks (2.0), 0.58 remainder, 3 empty
+	got := renderFractionalBar(0.43, 6, "", "", "")
+	if len([]rune(got)) != 6 {
+		t.Errorf("visible length of %q = %d, want 6", got, len([]rune(got)))
+	}
+}
+
+func TestAccountRowSelection(t *testing.T) {
+	app := &Application{p: makePalette(false)}
+	view := tuiAccountView{name: "Alpha User", email: "alpha@example.invalid", selected: true}
+	row := app.renderAccountRow(view, 40)
+	if !strings.Contains(row, "❯") {
+		t.Errorf("Selected row = %q, expected chevron ❯", row)
+	}
+}
+
+func TestTUIDisplayVersionDev(t *testing.T) {
+	appDev := &Application{Version: "2.10.0", BuildID: "dev", p: makePalette(false)}
+	linesDev := appDev.tuiTopLines(newTUIState(NewAccounts(), ""), 80)
+	if !strings.Contains(strings.Join(linesDev, "\n"), "v2.10.0-dev") {
+		t.Fatalf("TUI header missing dev tag: %q", linesDev)
+	}
+
+	appRel := &Application{Version: "2.10.0", BuildID: "release", p: makePalette(false)}
+	linesRel := appRel.tuiTopLines(newTUIState(NewAccounts(), ""), 80)
+	if !strings.Contains(strings.Join(linesRel, "\n"), "v2.10.0") || strings.Contains(strings.Join(linesRel, "\n"), "v2.10.0-") {
+		t.Fatalf("TUI header should not have dev tag for release: %q", linesRel)
 	}
 }
