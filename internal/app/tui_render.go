@@ -163,18 +163,20 @@ func (a *Application) tuiLines(state *tuiState, width, height int) []string {
 	return fitFrameLines(lines, g, a.p)
 }
 
-func (a *Application) tuiTopLines(state *tuiState, width int) []string {
+func (a *Application) tuiHeaderLinesWithVersion(version string, state *tuiState, width int) []string {
 	g := newTUIGeometry(width, 12)
-	left := a.p.Bold + a.p.Orange + "AGY SWAP" + a.p.Reset + "  v" + stateVersion(a.Version)
+	left := a.p.Orange + "▎" + a.p.Bold + a.p.Orange + "AGY " + a.p.White + "SWAP" + a.p.Reset + " " + a.p.Gray + "· v" + tuiText(stateVersion(version)) + a.p.Reset
 	right := a.p.Gray + tuiCredit + "  ·  LOCAL" + a.p.Reset
-	switch {
-	case state.refreshing:
-		frames := []string{"◐", "◓", "◑", "◒"}
-		right = a.p.Gray + tuiCredit + "  ·  " + a.p.Cyan + frames[state.animationPhase()] + " SYNCING" + a.p.Reset
-	case state.animation.kind == "success" && state.animation.active:
-		right = a.p.Gray + tuiCredit + "  ·  " + a.p.Green + "✓ SYNCED" + a.p.Reset
-	case state.animation.kind == "error" && state.animation.active:
-		right = a.p.Gray + tuiCredit + "  ·  " + a.p.Yellow + "⚠ SYNC WARNINGS" + a.p.Reset
+	if state != nil {
+		switch {
+		case state.refreshing:
+			frames := []string{"◐", "◓", "◑", "◒"}
+			right = a.p.Gray + tuiCredit + "  ·  " + a.p.Cyan + frames[state.animationPhase()] + " SYNCING" + a.p.Reset
+		case state.animation.kind == "success" && state.animation.active:
+			right = a.p.Gray + tuiCredit + "  ·  " + a.p.Green + "✓ SYNCED" + a.p.Reset
+		case state.animation.kind == "error" && state.animation.active:
+			right = a.p.Gray + tuiCredit + "  ·  " + a.p.Yellow + "⚠ SYNC WARNINGS" + a.p.Reset
+		}
 	}
 	if visibleWidth(left) > g.contentWidth {
 		left = truncateVisible(left, g.contentWidth, a.p)
@@ -189,15 +191,34 @@ func (a *Application) tuiTopLines(state *tuiState, width int) []string {
 	}
 	content := left + strings.Repeat(" ", gap) + right
 	return []string{
-		a.p.Gray + "┌" + strings.Repeat("─", g.frameWidth-2) + "┐" + a.p.Reset,
+		a.p.Gray + "╭" + strings.Repeat("─", g.frameWidth-2) + "╮" + a.p.Reset,
 		frameRow(content, g, a.p),
 	}
+}
+
+func (a *Application) displayVersion() string {
+	v := stateVersion(a.Version)
+	build := strings.TrimSpace(a.BuildID)
+	if build != "" && build != "unknown" && build != "release" && build != "demo" {
+		if !strings.HasSuffix(v, "-"+build) {
+			return v + "-" + build
+		}
+	}
+	return v
+}
+
+func (a *Application) tuiTopLines(state *tuiState, width int) []string {
+	return a.tuiHeaderLinesWithVersion(a.displayVersion(), state, width)
+}
+
+func (a *Application) tuiHeaderLines(title, version string, width int) []string {
+	return a.tuiHeaderLinesWithVersion(version, nil, width)
 }
 
 func (a *Application) tuiActiveLine(state *tuiState, width int) string {
 	g := newTUIGeometry(width, 12)
 	if state.active == "" {
-		return frameRow(a.p.Yellow+"ACTIVE"+a.p.Reset+"  — no saved session", g, a.p)
+		return frameRow(a.p.Orange+"⬢ "+a.p.Bold+a.p.White+"ACTIVE"+a.p.Reset+"  "+a.p.Gray+"— no saved session"+a.p.Reset, g, a.p)
 	}
 	name := "Google User"
 	status := a.p.Yellow + "UNSAVED" + a.p.Reset
@@ -207,7 +228,7 @@ func (a *Application) tuiActiveLine(state *tuiState, width int) string {
 			status = a.p.Green + "SAVED" + a.p.Reset
 		}
 	}
-	content := a.p.Bold + "ACTIVE" + a.p.Reset + "  " + a.p.Green + "●" + a.p.Reset + " " + avatar(name, state.active, a.color) + " " + a.p.White + tuiText(name) + a.p.Reset + " " + a.p.Gray + "<" + tuiText(state.active) + ">" + a.p.Reset + "  " + status
+	content := a.p.Orange + "⬢ " + a.p.Bold + a.p.White + "ACTIVE" + a.p.Reset + "  " + a.p.Green + "●" + a.p.Reset + " " + avatar(name, state.active, a.color) + " " + a.p.White + a.p.Bold + tuiText(name) + a.p.Reset + " " + a.p.Gray + "<" + tuiText(state.active) + ">" + a.p.Reset + "  " + "[" + status + "]"
 	return frameRow(content, g, a.p)
 }
 
@@ -278,8 +299,8 @@ func (a *Application) tuiSelectionMarker(view tuiAccountView, state *tuiState) s
 	if !view.selected {
 		return " "
 	}
-	marker := ">"
-	if state.animation.kind == "focus" && state.animation.active && state.animationPhase()%2 == 1 {
+	marker := "❯"
+	if state != nil && state.animation.kind == "focus" && state.animation.active && state.animationPhase()%2 == 1 {
 		marker = "*"
 	}
 	return a.p.Orange + marker + a.p.Reset
@@ -294,6 +315,11 @@ func (a *Application) tuiActiveMarker(view tuiAccountView) string {
 
 func (a *Application) tuiAccountIdentityLine(view tuiAccountView, state *tuiState) string {
 	return fmt.Sprintf("%s %s %s %s %s", a.tuiSelectionMarker(view, state), a.tuiActiveMarker(view), view.avatar, a.tuiIdentity(view.name), a.tuiSecondary("<"+view.email+">"))
+}
+
+func (a *Application) renderAccountRow(view tuiAccountView, width int) string {
+	line := a.tuiAccountIdentityLine(view, nil)
+	return fitVisible(line, width, a.p)
 }
 
 func (a *Application) tuiWideBody(state *tuiState, width, height int) []string {
@@ -311,7 +337,7 @@ func (a *Application) tuiWideBody(state *tuiState, width, height int) []string {
 	g.rightWidth = maxInt(1, totalAvail-g.leftWidth)
 	lines := []string{panelDivider(g, a.p)}
 	if g.bodyRows > 1 {
-		leftTitle := a.tuiSectionTitle("ACCOUNTS") + "  " + a.p.Gray + fmt.Sprintf("%d", len(state.visibleEmails())) + "  > selected · ● active" + a.p.Reset
+		leftTitle := a.tuiSectionTitle("ACCOUNTS") + "  " + a.p.Gray + fmt.Sprintf("%d", len(state.visibleEmails())) + "  ❯ selected · ● active" + a.p.Reset
 		rightTitle := a.tuiSectionTitle("ACCOUNT HEALTH")
 		lines = append(lines, panelRow(leftTitle, rightTitle, g, a.p))
 	}
@@ -337,7 +363,7 @@ func (a *Application) tuiStackedBody(state *tuiState, width, height int) []strin
 	g.bodyRows = maxInt(1, height)
 	lines := []string{a.p.Gray + "├" + strings.Repeat("─", g.frameWidth-2) + "┤" + a.p.Reset}
 	if len(lines) < g.bodyRows {
-		title := a.tuiSectionTitle("ACCOUNTS") + "  " + a.p.Gray + fmt.Sprintf("%d", len(state.visibleEmails())) + "  > selected · ● active" + a.p.Reset
+		title := a.tuiSectionTitle("ACCOUNTS") + "  " + a.p.Gray + fmt.Sprintf("%d", len(state.visibleEmails())) + "  ❯ selected · ● active" + a.p.Reset
 		lines = append(lines, frameRow(title, g, a.p))
 	}
 	if len(lines) >= g.bodyRows {
@@ -736,40 +762,48 @@ func (a *Application) tuiToastOverlay(base []string, state *tuiState, width, hei
 	return base
 }
 
+func formatKeycaps(p palette, pairs ...string) string {
+	parts := make([]string, 0, len(pairs)/2)
+	for i := 0; i+1 < len(pairs); i += 2 {
+		parts = append(parts, p.White+pairs[i]+p.Reset+" "+p.Gray+pairs[i+1]+p.Reset)
+	}
+	return strings.Join(parts, "   ")
+}
+
 func (a *Application) tuiFooterLines(state *tuiState, width int) []string {
 	g := newTUIGeometry(width, 12)
-	footer := "↑↓/jk Navigate   Enter Switch   Ctrl-K/: Actions   ? Help   q Quit"
+	footer := formatKeycaps(a.p, "[↑↓]", "Move", "[Enter]", "Switch", "[^K]", "Actions", "[?]", "Help", "[q]", "Quit")
 	if state.view != tuiViewDashboard {
-		footer = "↑↓ Navigate   Enter Edit   b Dashboard   Ctrl-K/: Actions   ? Help"
+		footer = formatKeycaps(a.p, "[↑↓]", "Navigate", "[Enter]", "Edit", "[b]", "Dashboard", "[^K]", "Actions", "[?]", "Help")
 		switch state.view {
 		case tuiViewBackup:
-			footer = "x Export   i Import   v Verify   b Dashboard   Ctrl-K/: Actions"
+			footer = formatKeycaps(a.p, "[x]", "Export", "[i]", "Import", "[v]", "Verify", "[b]", "Dashboard", "[^K]", "Actions")
 		case tuiViewHistory:
-			footer = "c Clear   x Export   b Dashboard   Ctrl-K/: Actions"
+			footer = formatKeycaps(a.p, "[c]", "Clear", "[x]", "Export", "[b]", "Dashboard", "[^K]", "Actions")
 		case tuiViewSettings:
-			footer = "e Edit   a Alias   b Binding   t Target   Ctrl-K/: Actions"
+			footer = formatKeycaps(a.p, "[e]", "Edit", "[a]", "Alias", "[b]", "Binding", "[t]", "Target", "[^K]", "Actions")
 		case tuiViewDoctor:
-			footer = "Enter/r Run again   b Dashboard   Ctrl-K/: Actions"
+			footer = formatKeycaps(a.p, "[Enter]", "Run again", "[b]", "Dashboard", "[^K]", "Actions")
 		case tuiViewProfiles:
-			footer = "c Create   Enter/e Edit   d Delete   b Dashboard   Ctrl-K/: Actions"
+			footer = formatKeycaps(a.p, "[c]", "Create", "[Enter]", "Edit", "[d]", "Delete", "[b]", "Dashboard", "[^K]", "Actions")
 		}
 	}
 	switch state.mode {
 	case tuiSearch:
-		footer = "Type to filter   Enter Apply   Esc Cancel   Backspace Erase"
+		footer = formatKeycaps(a.p, "[Type]", "Filter", "[Enter]", "Apply", "[Esc]", "Cancel", "[Bksp]", "Erase")
 	case tuiHelp:
-		footer = "Esc or any key · Close help"
+		footer = a.p.White + "[Esc]" + a.p.Reset + " " + a.p.Gray + "Close help" + a.p.Reset
 	case tuiPalette:
-		footer = "↑↓ Move   Enter Run   Type Filter   Esc Close"
+		footer = formatKeycaps(a.p, "[↑↓]", "Move", "[Enter]", "Run", "[Type]", "Filter", "[Esc]", "Close")
 	case tuiForm:
-		footer = "↑↓ Field   ←→ Choice   Enter Next/Save   Esc Cancel"
+		footer = formatKeycaps(a.p, "[↑↓]", "Field", "[←→]", "Choice", "[Enter]", "Next/Save", "[Esc]", "Cancel")
 	case tuiConfirmAction:
-		footer = "y Confirm   n / Esc Cancel"
+		footer = formatKeycaps(a.p, "[y]", "Confirm", "[n/Esc]", "Cancel")
 	}
 	return []string{
 		a.p.Gray + "├" + strings.Repeat("─", g.frameWidth-2) + "┤" + a.p.Reset,
-		frameRow(a.p.Gray+footer+a.p.Reset, g, a.p),
-		a.p.Gray + "└" + strings.Repeat("─", g.frameWidth-2) + "┘" + a.p.Reset,
+		frameRow(footer, g, a.p),
+		a.p.Gray + "╰" + strings.Repeat("─", g.frameWidth-2) + "╯" + a.p.Reset,
 	}
 }
 
