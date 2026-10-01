@@ -6,7 +6,7 @@ __pycache__/
 /agy-swap
 *.exe
 /dist/
-site/src/generated/tui-fixtures.json
+/site/
 /coverage.out
 graft/
 .env.graft
