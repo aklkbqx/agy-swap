@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"strings"
 	"time"
@@ -108,6 +109,7 @@ type tuiState struct {
 	doctorHealthy  bool
 	backupPath     string
 	quitRequested  bool
+	vault          AccountVault
 }
 
 func newTUIState(accounts *Accounts, current string) *tuiState {
@@ -123,22 +125,61 @@ func newTUIState(accounts *Accounts, current string) *tuiState {
 	return state
 }
 
-func (s *tuiState) visibleEmails() []string {
+func (s *tuiState) accountNeedsAttention(email string) (bool, string) {
+	if s.quotaErrors != nil {
+		if errStr, ok := s.quotaErrors[email]; ok && errStr != "" {
+			return true, errStr
+		}
+	}
+	if s.accounts != nil && s.vault != nil {
+		if account, ok := s.accounts.ByEmail[email]; ok {
+			ref := getString(account, "secret_ref")
+			tokenData := getString(account, "token_data")
+			if ref != "" && tokenData == "" {
+				if _, ok := s.vault.Get(context.Background(), ref); !ok {
+					return true, "secret vault entry is unavailable"
+				}
+			}
+			if ref == "" && tokenData == "" {
+				return true, "account has no saved token"
+			}
+		}
+	}
+	return false, ""
+}
+
+func (s *tuiState) partitionedEmails() (ready, attention []string) {
 	if s.accounts == nil {
-		return nil
+		return nil, nil
 	}
 	query := strings.ToLower(strings.TrimSpace(s.search))
-	result := make([]string, 0, s.accounts.Len())
 	for _, email := range s.accounts.Order {
-		if query == "" {
-			result = append(result, email)
-			continue
+		if query != "" {
+			account := s.accounts.ByEmail[email]
+			if !strings.Contains(strings.ToLower(email), query) && !strings.Contains(strings.ToLower(getString(account, "name")), query) {
+				continue
+			}
 		}
-		account := s.accounts.ByEmail[email]
-		if strings.Contains(strings.ToLower(email), query) || strings.Contains(strings.ToLower(getString(account, "name")), query) {
-			result = append(result, email)
+		if needs, _ := s.accountNeedsAttention(email); needs {
+			attention = append(attention, email)
+		} else {
+			ready = append(ready, email)
 		}
 	}
+	return ready, attention
+}
+
+func (s *tuiState) visibleEmails() []string {
+	ready, attention := s.partitionedEmails()
+	if len(attention) == 0 {
+		return ready
+	}
+	if len(ready) == 0 {
+		return attention
+	}
+	result := make([]string, 0, len(ready)+len(attention))
+	result = append(result, ready...)
+	result = append(result, attention...)
 	return result
 }
 
@@ -348,4 +389,28 @@ func (s *tuiState) adjustSplit(delta int) {
 
 func (s *tuiState) resetSplit() {
 	s.splitOffset = 0
+}
+
+func (s *tuiState) wideSplitBounds() (baseLeft, minLeft, maxLeft, dividerCol int, ok bool) {
+	if s == nil {
+		return 0, 0, 0, 0, false
+	}
+	g := newTUIGeometry(s.width, s.height)
+	if g.layout != tuiLayoutWide {
+		return 0, 0, 0, 0, false
+	}
+	totalAvail := maxInt(2, g.frameWidth-7)
+	baseLeft = maxInt(48, minInt(68, totalAvail*46/100))
+	minLeft = minInt(32, totalAvail-1)
+	maxLeft = maxInt(minLeft, totalAvail-24)
+	leftWidth := maxInt(minLeft, minInt(maxLeft, baseLeft+s.splitOffset))
+	dividerCol = leftWidth + 4
+	return baseLeft, minLeft, maxLeft, dividerCol, true
+}
+
+func absInt(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
 }

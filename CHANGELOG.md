@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.11.0
+
+- TUI: partitioned accounts into `READY` and `ATTENTION REQUIRED` sections with warning marker (`⚠`), token health status override, and repair guidance in account detail.
+- TUI: interactive split resizing: drag the vertical divider (`│`) with mouse in real time, double-click divider to reset, and navigate accounts via mouse wheel.
+- TUI: discoverable split controls with `+`, `-`, `[`, `]`, `alt-left`, `alt-right`, and footer keycaps indicator `[[]/[]] Resize` in wide layout.
+- TUI: 0ms vault token check on startup to partition missing vault credentials without waiting for background network quota refresh.
+- TUI: wider default left accounts table proportion (46%, min 48 columns) preventing quota meter truncation on standard viewports.
+
 ## 2.10.0
 
 - TUI: unified operator deck redesign with TrueColor palette engine, rounded container borders (`╭─╮`, `╰─╯`), brand pill header, active capsule, and pill keycaps footer.
