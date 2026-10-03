@@ -2,7 +2,10 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 	"unicode"
@@ -89,8 +92,8 @@ func readEscapeSequence(reader io.Reader, paused *atomic.Bool) string {
 		return "esc"
 	}
 	if second == '[' {
-		sequence := make([]byte, 0, 4)
-		for len(sequence) < 8 {
+		sequence := make([]byte, 0, 16)
+		for len(sequence) < 32 {
 			b, readErr := readInputByteWithTimeout(reader, tuiEscapeTimeout, paused)
 			if readErr != nil {
 				if errors.Is(readErr, errInputPaused) {
@@ -139,18 +142,76 @@ func decodeCSI(sequence []byte) string {
 	if len(sequence) == 0 {
 		return "esc"
 	}
+	if sequence[0] == '<' {
+		s := string(sequence)
+		final := s[len(s)-1]
+		body := s[1 : len(s)-1]
+		parts := strings.Split(body, ";")
+		if len(parts) == 3 {
+			btn, _ := strconv.Atoi(parts[0])
+			col, _ := strconv.Atoi(parts[1])
+			row, _ := strconv.Atoi(parts[2])
+			if btn&64 != 0 {
+				if btn == 64 {
+					return "wheel-up"
+				}
+				if btn == 65 {
+					return "wheel-down"
+				}
+			}
+			if final == 'm' {
+				return fmt.Sprintf("mouse:up:%d:%d", col, row)
+			}
+			if btn&32 != 0 {
+				return fmt.Sprintf("mouse:drag:%d:%d", col, row)
+			}
+			if btn&3 == 0 {
+				return fmt.Sprintf("mouse:down:%d:%d", col, row)
+			}
+		}
+		return "mouse:other"
+	}
 	final := sequence[len(sequence)-1]
+	prefix := string(sequence[:len(sequence)-1])
 	switch final {
 	case 'Z':
 		return "shift-tab"
 	case 'A':
-		return "up"
+		switch prefix {
+		case "1;3", "1;2", "1;4":
+			return "alt-up"
+		case "1;5", "1;6":
+			return "ctrl-up"
+		default:
+			return "up"
+		}
 	case 'B':
-		return "down"
+		switch prefix {
+		case "1;3", "1;2", "1;4":
+			return "alt-down"
+		case "1;5", "1;6":
+			return "ctrl-down"
+		default:
+			return "down"
+		}
 	case 'C':
-		return "right"
+		switch prefix {
+		case "1;3", "1;2", "1;4":
+			return "alt-right"
+		case "1;5", "1;6":
+			return "ctrl-right"
+		default:
+			return "right"
+		}
 	case 'D':
-		return "left"
+		switch prefix {
+		case "1;3", "1;2", "1;4":
+			return "alt-left"
+		case "1;5", "1;6":
+			return "ctrl-left"
+		default:
+			return "left"
+		}
 	case 'H':
 		return "home"
 	case 'F':

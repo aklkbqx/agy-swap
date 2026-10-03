@@ -24,13 +24,15 @@ const (
 )
 
 type tuiAccountView struct {
-	email    string
-	name     string
-	avatar   string
-	selected bool
-	active   bool
-	health   string
-	tone     tuiHealthTone
+	email           string
+	name            string
+	avatar          string
+	selected        bool
+	active          bool
+	health          string
+	tone            tuiHealthTone
+	needsAttention  bool
+	attentionReason string
 }
 
 type tuiLayout uint8
@@ -81,7 +83,7 @@ func newTUIGeometry(innerWidth, height int) tuiGeometry {
 	if g.layout == tuiLayoutWide {
 		// Give the account table enough room for identity and health columns,
 		// while keeping the selected account details dominant on large screens.
-		g.leftWidth = maxInt(42, minInt(64, (frameWidth-7)*36/100))
+		g.leftWidth = maxInt(48, minInt(68, (frameWidth-7)*46/100))
 		g.rightWidth = maxInt(1, frameWidth-7-g.leftWidth)
 	}
 	return g
@@ -284,7 +286,7 @@ func (a *Application) tuiAccountView(state *tuiState, email string, now time.Tim
 	account := state.accounts.ByEmail[email]
 	name := firstString(tuiText(getString(account, "name")), "Google User")
 	groups := quotaGroupHealths(account)
-	return tuiAccountView{
+	view := tuiAccountView{
 		email:    email,
 		name:     name,
 		avatar:   avatar(name, email, a.color),
@@ -293,6 +295,19 @@ func (a *Application) tuiAccountView(state *tuiState, email string, now time.Tim
 		health:   accountHealthCompactForGroups(account, groups, now),
 		tone:     tuiHealthToneForGroups(groups, account, now),
 	}
+	if state != nil {
+		if needs, reason := state.accountNeedsAttention(email); needs {
+			view.needsAttention = true
+			view.attentionReason = reason
+			view.tone = tuiHealthWarning
+			if strings.Contains(strings.ToLower(reason), "vault") || strings.Contains(strings.ToLower(reason), "token") {
+				view.health = "⚠ Token unavailable"
+			} else {
+				view.health = "⚠ Needs attention"
+			}
+		}
+	}
+	return view
 }
 
 func (a *Application) tuiSelectionMarker(view tuiAccountView, state *tuiState) string {
@@ -308,7 +323,13 @@ func (a *Application) tuiSelectionMarker(view tuiAccountView, state *tuiState) s
 
 func (a *Application) tuiActiveMarker(view tuiAccountView) string {
 	if view.active {
+		if view.needsAttention {
+			return a.p.Yellow + "●" + a.p.Reset
+		}
 		return a.p.Green + "●" + a.p.Reset
+	}
+	if view.needsAttention {
+		return a.p.Yellow + "⚠" + a.p.Reset
 	}
 	return a.p.DarkGray + "·" + a.p.Reset
 }
@@ -326,13 +347,13 @@ func (a *Application) tuiWideBody(state *tuiState, width, height int) []string {
 	g := newTUIGeometry(width, height+8)
 	g.bodyRows = maxInt(1, height)
 	totalAvail := maxInt(2, g.frameWidth-7)
-	baseLeft := maxInt(42, minInt(64, totalAvail*36/100))
+	baseLeft := maxInt(48, minInt(68, totalAvail*46/100))
 	offset := 0
 	if state != nil {
 		offset = state.splitOffset
 	}
 	minLeft := minInt(32, totalAvail-1)
-	maxLeft := maxInt(minLeft, totalAvail-28)
+	maxLeft := maxInt(minLeft, totalAvail-24)
 	g.leftWidth = maxInt(minLeft, minInt(maxLeft, baseLeft+offset))
 	g.rightWidth = maxInt(1, totalAvail-g.leftWidth)
 	lines := []string{panelDivider(g, a.p)}
@@ -434,41 +455,119 @@ func (a *Application) tuiCompactBody(state *tuiState, width, height int) []strin
 	return fitBodyLines(lines, g, a.p)
 }
 
+func (a *Application) tuiSectionDividerRow(title string, count int, isAttention bool, width int) string {
+	width = maxInt(1, width)
+	label := fmt.Sprintf("%s (%d)", title, count)
+	color := a.p.Bold + a.p.White
+	if isAttention {
+		color = a.p.Bold + a.p.Yellow
+	}
+	prefix := a.p.DarkGray + "── " + color + label + a.p.Reset + " " + a.p.DarkGray
+	prefixLen := visibleWidth(prefix)
+	dashCount := maxInt(0, width-prefixLen)
+	content := prefix + strings.Repeat("─", dashCount) + a.p.Reset
+	return fitVisible(content, width, a.p)
+}
+
 func (a *Application) tuiAccountRows(state *tuiState, width, maxRows int) []string {
 	width = maxInt(1, width)
 	if maxRows <= 0 {
 		return nil
 	}
-	// An account is a two-line unit (identity + health summary). Never leave
-	// a dangling identity row at the bottom of a compact viewport.
-	if maxRows > 1 {
-		maxRows -= maxRows % 2
-	}
 	emails := state.visibleEmails()
 	if len(emails) == 0 {
 		return nil
 	}
-	accountBudget := maxInt(1, maxRows/2)
-	start := 0
-	for i, email := range emails {
-		if strings.EqualFold(email, state.selectedEmail) {
-			start = maxInt(0, i-accountBudget/2)
+	ready, attention := state.partitionedEmails()
+	now := a.renderTime()
+	if len(attention) == 0 {
+		if maxRows > 1 {
+			maxRows -= maxRows % 2
+		}
+		accountBudget := maxInt(1, maxRows/2)
+		start := 0
+		for i, email := range emails {
+			if strings.EqualFold(email, state.selectedEmail) {
+				start = maxInt(0, i-accountBudget/2)
+				break
+			}
+		}
+		end := minInt(len(emails), start+accountBudget)
+		rows := make([]string, 0, (end-start)*2)
+		for i := start; i < end; i++ {
+			email := emails[i]
+			view := a.tuiAccountView(state, email, now)
+			label := a.tuiAccountIdentityLine(view, state)
+			if maxRows == 1 {
+				rows = append(rows, fitVisible(label, width, a.p))
+				break
+			}
+			summary := "  " + a.tuiHealthColor(view.tone) + tuiText(view.health) + a.p.Reset
+			rows = append(rows, fitVisible(label, width, a.p), fitVisible(summary, width, a.p))
+		}
+		return rows
+	}
+
+	type stackedBlock struct {
+		isHeader bool
+		email    string
+		lines    []string
+	}
+	var blocks []stackedBlock
+	if len(ready) > 0 {
+		blocks = append(blocks, stackedBlock{isHeader: true, lines: []string{a.tuiSectionDividerRow("READY", len(ready), false, width)}})
+		for _, email := range ready {
+			view := a.tuiAccountView(state, email, now)
+			label := a.tuiAccountIdentityLine(view, state)
+			summary := "  " + a.tuiHealthColor(view.tone) + tuiText(view.health) + a.p.Reset
+			blocks = append(blocks, stackedBlock{email: email, lines: []string{fitVisible(label, width, a.p), fitVisible(summary, width, a.p)}})
+		}
+	}
+	if len(attention) > 0 {
+		blocks = append(blocks, stackedBlock{isHeader: true, lines: []string{a.tuiSectionDividerRow("ATTENTION REQUIRED", len(attention), true, width)}})
+		for _, email := range attention {
+			view := a.tuiAccountView(state, email, now)
+			label := a.tuiAccountIdentityLine(view, state)
+			summary := "  " + a.tuiHealthColor(view.tone) + tuiText(view.health) + a.p.Reset
+			blocks = append(blocks, stackedBlock{email: email, lines: []string{fitVisible(label, width, a.p), fitVisible(summary, width, a.p)}})
+		}
+	}
+
+	selectedBlockIdx := 0
+	for idx, blk := range blocks {
+		if !blk.isHeader && strings.EqualFold(blk.email, state.selectedEmail) {
+			selectedBlockIdx = idx
 			break
 		}
 	}
-	end := minInt(len(emails), start+accountBudget)
-	rows := make([]string, 0, end-start)
-	now := a.renderTime()
-	for i := start; i < end; i++ {
-		email := emails[i]
-		view := a.tuiAccountView(state, email, now)
-		label := a.tuiAccountIdentityLine(view, state)
-		if maxRows == 1 {
-			rows = append(rows, fitVisible(label, width, a.p))
+
+	startBlock := selectedBlockIdx
+	endBlock := selectedBlockIdx + 1
+	currentLines := len(blocks[selectedBlockIdx].lines)
+
+	for {
+		expanded := false
+		if startBlock > 0 && currentLines+len(blocks[startBlock-1].lines) <= maxRows {
+			startBlock--
+			currentLines += len(blocks[startBlock].lines)
+			expanded = true
+		}
+		if endBlock < len(blocks) && currentLines+len(blocks[endBlock].lines) <= maxRows {
+			currentLines += len(blocks[endBlock].lines)
+			endBlock++
+			expanded = true
+		}
+		if !expanded {
 			break
 		}
-		summary := "  " + a.tuiHealthColor(view.tone) + tuiText(view.health) + a.p.Reset
-		rows = append(rows, fitVisible(label, width, a.p), fitVisible(summary, width, a.p))
+	}
+
+	var rows []string
+	for _, blk := range blocks[startBlock:endBlock] {
+		rows = append(rows, blk.lines...)
+	}
+	if len(rows) > maxRows {
+		rows = rows[:maxRows]
 	}
 	return rows
 }
@@ -495,39 +594,98 @@ func (a *Application) tuiAccountTableRows(state *tuiState, width, maxRows int) [
 	if maxRows == 1 {
 		return rows
 	}
-	rows = append(rows, fitVisible(a.p.DarkGray+strings.Repeat("─", width)+a.p.Reset, width, a.p))
+	headerRule := fitVisible(a.p.DarkGray+strings.Repeat("─", width)+a.p.Reset, width, a.p)
 
 	emails := state.visibleEmails()
 	if len(emails) == 0 {
+		rows = append(rows, headerRule)
 		remaining := maxInt(0, maxRows-len(rows))
 		for _, welcome := range a.tuiWelcomeRows(width, remaining) {
 			rows = append(rows, fitVisible(welcome, width, a.p))
 		}
 		return rows
 	}
-	rowBudget := maxRows - len(rows)
-	start := 0
-	selectedIndex := state.selectedIndex()
-	if len(emails) > rowBudget {
-		start = maxInt(0, minInt(selectedIndex-rowBudget/2, len(emails)-rowBudget))
-	}
-	end := minInt(len(emails), start+rowBudget)
-	now := a.renderTime()
-	for _, email := range emails[start:end] {
-		view := a.tuiAccountView(state, email, now)
-		// Keep the list column about recognition. The selected account's full
-		// email is shown in the health pane, so long addresses do not turn every
-		// row into an ellipsis-heavy line.
-		identity := a.tuiIdentity(view.name)
-		health := a.tuiHealthColor(view.tone) + tuiText(view.health) + a.p.Reset
-		cells := []string{
-			fitVisible(a.tuiSelectionMarker(view, state), 1, a.p),
-			fitVisible(a.tuiActiveMarker(view), 1, a.p),
-			fitVisible(view.avatar, markerWidth, a.p),
-			fitVisible(identity, identityWidth, a.p),
-			fitVisible(health, healthWidth, a.p),
+
+	ready, attention := state.partitionedEmails()
+	// Grouped lists open with a section divider, which already separates the
+	// header from the body. Drawing the header rule too stacks two rules.
+	if len(attention) == 0 {
+		rows = append(rows, headerRule)
+		rowBudget := maxRows - len(rows)
+		start := 0
+		selectedIndex := state.selectedIndex()
+		if len(emails) > rowBudget {
+			start = maxInt(0, minInt(selectedIndex-rowBudget/2, len(emails)-rowBudget))
 		}
-		rows = append(rows, fitVisible(strings.Join(cells, " "), width, a.p))
+		end := minInt(len(emails), start+rowBudget)
+		now := a.renderTime()
+		for _, email := range emails[start:end] {
+			view := a.tuiAccountView(state, email, now)
+			identity := a.tuiIdentity(view.name)
+			health := a.tuiHealthColor(view.tone) + tuiText(view.health) + a.p.Reset
+			cells := []string{
+				fitVisible(a.tuiSelectionMarker(view, state), 1, a.p),
+				fitVisible(a.tuiActiveMarker(view), 1, a.p),
+				fitVisible(view.avatar, markerWidth, a.p),
+				fitVisible(identity, identityWidth, a.p),
+				fitVisible(health, healthWidth, a.p),
+			}
+			rows = append(rows, fitVisible(strings.Join(cells, " "), width, a.p))
+		}
+		return rows
+	}
+
+	type tableItem struct {
+		isHeader    bool
+		headerTitle string
+		headerCount int
+		isAttention bool
+		email       string
+	}
+	var items []tableItem
+	if len(ready) > 0 {
+		items = append(items, tableItem{isHeader: true, headerTitle: "READY", headerCount: len(ready)})
+		for _, email := range ready {
+			items = append(items, tableItem{email: email})
+		}
+	}
+	if len(attention) > 0 {
+		items = append(items, tableItem{isHeader: true, headerTitle: "ATTENTION REQUIRED", headerCount: len(attention), isAttention: true})
+		for _, email := range attention {
+			items = append(items, tableItem{email: email})
+		}
+	}
+
+	rowBudget := maxRows - len(rows)
+	selectedItemIdx := 0
+	for idx, it := range items {
+		if !it.isHeader && strings.EqualFold(it.email, state.selectedEmail) {
+			selectedItemIdx = idx
+			break
+		}
+	}
+	start := 0
+	if len(items) > rowBudget {
+		start = maxInt(0, minInt(selectedItemIdx-rowBudget/2, len(items)-rowBudget))
+	}
+	end := minInt(len(items), start+rowBudget)
+	now := a.renderTime()
+	for _, it := range items[start:end] {
+		if it.isHeader {
+			rows = append(rows, a.tuiSectionDividerRow(it.headerTitle, it.headerCount, it.isAttention, width))
+		} else {
+			view := a.tuiAccountView(state, it.email, now)
+			identity := a.tuiIdentity(view.name)
+			health := a.tuiHealthColor(view.tone) + tuiText(view.health) + a.p.Reset
+			cells := []string{
+				fitVisible(a.tuiSelectionMarker(view, state), 1, a.p),
+				fitVisible(a.tuiActiveMarker(view), 1, a.p),
+				fitVisible(view.avatar, markerWidth, a.p),
+				fitVisible(identity, identityWidth, a.p),
+				fitVisible(health, healthWidth, a.p),
+			}
+			rows = append(rows, fitVisible(strings.Join(cells, " "), width, a.p))
+		}
 	}
 	return rows
 }
@@ -582,12 +740,21 @@ func (a *Application) tuiDetailTableLines(state *tuiState, width, maxRows int) [
 	now := a.renderTime()
 	name := firstString(tuiText(getString(account, "name")), "Google User")
 	labelWidth := maxInt(12, minInt(22, width/3))
+	statusStr := accountStatus(account, a.p, now)
+	var actionStr string
+	if needs, reason := state.accountNeedsAttention(email); needs {
+		statusStr = a.p.Yellow + "[Needs Re-auth]" + a.p.Reset + " · " + reason
+		actionStr = "Run 'agy-swap add' to re-authenticate or 'd' to remove"
+	}
 	rows := []string{
 		a.tuiSectionTitle("SELECTED ACCOUNT"),
 		a.tuiIdentity(name),
 		a.tuiSecondary(email),
 		a.p.DarkGray + strings.Repeat("─", width) + a.p.Reset,
-		tuiDetailKV("STATUS", accountStatus(account, a.p, now), width, labelWidth, a.p),
+		tuiDetailKV("STATUS", statusStr, width, labelWidth, a.p),
+	}
+	if actionStr != "" {
+		rows = append(rows, tuiDetailKV("ACTION", a.p.White+actionStr+a.p.Reset, width, labelWidth, a.p))
 	}
 	for _, rawGroup := range quotaGroups(account) {
 		group := getMap(rawGroup)
@@ -773,6 +940,9 @@ func formatKeycaps(p palette, pairs ...string) string {
 func (a *Application) tuiFooterLines(state *tuiState, width int) []string {
 	g := newTUIGeometry(width, 12)
 	footer := formatKeycaps(a.p, "[↑↓]", "Move", "[Enter]", "Switch", "[^K]", "Actions", "[?]", "Help", "[q]", "Quit")
+	if state.view == tuiViewDashboard && g.layout == tuiLayoutWide {
+		footer = formatKeycaps(a.p, "[↑↓]", "Move", "[Enter]", "Switch", "[[]/[]]", "Resize", "[^K]", "Actions", "[?]", "Help", "[q]", "Quit")
+	}
 	if state.view != tuiViewDashboard {
 		footer = formatKeycaps(a.p, "[↑↓]", "Navigate", "[Enter]", "Edit", "[b]", "Dashboard", "[^K]", "Actions", "[?]", "Help")
 		switch state.view {
@@ -812,7 +982,7 @@ func (a *Application) tuiHelpLines(width int) []string {
 		"KEYBOARD GUIDE",
 		"",
 		"↑ ↓ / j k   Move through accounts",
-		"[ ] / =     Resize / reset accounts split",
+		"[ ] / + -   Resize accounts split (drag or = resets)",
 		"Enter       Switch selected account",
 		"/           Search by name or email",
 		"Ctrl-K / :  Open action palette",

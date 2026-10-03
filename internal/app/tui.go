@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -63,8 +64,8 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		return a.storeError(err)
 	}
 	raw := true
-	enterScreen := func() { fmt.Fprint(a.Out, "\x1b[?1049h\x1b[?25l\x1b[H") }
-	leaveScreen := func() { fmt.Fprint(a.Out, "\x1b[?1049l\x1b[?25h") }
+	enterScreen := func() { fmt.Fprint(a.Out, "\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[H") }
+	leaveScreen := func() { fmt.Fprint(a.Out, "\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?1049l\x1b[?25h") }
 	enterScreen()
 	defer func() {
 		if raw {
@@ -74,6 +75,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	}()
 
 	state := newTUIState(accounts, current)
+	state.vault = a.vault
 	state.active = a.activeHint(accounts, current)
 	var initialSplitOffset int
 	if initialSettings, err := a.loadSettings(); err == nil {
@@ -228,6 +230,9 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		}
 	}()
 	a.renderTUI(state, outFile)
+	var draggingSplit bool
+	var lastClickTime time.Time
+	var lastClickCol, lastClickRow int
 	startActiveResolve()
 	startRefresh(false)
 	armFrame()
@@ -889,6 +894,143 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					continue
 				}
 
+				if key == "wheel-up" {
+					if state.mode == tuiBrowse {
+						switch state.view {
+						case tuiViewProfiles:
+							state.moveProfile(-1)
+						case tuiViewHistory:
+							state.moveHistory(-1)
+						default:
+							state.move(-1)
+						}
+						a.renderTUI(state, outFile)
+						armFrame()
+					}
+					continue
+				}
+				if key == "wheel-down" {
+					if state.mode == tuiBrowse {
+						switch state.view {
+						case tuiViewProfiles:
+							state.moveProfile(1)
+						case tuiViewHistory:
+							state.moveHistory(1)
+						default:
+							state.move(1)
+						}
+						a.renderTUI(state, outFile)
+						armFrame()
+					}
+					continue
+				}
+				if strings.HasPrefix(key, "mouse:") {
+					parts := strings.Split(key, ":")
+					if len(parts) == 4 && state.mode == tuiBrowse {
+						action := parts[1]
+						col, _ := strconv.Atoi(parts[2])
+						row, _ := strconv.Atoi(parts[3])
+
+						if baseLeft, _, _, dividerCol, ok := state.wideSplitBounds(); ok && state.view == tuiViewDashboard {
+							switch action {
+							case "down":
+								if col >= dividerCol-1 && col <= dividerCol+1 && row >= 3 && row <= state.height-2 {
+									if time.Since(lastClickTime) < 350*time.Millisecond && absInt(col-lastClickCol) <= 2 && absInt(row-lastClickRow) <= 1 {
+										state.resetSplit()
+										state.message, state.messageType = "Split reset to default", "info"
+										draggingSplit = false
+									} else {
+										draggingSplit = true
+										state.message, state.messageType = fmt.Sprintf("Split offset: %+d (drag or [/], = resets)", state.splitOffset), "info"
+									}
+									lastClickTime = time.Now()
+									lastClickCol, lastClickRow = col, row
+									a.renderTUI(state, outFile)
+									armFrame()
+									continue
+								}
+								if col >= 2 && col < dividerCol && row >= 6 && row <= state.height-3 {
+									tableRowIdx := row - 6
+									ready, attention := state.partitionedEmails()
+									type clickItem struct {
+										email    string
+										isHeader bool
+									}
+									var items []clickItem
+									if len(attention) == 0 {
+										for _, em := range state.visibleEmails() {
+											items = append(items, clickItem{email: em})
+										}
+									} else {
+										if len(ready) > 0 {
+											items = append(items, clickItem{isHeader: true})
+											for _, em := range ready {
+												items = append(items, clickItem{email: em})
+											}
+										}
+										if len(attention) > 0 {
+											items = append(items, clickItem{isHeader: true})
+											for _, em := range attention {
+												items = append(items, clickItem{email: em})
+											}
+										}
+									}
+									rowBudget := maxInt(1, state.height-8-2)
+									selectedIdx := 0
+									for idx, it := range items {
+										if !it.isHeader && strings.EqualFold(it.email, state.selectedEmail) {
+											selectedIdx = idx
+											break
+										}
+									}
+									start := 0
+									if len(items) > rowBudget {
+										start = maxInt(0, minInt(selectedIdx-rowBudget/2, len(items)-rowBudget))
+									}
+									clickedIdx := start + tableRowIdx
+									if clickedIdx >= 0 && clickedIdx < len(items) && !items[clickedIdx].isHeader {
+										clickedEmail := items[clickedIdx].email
+										if strings.EqualFold(clickedEmail, state.selectedEmail) && time.Since(lastClickTime) < 350*time.Millisecond {
+											performSwitch()
+										} else {
+											state.selectedEmail = clickedEmail
+											state.beginAnimation("focus", 140*time.Millisecond)
+										}
+									}
+								}
+								lastClickTime = time.Now()
+								lastClickCol, lastClickRow = col, row
+								a.renderTUI(state, outFile)
+								armFrame()
+								continue
+							case "drag":
+								if draggingSplit {
+									targetLeft := col - 4
+									targetOffset := targetLeft - baseLeft
+									if targetOffset < -40 {
+										targetOffset = -40
+									} else if targetOffset > 40 {
+										targetOffset = 40
+									}
+									state.splitOffset = targetOffset
+									state.message, state.messageType = fmt.Sprintf("Split offset: %+d (drag or [/], = resets)", state.splitOffset), "info"
+									a.renderTUI(state, outFile)
+									armFrame()
+									continue
+								}
+							case "up":
+								if draggingSplit {
+									draggingSplit = false
+									a.renderTUI(state, outFile)
+									armFrame()
+									continue
+								}
+							}
+						}
+					}
+					continue
+				}
+
 				switch key {
 				case "q", "esc", "ctrl-c", "ctrl-d":
 					finish()
@@ -1055,18 +1197,18 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					suspend(func() int { return a.cmdAccount(ctx, extendedOptions{Force: true}, []string{"migrate"}) })
 				case "u":
 					beginConfirmAction("update", "Download and install the latest release")
-				case "]", ">", "alt-right":
+				case "]", ">", "+", "alt-right", "alt-f":
 					state.adjustSplit(2)
-					state.message, state.messageType = fmt.Sprintf("Split offset: %+d", state.splitOffset), "info"
+					state.message, state.messageType = fmt.Sprintf("Split offset: %+d (drag or [/], = resets)", state.splitOffset), "info"
 				case "}", "ctrl-right":
 					state.adjustSplit(6)
-					state.message, state.messageType = fmt.Sprintf("Split offset: %+d", state.splitOffset), "info"
-				case "[", "<", "alt-left":
+					state.message, state.messageType = fmt.Sprintf("Split offset: %+d (drag or [/], = resets)", state.splitOffset), "info"
+				case "[", "<", "-", "alt-left", "alt-b":
 					state.adjustSplit(-2)
-					state.message, state.messageType = fmt.Sprintf("Split offset: %+d", state.splitOffset), "info"
+					state.message, state.messageType = fmt.Sprintf("Split offset: %+d (drag or [/], = resets)", state.splitOffset), "info"
 				case "{", "ctrl-left":
 					state.adjustSplit(-6)
-					state.message, state.messageType = fmt.Sprintf("Split offset: %+d", state.splitOffset), "info"
+					state.message, state.messageType = fmt.Sprintf("Split offset: %+d (drag or [/], = resets)", state.splitOffset), "info"
 				case "=":
 					state.resetSplit()
 					state.message, state.messageType = "Split reset to default", "info"
