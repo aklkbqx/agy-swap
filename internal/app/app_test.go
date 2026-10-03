@@ -94,7 +94,7 @@ func TestTokenIdentityMatchesTargetAccount(t *testing.T) {
 }
 
 func TestNormalizedReleaseTag(t *testing.T) {
-	for input, want := range map[string]string{"2.10.0": "v2.10.0", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} { //nolint:gocritic // the padded key tests trimming
+	for input, want := range map[string]string{"2.11.0": "v2.11.0", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} { //nolint:gocritic // the padded key tests trimming
 		if got := normalizedReleaseTag(input); got != want {
 			t.Fatalf("%q normalized to %q, want %q", input, got, want)
 		}
@@ -621,7 +621,7 @@ func TestTUIOverlayKeepsFrameGeometry(t *testing.T) {
 func TestTUISuccessToastKeepsFrameGeometryAndExpires(t *testing.T) {
 	accounts := NewAccounts()
 	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
-	a := &Application{Version: "2.10.0", p: makePalette(false), color: false}
+	a := &Application{Version: "2.11.0", p: makePalette(false), color: false}
 	state := newTUIState(accounts, "user@example.com")
 	state.showToast("Switched to user@example.com", "success")
 
@@ -1116,7 +1116,7 @@ func TestExtendedSettingsAliasesAndEncryptedBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	a := &Application{Version: "2.10.0", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
+	a := &Application{Version: "2.11.0", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
 	if code := a.Run(context.Background(), []string{"config", "set", "policy.min_remaining_pct", "25"}); code != 0 {
 		t.Fatalf("config set code=%d err=%s", code, errOut.String())
 	}
@@ -1248,7 +1248,33 @@ func TestCompletionIncludesVersionCommand(t *testing.T) {
 }
 
 func TestTerminalKeysAndDisplayWidth(t *testing.T) {
-	cases := map[string]string{"\x1b[A": "up", "\x1b[B": "down", "\x1b[C": "right", "\x1b[D": "left", "\x1b[H": "home", "\x1b[F": "end", "\x1b[3~": "delete", "\x1b[5~": "page-up", "\x1b[6~": "page-down", "\x1bOA": "up", "\r": "enter", "\x7f": "backspace", "\x15": "ctrl-u", "\x17": "ctrl-w", "\x0b": "ctrl-k", "\x1b": "esc"}
+	cases := map[string]string{
+		"\x1b[A":          "up",
+		"\x1b[B":          "down",
+		"\x1b[C":          "right",
+		"\x1b[D":          "left",
+		"\x1b[H":          "home",
+		"\x1b[F":          "end",
+		"\x1b[3~":         "delete",
+		"\x1b[5~":         "page-up",
+		"\x1b[6~":         "page-down",
+		"\x1bOA":          "up",
+		"\r":              "enter",
+		"\x7f":            "backspace",
+		"\x15":            "ctrl-u",
+		"\x17":            "ctrl-w",
+		"\x0b":            "ctrl-k",
+		"\x1b":            "esc",
+		"\x1b[1;3C":       "alt-right",
+		"\x1b[1;5C":       "ctrl-right",
+		"\x1b[1;3D":       "alt-left",
+		"\x1b[1;5D":       "ctrl-left",
+		"\x1b[<0;45;12M":  "mouse:down:45:12",
+		"\x1b[<32;48;12M": "mouse:drag:48:12",
+		"\x1b[<0;48;12m":  "mouse:up:48:12",
+		"\x1b[<64;48;12M": "wheel-up",
+		"\x1b[<65;48;12M": "wheel-down",
+	}
 	for input, want := range cases {
 		if got := readTerminalKey(bytes.NewBufferString(input)); got != want {
 			t.Fatalf("%q -> %q", input, got)
@@ -1295,6 +1321,39 @@ func TestTUISplitResize(t *testing.T) {
 	state.resetSplit()
 	if state.splitOffset != 0 {
 		t.Fatalf("expected reset 0, got %d", state.splitOffset)
+	}
+}
+
+func TestTUIWideSplitBoundsAndMouseDrag(t *testing.T) {
+	state := &tuiState{width: 120, height: 24}
+	baseLeft, minLeft, maxLeft, dividerCol, ok := state.wideSplitBounds()
+	if !ok {
+		t.Fatal("expected wide split bounds ok at 120x24")
+	}
+	if baseLeft < 48 {
+		t.Fatalf("expected baseLeft >= 48, got %d", baseLeft)
+	}
+	if dividerCol != baseLeft+4 {
+		t.Fatalf("expected dividerCol %d, got %d", baseLeft+4, dividerCol)
+	}
+	if minLeft >= maxLeft {
+		t.Fatalf("expected minLeft < maxLeft, got %d vs %d", minLeft, maxLeft)
+	}
+	// Simulate dragging 6 columns right
+	targetCol := dividerCol + 6
+	targetLeft := targetCol - 4
+	targetOffset := targetLeft - baseLeft
+	state.adjustSplit(targetOffset)
+	if state.splitOffset != 6 {
+		t.Fatalf("expected splitOffset 6, got %d", state.splitOffset)
+	}
+	_, _, _, newDividerCol, _ := state.wideSplitBounds()
+	if newDividerCol != targetCol {
+		t.Fatalf("expected newDividerCol %d, got %d", targetCol, newDividerCol)
+	}
+	state.resetSplit()
+	if state.splitOffset != 0 {
+		t.Fatalf("expected splitOffset 0 after reset, got %d", state.splitOffset)
 	}
 }
 
@@ -1598,15 +1657,167 @@ func TestAccountRowSelection(t *testing.T) {
 }
 
 func TestTUIDisplayVersionDev(t *testing.T) {
-	appDev := &Application{Version: "2.10.0", BuildID: "dev", p: makePalette(false)}
+	appDev := &Application{Version: "2.11.0", BuildID: "dev", p: makePalette(false)}
 	linesDev := appDev.tuiTopLines(newTUIState(NewAccounts(), ""), 80)
-	if !strings.Contains(strings.Join(linesDev, "\n"), "v2.10.0-dev") {
+	if !strings.Contains(strings.Join(linesDev, "\n"), "v"+appDev.Version+"-dev") {
 		t.Fatalf("TUI header missing dev tag: %q", linesDev)
 	}
 
-	appRel := &Application{Version: "2.10.0", BuildID: "release", p: makePalette(false)}
+	appRel := &Application{Version: "2.11.0", BuildID: "release", p: makePalette(false)}
 	linesRel := appRel.tuiTopLines(newTUIState(NewAccounts(), ""), 80)
-	if !strings.Contains(strings.Join(linesRel, "\n"), "v2.10.0") || strings.Contains(strings.Join(linesRel, "\n"), "v2.10.0-") {
+	if !strings.Contains(strings.Join(linesRel, "\n"), "v"+appRel.Version) || strings.Contains(strings.Join(linesRel, "\n"), "v"+appRel.Version+"-") {
 		t.Fatalf("TUI header should not have dev tag for release: %q", linesRel)
+	}
+}
+
+func TestTUIAccountPartitioning(t *testing.T) {
+	accounts := NewAccounts()
+	accounts.Set("user1@example.com", quotaAccount("user1@example.com", 0.9, 0.5, time.Now()))
+	accounts.Set("user2@example.com", quotaAccount("user2@example.com", 0.8, 0.4, time.Now()))
+	accounts.Set("user3@example.com", quotaAccount("user3@example.com", 0.7, 0.3, time.Now()))
+
+	state := newTUIState(accounts, "")
+
+	// Case 1: No errors -> all ready, 0 attention
+	ready, attention := state.partitionedEmails()
+	if len(ready) != 3 || len(attention) != 0 {
+		t.Fatalf("expected 3 ready, 0 attention; got ready=%v attention=%v", ready, attention)
+	}
+	visible := state.visibleEmails()
+	if len(visible) != 3 || visible[0] != "user1@example.com" {
+		t.Fatalf("expected ordered visibleEmails=%v, got %v", accounts.Order, visible)
+	}
+
+	// Case 2: user2 has quotaError -> user2 moves to attention group
+	state.quotaErrors["user2@example.com"] = "secret vault entry is unavailable"
+	needs, reason := state.accountNeedsAttention("user2@example.com")
+	if !needs || !strings.Contains(reason, "unavailable") {
+		t.Fatalf("accountNeedsAttention(user2) = (%v, %q), want true and unavailable", needs, reason)
+	}
+	ready, attention = state.partitionedEmails()
+	if len(ready) != 2 || len(attention) != 1 {
+		t.Fatalf("expected 2 ready, 1 attention; got ready=%v attention=%v", ready, attention)
+	}
+	if attention[0] != "user2@example.com" {
+		t.Fatalf("expected attention=[user2@example.com], got %v", attention)
+	}
+
+	// visibleEmails should have ready first, then attention
+	visible = state.visibleEmails()
+	expectedVisible := []string{"user1@example.com", "user3@example.com", "user2@example.com"}
+	if len(visible) != 3 || visible[0] != expectedVisible[0] || visible[1] != expectedVisible[1] || visible[2] != expectedVisible[2] {
+		t.Fatalf("expected visibleEmails=%v, got %v", expectedVisible, visible)
+	}
+}
+
+func TestTUIAccountAttentionView(t *testing.T) {
+	accounts := NewAccounts()
+	accounts.Set("healthy@example.com", quotaAccount("healthy@example.com", 0.9, 0.5, time.Now()))
+	accounts.Set("broken@example.com", quotaAccount("broken@example.com", 0.8, 0.4, time.Now()))
+
+	state := newTUIState(accounts, "")
+	state.quotaErrors["broken@example.com"] = "secret vault entry is unavailable"
+
+	app := &Application{p: makePalette(false)}
+	now := time.Now()
+
+	healthyView := app.tuiAccountView(state, "healthy@example.com", now)
+	if healthyView.needsAttention {
+		t.Errorf("healthy account should not need attention")
+	}
+	if strings.Contains(app.tuiActiveMarker(healthyView), "⚠") {
+		t.Errorf("healthy account marker should not be warning: %q", app.tuiActiveMarker(healthyView))
+	}
+
+	brokenView := app.tuiAccountView(state, "broken@example.com", now)
+	if !brokenView.needsAttention {
+		t.Fatalf("broken account should need attention")
+	}
+	if !strings.Contains(brokenView.health, "⚠") {
+		t.Errorf("broken account health should have ⚠ override, got %q", brokenView.health)
+	}
+	if !strings.Contains(app.tuiActiveMarker(brokenView), "⚠") {
+		t.Errorf("broken account marker should have ⚠, got %q", app.tuiActiveMarker(brokenView))
+	}
+}
+
+func TestTUIGroupedSectionRendering(t *testing.T) {
+	accounts := NewAccounts()
+	accounts.Set("user1@example.com", quotaAccount("user1@example.com", 0.9, 0.5, time.Now()))
+	accounts.Set("user2@example.com", quotaAccount("user2@example.com", 0.8, 0.4, time.Now()))
+
+	app := &Application{p: makePalette(false)}
+	state := newTUIState(accounts, "")
+
+	// 1. Without errors: No section dividers should be present
+	rowsClean := app.tuiAccountTableRows(state, 60, 8)
+	cleanJoined := strings.Join(rowsClean, "\n")
+	if strings.Contains(cleanJoined, "READY (") || strings.Contains(cleanJoined, "ATTENTION") {
+		t.Fatalf("clean accounts should not render section headers: %s", cleanJoined)
+	}
+
+	// 2. With error on user2: Should render READY (1) and ATTENTION REQUIRED (1)
+	state.quotaErrors["user2@example.com"] = "secret vault entry is unavailable"
+	rowsGrouped := app.tuiAccountTableRows(state, 60, 10)
+	groupedJoined := strings.Join(rowsGrouped, "\n")
+
+	if !strings.Contains(groupedJoined, "READY (1)") {
+		t.Fatalf("expected READY (1) section header in table:\n%s", groupedJoined)
+	}
+	if !strings.Contains(groupedJoined, "ATTENTION REQUIRED (1)") {
+		t.Fatalf("expected ATTENTION REQUIRED (1) section header in table:\n%s", groupedJoined)
+	}
+
+	// The first section divider replaces the header rule: no plain ─ rule row
+	// may stack directly on top of "── READY".
+	if len(rowsGrouped) < 2 || !strings.Contains(rowsGrouped[1], "READY (1)") {
+		t.Fatalf("grouped table should put READY divider right under the column header:\n%s", groupedJoined)
+	}
+	for i, row := range rowsGrouped {
+		if strings.Trim(row, "─ ") == "" {
+			t.Fatalf("grouped table row %d is a bare rule stacked with section dividers:\n%s", i, groupedJoined)
+		}
+	}
+	if !strings.Contains(rowsClean[1], strings.Repeat("─", 60)) {
+		t.Fatalf("clean table should keep the header rule, got %q", rowsClean[1])
+	}
+
+	// Verify all rows strictly conform to width
+	for i, row := range rowsGrouped {
+		if visibleWidth(row) != 60 {
+			t.Fatalf("row %d visibleWidth=%d, want 60: %q", i, visibleWidth(row), row)
+		}
+	}
+
+	// 3. Stacked layout also renders section headers when attention accounts exist
+	stackedGrouped := app.tuiAccountRows(state, 60, 12)
+	stackedJoined := strings.Join(stackedGrouped, "\n")
+	if !strings.Contains(stackedJoined, "READY (1)") || !strings.Contains(stackedJoined, "ATTENTION REQUIRED (1)") {
+		t.Fatalf("expected stacked layout to contain section headers:\n%s", stackedJoined)
+	}
+	for i, row := range stackedGrouped {
+		if visibleWidth(row) != 60 {
+			t.Fatalf("stacked row %d visibleWidth=%d, want 60: %q", i, visibleWidth(row), row)
+		}
+	}
+}
+
+func TestTUIDetailAttentionGuidance(t *testing.T) {
+	accounts := NewAccounts()
+	accounts.Set("broken@example.com", quotaAccount("broken@example.com", 0.8, 0.4, time.Now()))
+
+	state := newTUIState(accounts, "")
+	state.selectedEmail = "broken@example.com"
+	state.quotaErrors["broken@example.com"] = "secret vault entry is unavailable"
+
+	app := &Application{p: makePalette(false)}
+	rows := app.tuiDetailTableLines(state, 60, 10)
+	joined := strings.Join(rows, "\n")
+
+	if !strings.Contains(joined, "Needs Re-auth") {
+		t.Fatalf("expected STATUS to reflect [Needs Re-auth], got:\n%s", joined)
+	}
+	if !strings.Contains(joined, "ACTION") || !strings.Contains(joined, "agy-swap add") {
+		t.Fatalf("expected ACTION row with re-auth guidance, got:\n%s", joined)
 	}
 }
