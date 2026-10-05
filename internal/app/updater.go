@@ -119,6 +119,35 @@ func (a *Application) cmdUpdate(ctx context.Context, args cliArgs) int {
 		return 0
 	}
 	fmt.Fprintf(a.Out, "  Current: %sv%s%s\n  Latest:  %sv%s%s\n", a.p.Gray, a.Version, a.p.Reset, a.p.Green, latest, a.p.Reset)
+
+	current, err := os.Executable()
+	if err == nil {
+		if resolved, resolveErr := filepath.EvalSymlinks(current); resolveErr == nil {
+			current = resolved
+		}
+	}
+	if isHomebrewManaged(current) {
+		fmt.Fprintf(a.Out, "%s● Detected Homebrew installation. Upgrading via brew...%s\n", a.p.Cyan, a.p.Reset)
+		cleanShadowedLocalBinary(a.Out, a.p)
+		cmd := exec.CommandContext(ctx, "brew", "upgrade", "aklkbqx/agy-swap/agy-swap")
+		cmd.Stdout = a.Out
+		cmd.Stderr = a.Err
+		if runErr := cmd.Run(); runErr != nil {
+			cmdFallback := exec.CommandContext(ctx, "brew", "upgrade", "agy-swap")
+			cmdFallback.Stdout = a.Out
+			cmdFallback.Stderr = a.Err
+			if runErrFallback := cmdFallback.Run(); runErrFallback != nil {
+				fmt.Fprintf(a.Err, "%s✕ Homebrew upgrade failed: %v%s\n", a.p.Red, runErrFallback, a.p.Reset)
+				return 1
+			}
+		}
+		fmt.Fprintf(a.Out, "%s✓ Updated agy-swap v%s → v%s via Homebrew%s\n", a.p.Green, a.Version, latest, a.p.Reset)
+		if release.HTMLURL != "" {
+			fmt.Fprintf(a.Out, "  %sRelease notes: %s%s\n", a.p.Gray, release.HTMLURL, a.p.Reset)
+		}
+		return 0
+	}
+
 	stop = a.spinner("Downloading v" + latest + "...")
 	manifest, _, manifestErr := a.http.getBytes(ctx, checksumsURL, nil, 15*time.Second, 1024*1024)
 	binary, _, binaryErr := a.http.getBytes(ctx, binaryURL, nil, 30*time.Second, 64*1024*1024)
@@ -142,12 +171,18 @@ func (a *Application) cmdUpdate(ctx context.Context, args cliArgs) int {
 		fmt.Fprintf(a.Err, "%s✕ Integrity verification failed: checksum mismatch%s\n", a.p.Red, a.p.Reset)
 		return 1
 	}
-	current, err := os.Executable()
-	if err != nil {
-		fmt.Fprintf(a.Err, "%s✕ Failed to locate current executable: %v%s\n", a.p.Red, err, a.p.Reset)
-		return 1
+	if current == "" {
+		current, err = os.Executable()
+		if err != nil {
+			fmt.Fprintf(a.Err, "%s✕ Failed to locate current executable: %v%s\n", a.p.Red, err, a.p.Reset)
+			return 1
+		}
+		current, err = filepath.EvalSymlinks(current)
+		if err != nil {
+			fmt.Fprintln(a.Err, "Cannot resolve installed executable:", err)
+			return 1
+		}
 	}
-	current, err = filepath.EvalSymlinks(current)
 	if err != nil {
 		fmt.Fprintln(a.Err, "Cannot resolve installed executable:", err)
 		return 1
@@ -293,4 +328,36 @@ func (a *Application) runUpdateFinalizer(ctx context.Context, args []string) int
 	}
 	fmt.Fprintf(a.Out, "✓ Updated agy-swap to v%s\n", latest)
 	return 0
+}
+
+func isHomebrewManaged(path string) bool {
+	if strings.Contains(path, "/Cellar/agy-swap/") {
+		return true
+	}
+	if strings.Contains(path, "/homebrew/") || strings.Contains(path, "/Homebrew/") {
+		if _, err := exec.LookPath("brew"); err == nil {
+			cmd := exec.Command("brew", "list", "--formula")
+			if out, err := cmd.Output(); err == nil {
+				for _, line := range strings.Split(string(out), "\n") {
+					if strings.TrimSpace(line) == "agy-swap" {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+func cleanShadowedLocalBinary(out io.Writer, p palette) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return
+	}
+	localBin := filepath.Join(home, ".local", "bin", "agy-swap")
+	if _, err := os.Stat(localBin); err == nil {
+		if rmErr := os.Remove(localBin); rmErr == nil {
+			fmt.Fprintf(out, "%s✓ Removed shadowing binary at %s%s\n", p.Yellow, localBin, p.Reset)
+		}
+	}
 }

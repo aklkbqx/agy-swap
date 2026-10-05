@@ -1,8 +1,16 @@
 # Changelog
 
+## 2.11.1
+
+- Installers & updater: detect Homebrew-managed installations, delegate to `brew upgrade`, and clean up shadowing binaries at `~/.local/bin/agy-swap`.
+- Installers: default standalone updates to the existing installed binary location instead of forcing `~/.local/bin`.
+- Site: redirect `/install.sh` and `/install.ps1` to canonical GitHub sources and update website commands to use domain routes.
+- Release: automate Homebrew tap formula synchronization during asset build.
+
 ## 2.11.0
 
 - TUI: partitioned accounts into `READY` and `ATTENTION REQUIRED` sections with warning marker (`⚠`), token health status override, and repair guidance in account detail.
+- TUI: eliminated stacked duplicate rule under table header when account groups are active, opening sections directly with the `── READY ──` divider.
 - TUI: interactive split resizing: drag the vertical divider (`│`) with mouse in real time, double-click divider to reset, and navigate accounts via mouse wheel.
 - TUI: discoverable split controls with `+`, `-`, `[`, `]`, `alt-left`, `alt-right`, and footer keycaps indicator `[[]/[]] Resize` in wide layout.
 - TUI: 0ms vault token check on startup to partition missing vault credentials without waiting for background network quota refresh.
