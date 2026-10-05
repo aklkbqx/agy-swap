@@ -22,6 +22,9 @@ smoke() { # IMAGE VERSION
   for path in / /install.html /og-panorama.png /sitemap.xml /robots.txt; do
     code=$(curl -s -o /dev/null -w '%{http_code}' "$base$path"); [ "$code" = 200 ] || { echo "$path returned $code" >&2; return 1; }
   done
+  for path in /install.sh /install.ps1; do
+    code=$(curl -s -o /dev/null -w '%{http_code}' "$base$path"); [ "$code" = 302 ] || { echo "$path returned $code, want 302" >&2; return 1; }
+  done
   code=$(curl -s -o /dev/null -w '%{http_code}' "$base/demo/ws"); [ "$code" = 404 ] || { echo "/demo/ws returned $code, want 404" >&2; return 1; }
   curl -fsS "$base/" | grep -q "\"softwareVersion\": \"v$2\"" || { echo "page does not report v$2" >&2; return 1; }
 }
