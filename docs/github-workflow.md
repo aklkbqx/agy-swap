@@ -61,6 +61,7 @@ Before committing, tagging, pushing or publishing a candidate, present the exact
 
 ## Versions: historical, current and future
 
+- Refresh the inventory locally with `node scripts/github-history.mjs --write`, then verify with `node scripts/github-history.mjs --check`. Run its regression suite with `node --test scripts/github-history.test.mjs`. The helper reads GitHub only; it does not publish source or modify Issues/tags/Releases.
 - `docs/releases/index.json` records every observed Tool version tag. Each record links the public Release or tag, lists actual release assets and dates, and distinguishes `published` from `tag-only`. Site tag presence is recorded without inventing a matching commit or historical deployment.
 - Preserve the original tag and release. Do not manufacture missing old releases/assets or retag existing commits. Historical evidence describes what was recorded; it is not a claim of retrospective testing.
 - Latest stable comes from the current GitHub release metadata and must agree with source/version tooling. Security support is latest stable only. Prereleases/candidates are tracked separately and do not silently become supported stable releases.

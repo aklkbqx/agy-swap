@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.11.3
+
+### Maintenance
+
+- Publish one GitHub project contract and standalone Site bootstrap for all contributors, with Issues/Milestones, resumable checkpoints, reviewed plans and delivery evidence.
+- Curate source-linked project knowledge, decisions and historical proposals, including the real logo and v2.11.2 workstream records.
+- Add a local read-only release-history helper covering all observed tags/Releases, with pagination, immutable-history validation, private-data exclusion and regression tests.
+- Record every historical version without inventing missing Releases or extending security support beyond latest stable.
+
 ## 2.11.2
 
 - Windows: prepare compact active-session JSON before switching, preserve refreshed identity and provider fields, reject oversized Credential Manager payloads before writes, and restore exact previous credentials after OAuth-file failures.

@@ -22,7 +22,6 @@ graft/
 .codex/
 .mcp.json
 opencode.json
-.impeccable.md
 .ignore
 /.superpowers/
 /.worktrees/

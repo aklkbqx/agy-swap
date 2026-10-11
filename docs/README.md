@@ -7,6 +7,8 @@ GitHub is the project workspace. The Tool repository is public; the Site reposit
 | How to work and resume across agents | [GitHub workflow](github-workflow.md) |
 | Open work, bugs, acceptance, checkpoints | [Tool Issues](https://github.com/aklkbqx/agy-swap/issues), private Site Issues |
 | Implementation architecture | [Architecture](architecture.md) |
+| Product notes, real logo and knowledge map | [Overview](project/overview.md), [knowledge map](project/knowledge-map.md) |
+| Decisions and earlier proposals | [Decisions](decisions/README.md), [historical plan archive](plans/archive/README.md) |
 | Local development and verification | [Development](development.md), [contributing](../CONTRIBUTING.md) |
 | GitHub workflow design and rollout | [Design](specs/2026-10-11-github-workflow.md), [implementation plan](plans/2026-10-11-github-workflow.md) |
 | GitHub workspace migration execution | [Epic #5](https://github.com/aklkbqx/agy-swap/issues/5), [Milestone](https://github.com/aklkbqx/agy-swap/milestone/1) |
