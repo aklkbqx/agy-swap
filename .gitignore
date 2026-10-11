@@ -22,10 +22,6 @@ graft/
 .codex/
 .mcp.json
 opencode.json
-AGENTS.md
-GEMINI.md
-CLAUDE.md
-GROK.md
 .impeccable.md
 .ignore
 /.superpowers/

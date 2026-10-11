@@ -4,6 +4,12 @@ Thank you for your interest in contributing to `agy-swap`! We welcome contributi
 
 ---
 
+## Project workspace
+
+Start with [the documentation index](docs/README.md) and [the GitHub workflow](docs/github-workflow.md). Use Issues for actionable work, tracked documents for plans and decisions, PRs for review, and Milestones/Releases for delivery. Search existing Issues before opening a duplicate. Every implementation task needs acceptance criteria, evidence, and a resumable checkpoint.
+
+Read [GitHub workflow](docs/github-workflow.md) before changing either repository. Keep Site tasks and private operational evidence in the private Site repository. Link a delivery Issue with `Refs #N` so merging a PR does not close the work before installation and live verification. Preserve the owner's local review gate before committing or publishing.
+
 ## Code of Conduct
 
 All contributors and participants are expected to adhere to our [Code of Conduct](CODE_OF_CONDUCT.md). Please read it before participating in discussions or opening pull requests.
