@@ -1,9 +1,9 @@
-VERSION ?= 2.11.1
+VERSION ?= 2.11.2
 BUILD_ID ?= dev
 GOCACHE ?= /tmp/agy-swap-go-cache
 TARGET_DIR ?= $(HOME)/.local/bin
 
-.PHONY: help build test race vet lint benchmark tui-smoke qa bump install release-assets live site-preview site-release
+.PHONY: help build test race vet lint benchmark tui-smoke qa bump install release-assets publish-homebrew-tap live site-preview site-release
 
 help:
 	@echo "Available make targets:"
@@ -17,6 +17,7 @@ help:
 	@echo "  tui-smoke       Run terminal UI smoke tests"
 	@echo "  qa              Run complete QA pipeline (gofmt, test, race, vet, tui-smoke)"
 	@echo "  release-assets  Cross-compile release assets for all platforms"
+	@echo "  publish-homebrew-tap  Explicitly commit/push the tap after release approval"
 	@echo "  live            Run AGY Live locally (demo gateway + Vite, first free ports)"
 	@echo "  site-preview    Build and serve the production site image locally on :4796"
 	@echo "  site-release    Build, smoke-test, and (PUSH=1) publish the site image for VERSION"
@@ -34,6 +35,9 @@ bump:
 
 release-assets:
 	./scripts/build-release.sh $(VERSION) $(BUILD_ID) dist/release
+
+publish-homebrew-tap:
+	./scripts/update-homebrew-tap.sh $(VERSION) dist/release --publish
 
 live:
 	./scripts/agy-live-dev.sh

@@ -64,8 +64,22 @@ The `./scripts/tui-smoke.sh` script verifies that the terminal interface initial
 - `80x24` (Standard ANSI terminal)
 - `120x30` (Wide widescreen view)
 
-### 3.4 Web Simulator Fixtures
-AGY Live on [agy-swap.aklkbqx.com](https://agy-swap.aklkbqx.com) runs the native Go TUI under a PTY in an isolated demo container. Nginx forwards `/demo/ws` to the private gateway, while xterm.js renders the actual ANSI output. Use `go test ./internal/demoserver ./internal/app` to verify the demo path, and `cd site && bun run test && bun run build` for the browser UI.
+### 3.4 Website Story Frames and Local AGY Live
+
+The public site displays committed still frames produced by the Go TUI renderer. It is a static Vite build served by one Nginx container; production does not run a PTY gateway and `/demo/ws` is unavailable.
+
+After changing the renderer or demo data, regenerate and verify the fixtures:
+
+```bash
+AGY_SWAP_UPDATE_STORY_FRAMES=1 go test ./internal/app -run '^TestSiteStoryFrames$' -count=1
+go test ./internal/app -run 'TestSiteStoryFrames' -count=1
+```
+
+The fixture test pins its terminal color environment; the production TUI still selects colors from the actual terminal capabilities.
+
+AGY Live is an opt-in local development tool. The owner starts it with `make live`, which builds the demo binary, runs the PTY gateway on loopback, and enables the browser terminal with `VITE_AGY_LIVE=1`. It finds free gateway and Vite ports; open the **Local URL printed by Vite**, then `#demo`. Each demo uses an isolated temporary home. Neither the gateway nor the live section ships in the production image.
+
+Use `go test ./internal/demoserver ./internal/app` for the native demo path, and `bun test --cwd site` plus `cd site && bun run build` for the browser UI. Agents must ask the owner to start review servers, following `AGENTS.md`.
 
 ---
 
@@ -89,3 +103,9 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o /tmp/agy-swap-linux ./cmd/agy-
 # Windows amd64
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /tmp/agy-swap-win.exe ./cmd/agy-swap
 ```
+
+## 5. Release Assets and Homebrew Publication
+
+`make release-assets VERSION=X.Y.Z BUILD_ID=release-vX.Y.Z` cross-compiles the six binaries, verifies metadata and checksums, and generates `dist/release/agy-swap.rb`. It does not discover, edit, commit, or push a Homebrew tap.
+
+After the local review gate and owner approval, publish the matching GitHub release and assets before updating Homebrew. Then run `make publish-homebrew-tap VERSION=X.Y.Z` explicitly. It uses `HOMEBREW_TAP_DIR` when set, or the installed `aklkbqx/agy-swap` tap; the tap must be on `main` with a clean working tree and index. Publication fetches the current remote tip, refuses behind/diverged branches and unrelated unpublished commits, and permits retrying a formula-only pending push. It commits only `Formula/agy-swap.rb` and pushes `origin main`. The helper's default invocation without `--publish` only generates the local formula.
