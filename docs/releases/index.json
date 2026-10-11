@@ -1,7 +1,6 @@
 {
   "schemaVersion": 1,
   "repository": "aklkbqx/agy-swap",
-  "snapshotDate": "2026-10-11",
   "latestStableTag": "v2.11.2",
   "siteTagObservation": "Complete private repository tags API read; public output contains tag-presence only.",
   "versions": [
@@ -1831,12 +1830,6 @@
       "releaseUrl": "https://github.com/aklkbqx/agy-swap/releases/tag/v2.0.0",
       "assets": [
         {
-          "name": "agy-swap.rb",
-          "size": 1248,
-          "url": "https://github.com/aklkbqx/agy-swap/releases/download/v2.0.0/agy-swap.rb",
-          "digest": "sha256:fe78107c1e196f805ffe34095e2dd3f439cd0fea03112433a8cf2f87fa3d3b99"
-        },
-        {
           "name": "agy-swap_v2.0.0_darwin_amd64",
           "size": 7051984,
           "url": "https://github.com/aklkbqx/agy-swap/releases/download/v2.0.0/agy-swap_v2.0.0_darwin_amd64",
@@ -1871,6 +1864,12 @@
           "size": 6540800,
           "url": "https://github.com/aklkbqx/agy-swap/releases/download/v2.0.0/agy-swap_v2.0.0_windows_arm64.exe",
           "digest": "sha256:12bdb298ae8fc18e0b31935d0cf66e8f5269dc91eed7539b8a38daa958320649"
+        },
+        {
+          "name": "agy-swap.rb",
+          "size": 1248,
+          "url": "https://github.com/aklkbqx/agy-swap/releases/download/v2.0.0/agy-swap.rb",
+          "digest": "sha256:fe78107c1e196f805ffe34095e2dd3f439cd0fea03112433a8cf2f87fa3d3b99"
         },
         {
           "name": "checksums.txt",
@@ -2052,5 +2051,7 @@
       "evidence": "historical-metadata",
       "evidenceDocument": null
     }
-  ]
+  ],
+  "otherTags": [],
+  "snapshotDate": "2026-10-11"
 }
