@@ -1,6 +1,6 @@
 # Knowledge map and migration reconciliation
 
-Reconciled 2026-10-11 against source, existing docs and published v2.11.2 evidence. This is an index of canonical knowledge, not a parallel task list. Migration [Epic #5](https://github.com/aklkbqx/agy-swap/issues/5) is complete. Current follow-up work is in [installer #19](https://github.com/aklkbqx/agy-swap/issues/19), [documentation #20](https://github.com/aklkbqx/agy-swap/issues/20), and their [plan](../plans/2026-10-11-windows-installer-followup.md).
+Reconciled 2026-10-11 against source, existing docs and published v2.11.4 delivery evidence. This is an index of canonical knowledge, not a parallel task list. Migration [Epic #5](https://github.com/aklkbqx/agy-swap/issues/5) is complete. The delivered installer follow-up is recorded in [installer #19](https://github.com/aklkbqx/agy-swap/issues/19), [documentation #20](https://github.com/aklkbqx/agy-swap/issues/20), and their [plan](../plans/2026-10-11-windows-installer-followup.md).
 
 | Subject | Canonical location | Supporting source / evidence | Disposition |
 | --- | --- | --- | --- |
@@ -17,7 +17,7 @@ Reconciled 2026-10-11 against source, existing docs and published v2.11.2 eviden
 | Release and deployment | [Development](../development.md#5-release-assets-and-homebrew-publication), private Site runbook | Release tool/assets, explicit tap publication, self-hosted image flow | Public tooling docs; private operations |
 | Every historical version | [History](../releases/README.md), [JSON](../releases/index.json), [changelog](../../CHANGELOG.md) | Paginated GitHub tags/Releases and Site tag-presence evidence | All known versions; no invented delivery evidence |
 | v2.11.2 delivered findings | [Delivery evidence](../releases/v2.11.2.md), [workstream map](../releases/v2.11.2-workstreams.md) | Published Release, source and sanitized test results | Shipped in v2.11.2; Issue #4 later closed after independent native v2.11.3 verification |
-| Windows closure and active installation | [v2.11.3 evidence](../releases/v2.11.3.md) | [Native acceptance](https://github.com/aklkbqx/agy-swap/issues/4#issuecomment-6107713281), [installed binary](https://github.com/aklkbqx/agy-swap/issues/4#issuecomment-6107821873) | Issue #4 closed; installed v2.11.3; no reporter reply or IDE/chat claim |
+| Windows closure and active installation | [v2.11.3 acceptance](../releases/v2.11.3.md), [v2.11.4 installation](../releases/v2.11.4.md) | [Native acceptance](https://github.com/aklkbqx/agy-swap/issues/4#issuecomment-6107713281), [installed binary](https://github.com/aklkbqx/agy-swap/issues/4#issuecomment-6107821873) | Issue #4 closed after v2.11.3 acceptance; current installation v2.11.4; no reporter reply or IDE/chat claim |
 | Durable decisions | [Decisions](../decisions/README.md) | Current contract and approved migration design | Accepted rationale with explicit consequences |
 | Earlier design/work proposals | [Archive](../plans/archive/README.md) | Dated local proposals compared with current source | Curated summaries; original scratch retained locally |
 | Current and future actionable work | [Issues](https://github.com/aklkbqx/agy-swap/issues), private Site Issues | Acceptance, version-neutral labels, checkpoints and Milestones | No duplicated TODO database |
