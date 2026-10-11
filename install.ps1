@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
 
-if ([string]::IsNullOrWhiteSpace($Version)) { $Version = '2.11.3' }
+if ([string]::IsNullOrWhiteSpace($Version)) { $Version = '2.11.4' }
 if ([string]::IsNullOrWhiteSpace($TargetDir)) { $TargetDir = Join-Path $env:LOCALAPPDATA 'Programs\agy-swap' }
 
 $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
@@ -26,8 +26,8 @@ $backup = "$target.bak"
 
 try {
   New-Item -ItemType Directory -Force -Path $tmp, $TargetDir | Out-Null
-  Write-Host "● Installing agy-swap $tag for windows/$arch..." -ForegroundColor Cyan
-  Write-Host "  ↓ Downloading release binary from GitHub..." -ForegroundColor Gray
+  Write-Host "[info] Installing agy-swap $tag for windows/$arch..." -ForegroundColor Cyan
+  Write-Host "  Downloading release binary from GitHub..." -ForegroundColor Gray
 
   $iwrParams = @{ UseBasicParsing = $true }
   if ($Insecure) {
@@ -48,13 +48,15 @@ try {
   if ($actual -ne $expected) { throw 'Checksum verification failed; installation aborted' }
 
   $shortHash = $expected.Substring(0, [Math]::Min(16, $expected.Length))
-  Write-Host "  ✓ Cryptographic SHA-256 integrity verified: $shortHash..." -ForegroundColor Green
+  Write-Host "  [ok] Cryptographic SHA-256 integrity verified: $shortHash..." -ForegroundColor Green
 
   $reportedVersion = (& (Join-Path $tmp $asset) --version | Out-String).Trim()
-  if (-not $reportedVersion.StartsWith("agy-swap v$Version")) {
+  $reportedExitCode = $LASTEXITCODE
+  $versionFields = $reportedVersion -split '\s+'
+  if ($reportedExitCode -ne 0 -or $versionFields.Length -lt 2 -or $versionFields[0] -cne 'agy-swap' -or $versionFields[1] -cne "v$Version") {
     throw "Downloaded binary reported an unexpected version: $reportedVersion"
   }
-  Write-Host "  ✓ Binary self-test passed: $reportedVersion" -ForegroundColor Green
+  Write-Host "  [ok] Binary self-test passed: $reportedVersion" -ForegroundColor Green
 
   if (Test-Path $target) { Copy-Item $target $backup -Force }
   try {
@@ -63,7 +65,7 @@ try {
     if (Test-Path $backup) { Copy-Item $backup $target -Force }
     throw
   }
-  Write-Host "  ✓ Installed binary to $target" -ForegroundColor Green
+  Write-Host "  [ok] Installed binary to $target" -ForegroundColor Green
 
   $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
   if ($userPath -split ';' -notcontains $TargetDir) {
@@ -72,7 +74,7 @@ try {
     Write-Host "  [Environment]::SetEnvironmentVariable('Path', `"`$userPath;$TargetDir`", 'User')" -ForegroundColor Cyan
   }
 
-  Write-Host "`n🚀 Installation complete! Run 'agy-swap' to launch the interactive manager.`n" -ForegroundColor Green
+  Write-Host "`nInstallation complete! Run 'agy-swap' to launch the interactive manager.`n" -ForegroundColor Green
 } catch {
   Write-Host "`nError during installation: $_" -ForegroundColor Red
   Write-Host "If you are behind a corporate proxy or VPN with custom SSL inspection, try:" -ForegroundColor Yellow

@@ -81,3 +81,7 @@ Before publication, rollback is a reviewed local diff; do not revert unrelated f
 - The new session can resume an Issue using only GitHub and current source.
 - Source publication and any release/deployment happen only after required owner review and verification.
 - No `.github/` configuration, token expansion, hosting change, delegated implementation or private-data disclosure is introduced.
+
+## Windows follow-up — 2026-10-11
+
+Issue #4 subsequently closed after owner-authorized native v2.11.3 verification, and the active Windows installation was updated to v2.11.3. See the canonical [verification and installation follow-up](../releases/v2.11.3.md#windows-follow-up--2026-10-11). Original observations above remain historical; no new reporter reply or IDE/chat test is asserted.

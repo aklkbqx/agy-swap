@@ -14,7 +14,11 @@ Date: 2026-10-11. State: completed — all six migration tasks, the epic and bot
 
 ## Verified execution checkpoint
 
-On 2026-10-11, v2.11.3 was published and verified: [delivery evidence](../releases/v2.11.3.md). All six tasks and Epic #5 are closed with delivered checkpoints; both migration milestones are closed. Issue #4 remains open for reporter confirmation. Optional Projects remains intentionally disabled with no token scope expansion. Its optional planning checkbox records evaluation, not board creation.
+On 2026-10-11, v2.11.3 was published and verified: [delivery evidence](../releases/v2.11.3.md). All six tasks and Epic #5 are closed with delivered checkpoints; both migration milestones are closed. Issue #4 subsequently closed after [owner-authorized native verification](https://github.com/aklkbqx/agy-swap/issues/4#issuecomment-6107713281); the active Windows binary was [updated to v2.11.3](https://github.com/aklkbqx/agy-swap/issues/4#issuecomment-6107821873). The original baseline and task instructions below preserve planning-time state; the owner's later test-and-close instruction superseded the reporter-wait criterion. Installer encoding/documentation follow-up is tracked separately in the [v2.11.4 plan](2026-10-11-windows-installer-followup.md). Optional Projects remains intentionally disabled with no token scope expansion. Its optional planning checkbox records evaluation, not board creation.
+
+## Original planning constraints
+
+Version observations in this section describe the planning baseline, not current latest stable.
 
 ## Global constraints
 

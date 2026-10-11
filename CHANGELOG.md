@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.11.4
+
+### Fixes
+
+- Windows: use ASCII installer output so saved UTF-8 scripts run directly under Windows PowerShell 5.1 without an encoding workaround. Require exact version tokens and a successful binary self-test before replacement. Preserve checksum verification, backup and cleanup behavior; add native installation and rejection regressions.
+- Docs: reconcile Issue #4 closure, native v2.11.3 CLI/TUI verification and the active Windows upgrade through current checkpoints and dated historical follow-ups.
+
 ## 2.11.3
 
 ### Maintenance
