@@ -1,6 +1,6 @@
 # GitHub workflow
 
-This is the operating workflow for every contributor and agent. [AGENTS.md](../AGENTS.md) is the always-on contract; owner instructions and its review gate still apply. The rollout and remaining migration work are recorded in the [implementation plan](plans/2026-10-11-github-workflow.md).
+This is the operating workflow for every contributor and agent. [AGENTS.md](../AGENTS.md) is the always-on contract; owner instructions and its review gate still apply. The completed rollout and its evidence are recorded in the [implementation plan](plans/2026-10-11-github-workflow.md).
 
 ## Sources of truth
 

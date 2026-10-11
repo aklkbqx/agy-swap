@@ -1,6 +1,6 @@
 # GitHub workflow implementation plan
 
-Date: 2026-10-11. State: required source/release/live delivery verified; final GitHub acceptance closure is pending. GitHub Issue checkpoints record execution and publication evidence.
+Date: 2026-10-11. State: completed — all six migration tasks, the epic and both migration milestones are closed after verified source/release/live delivery. GitHub Issue checkpoints record execution and publication evidence.
 
 > Execute directly with the `executing-plans` skill, one task at a time. Checkboxes describe acceptance, not assumed completion. Do not delegate implementation unless the owner explicitly asks. GitHub planning metadata is authorized; source publication retains the AGENTS.md local review gate.
 
@@ -14,7 +14,7 @@ Date: 2026-10-11. State: required source/release/live delivery verified; final G
 
 ## Verified execution checkpoint
 
-On 2026-10-11, v2.11.3 was published and verified: [delivery evidence](../releases/v2.11.3.md). Tasks 1–5 acceptance is satisfied; Task 6 delivery is verified and final metadata closure is pending. Optional Projects remains intentionally disabled with no token scope expansion. Its optional planning checkbox records evaluation, not board creation.
+On 2026-10-11, v2.11.3 was published and verified: [delivery evidence](../releases/v2.11.3.md). All six tasks and Epic #5 are closed with delivered checkpoints; both migration milestones are closed. Issue #4 remains open for reporter confirmation. Optional Projects remains intentionally disabled with no token scope expansion. Its optional planning checkbox records evaluation, not board creation.
 
 ## Global constraints
 
@@ -168,7 +168,7 @@ test('tag-only history is retained without invented release evidence', () => {
 - [x] Present the concrete candidate, file list, links, evidence, proposed SemVer if needed and limits. Wait for owner approval before source commit/tag/push/release. No commit is buried inside an earlier task.
 - [x] After approval, stage explicit Tool paths and explicit Site paths separately. Commit with human Conventional Commit messages and no AI trailers. Push the reviewed docs/rules; when the full project release contract applies, use the existing cross-surface version tool, matching new annotated tags, build/install/assets and Site release command. Never reuse v2.11.2 or overwrite existing release assets.
 - [x] Verify published docs from GitHub at exact commits and test standalone retrieval. If a release/Site deployment was affected, verify installed version, downloadable checksums, public site version/assets/health and image digest using the documented flow; production uses `:latest` and no SSH deployment.
-- [ ] Update the release/Issue evidence, close only accepted tasks, leave real unresolved tasks open, and close the migration milestone/epic only when all required acceptance is met. Add the final checkpoint with exact next-release workflow.
+- [x] Update the release/Issue evidence, close only accepted tasks, leave real unresolved tasks open, and close the migration milestone/epic only when all required acceptance is met. Add the final checkpoint with exact next-release workflow.
 
 **Acceptance:** GitHub alone contains the published contract, curated knowledge, work queue and truthful version history; all required delivery evidence is durable and another agent can resume without private chat context.
 
