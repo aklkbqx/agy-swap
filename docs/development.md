@@ -79,7 +79,7 @@ The fixture test pins its terminal color environment; the production TUI still s
 
 AGY Live is an opt-in local development tool. The owner starts it with `make live`, which builds the demo binary, runs the PTY gateway on loopback, and enables the browser terminal with `VITE_AGY_LIVE=1`. It finds free gateway and Vite ports; open the **Local URL printed by Vite**, then `#demo`. Each demo uses an isolated temporary home. Neither the gateway nor the live section ships in the production image.
 
-Use `go test ./internal/demoserver ./internal/app` for the native demo path, and `bun test --cwd site` plus `cd site && bun run build` for the browser UI. Review servers require owner authorization.
+Use `go test ./internal/demoserver ./internal/app` for the native demo path. In `site/`, run `bun run build` followed by `bun test` sequentially: the browser suite reads built assets and must not race the build that replaces them. Review servers require owner authorization.
 
 ---
 
