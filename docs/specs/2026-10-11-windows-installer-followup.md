@@ -1,6 +1,6 @@
 # Windows installer and documentation follow-up
 
-Owner requested creating GitHub tasks and implementing both review findings on 2026-10-11. Public work: [installer #19](https://github.com/aklkbqx/agy-swap/issues/19), [documentation #20](https://github.com/aklkbqx/agy-swap/issues/20). Target: v2.11.4 patch; v2.11.3 remains published stable until delivery.
+Owner requested creating GitHub tasks and implementing both review findings on 2026-10-11. Public work: [installer #19](https://github.com/aklkbqx/agy-swap/issues/19), [documentation #20](https://github.com/aklkbqx/agy-swap/issues/20). Planning target: v2.11.4 patch, with v2.11.3 stable at planning time. Final [v2.11.4 delivery](../releases/v2.11.4.md) records the subsequent publication and Mac/Windows upgrades.
 
 ## Required behavior
 
@@ -8,7 +8,7 @@ A downloaded `install.ps1` must execute on Windows PowerShell 5.1 without a BOM/
 
 Compare the complete brand/version tokens and require a successful binary self-test before replacement; a prefix match is insufficient. This also fixes an existing validation defect discovered in candidate review.
 
-Current documentation must state that Issue #4 closed after owner-authorized native verification and that the Windows installation now uses v2.11.3. Historical observations must retain their dates and original context, with dated follow-ups rather than invented reporter confirmation. Latest stable and a local candidate are distinct states.
+Current documentation must state that Issue #4 closed after owner-authorized native v2.11.3 verification and initial Windows installation. Final delivery must update the current installed version to v2.11.4 while preserving the earlier evidence. Historical observations must retain their dates and original context, with dated follow-ups rather than invented reporter confirmation. Latest stable and a local candidate are distinct states.
 
 ## Global constraints
 
