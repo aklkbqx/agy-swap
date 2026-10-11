@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.11.2
+
+- Windows: prepare compact active-session JSON before switching, preserve refreshed identity and provider fields, reject oversized Credential Manager payloads before writes, and restore exact previous credentials after OAuth-file failures.
+- Release: asset builds generate a local Homebrew formula; tap commits and pushes require explicit `make publish-homebrew-tap`. Publication checks the actual remote tip and refuses dirty/diverged taps, unrelated unpublished commits, and invalid or duplicate checksums.
+- Tests: make website TUI story snapshots independent of inherited terminal color capabilities while keeping production truecolor support.
+- Docs and site: correct active-session versus saved-vault behavior, Doctor's storage/recovery effects in all four locales, local-only AGY Live instructions, and latest-stable-only security support with accurate network use.
+- Deployment: publish downloadable release assets before promoting the default installers, and tag both repositories before building the site image.
+
 ## 2.11.1
 
 - Installers & updater: detect Homebrew-managed installations, delegate to `brew upgrade`, and clean up shadowing binaries at `~/.local/bin/agy-swap`.

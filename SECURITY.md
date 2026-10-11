@@ -6,35 +6,34 @@
 
 ## Supported Versions
 
-Security fixes are actively released for the latest stable release line:
+Security fixes are released only for the latest stable version. When a new stable version is published, earlier versions are no longer supported; upgrade before reporting a problem against an older version.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 2.3.x   | :white_check_mark: |
-| < 2.3.0 | :x:                |
+| Latest stable release | :white_check_mark: |
+| All earlier releases | :x: |
 
 ---
 
 ## Architecture & Credential Protection
 
-`agy-swap` is architected as a **100% local, privacy-first tool**:
+`agy-swap` stores account and session data locally and does not collect telemetry:
 
 1. **Where tokens live**:
    - **Saved account tokens** go to `vault.json` in the agy-swap config directory (`~/.gemini/agy-swap/`), written atomically with `0600` permissions. The file is **not encrypted**: anything that can read files as your user can read it.
    - **`AGY_SWAP_VAULT=keychain`** keeps them in the OS credential store instead: macOS Keychain through `Security.framework`, Windows Credential Manager, or the Linux Secret Service through `secret-tool`. `AGY_SWAP_VAULT=file` uses the file only. By default the OS store is read only for tokens saved by older versions.
-   - **The active Antigravity session** is written where Antigravity reads it: its OS credential store entry and the OAuth files under `~/.gemini`.
+   - **The active Antigravity session** is written where Antigravity reads it: its OS credential store entry and the OAuth files under `~/.gemini`. On macOS this uses `/usr/bin/security`, with the session credential in command arguments, for Antigravity compatibility. Saved vault writes in keychain mode use `Security.framework`; the vault setting does not select the active-session backend.
    - If the vault cannot be written (for example `secret-tool` fails in keychain mode), the token stays as plaintext `token_data` in `accounts.json` (`0600`) and `agy-swap doctor` warns with `vault_migration`; run `agy-swap account migrate --force` once the vault works.
    - `agy-swap doctor` shows which vault is in use.
 
 2. **Atomic Session Swapping**:
    - Session files are swapped using atomic file replacement operations (`os.Rename` on POSIX systems, `MoveFileEx` with replace flags on Windows) guarded by system file locks (`flock` / `LockFileEx`) to prevent partial writes, corruption, or race conditions.
 
-3. **Zero Telemetry & Zero Remote Calls**:
-   - `agy-swap` does not send telemetry, analytics, crash reports, or user information to any external server.
-   - All network traffic is strictly limited to user-initiated actions:
-     - Google OAuth login via local loopback.
-     - Direct quota checks against the Google Antigravity API endpoint.
-     - Optional release checks against public GitHub release metadata.
+3. **No Telemetry & Network Use**:
+   - `agy-swap` does not collect telemetry, analytics, or crash reports.
+   - Google requests support OAuth login, token refresh, account identity verification, and quota checks. Login receives the browser callback through a local loopback listener.
+   - Quota polling and token refresh can run automatically while a user-invoked TUI, watch, recommendation, or bound-run session is active.
+   - GitHub requests support release checks, download verification, and self-updates. These requests are operational network traffic, not telemetry.
 
 ---
 

@@ -14,6 +14,13 @@ type CredentialBackend interface {
 	Delete(context.Context) bool
 }
 
+// sessionPreparer adapts a validated token to a platform's active-session
+// representation. Such backends require an authoritative store write; mirrored
+// OAuth files alone cannot establish a successful switch.
+type sessionPreparer interface {
+	PrepareSession(string) (string, error)
+}
+
 type osCredentialBackend struct{}
 
 func (osCredentialBackend) Get(ctx context.Context) string { return platformCredentialGet(ctx) }
@@ -150,15 +157,25 @@ func (c *Credentials) applyUnlocked(ctx context.Context, tokenData, email string
 	if !tokenMatchesEmail(tokenData, email) {
 		return false
 	}
+	prepared := tokenData
+	requireSecure := false
+	if preparer, ok := c.backend.(sessionPreparer); ok {
+		requireSecure = true
+		var err error
+		prepared, err = preparer.PrepareSession(tokenData)
+		if err != nil {
+			return false
+		}
+	}
 	previous := c.Secure(ctx)
-	if previous == tokenData {
+	if previous == prepared {
 		return c.writeOAuthFiles(tokenData, email)
 	}
-	updated := c.Set(ctx, tokenData)
+	updated := c.Set(ctx, prepared)
 	if !updated {
 		current := c.Secure(ctx)
 		switch {
-		case current == tokenData:
+		case current == prepared:
 			updated = true
 		case previous != "":
 			if current != previous {
@@ -166,6 +183,8 @@ func (c *Credentials) applyUnlocked(ctx context.Context, tokenData, email string
 			}
 			return false
 		case current != "":
+			return false
+		case requireSecure:
 			return false
 		}
 	}

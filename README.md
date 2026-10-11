@@ -45,7 +45,7 @@ Requirements: Go 1.26 or later. macOS source builds require Xcode Command Line T
 ```bash
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-go build -trimpath -ldflags "-s -w -X main.version=2.11.1 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.11.2 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ./agy-swap version
 ```
 
@@ -230,7 +230,9 @@ Bindings take effect in `run now`, not when a shell merely changes directory. `-
 ## Security and privacy
 
 - **Saved account tokens:** stored in `vault.json` in the agy-swap config directory, readable only by your user (`0600`). The file is not encrypted. Set `AGY_SWAP_VAULT=keychain` to keep them in the OS credential store instead ([macOS Keychain](https://support.apple.com/guide/security/keychain-data-protection-secb0694df1a/web), [Windows Credential Manager](https://learn.microsoft.com/en-us/windows/win32/secauthn/credentials-management), or [Linux Secret Service](https://specifications.freedesktop.org/secret-service/)); `AGY_SWAP_VAULT=file` uses the file only. `agy-swap doctor` shows which one is in use.
-- **Active session:** switching writes the Antigravity session where Antigravity reads it, in its OS credential store entry and OAuth files under `~/.gemini`, protected by local permissions. In keychain mode, macOS releases write through Security.framework, not through process arguments. Old vault references may remain to support local backup recovery.
+- **Active session:** switching writes the Antigravity session where Antigravity reads it, in its OS credential store entry and OAuth files under `~/.gemini`, protected by local permissions. On macOS, the active session is updated with `/usr/bin/security` for Antigravity compatibility; the credential value is passed in its command arguments. The saved-account vault uses Security.framework in keychain mode. `AGY_SWAP_VAULT` selects the saved vault, not the active-session backend. Old vault references may remain to support local backup recovery.
+- **Vault fallback:** if the selected vault cannot be written, the saved token remains as plaintext `token_data` in `accounts.json` (`0600`). Doctor reports `vault_migration`; retry `agy-swap account migrate --force` when the vault works.
+- **Doctor:** checks local storage, credentials, and platform readiness. It may create or tighten permissions on the config directory and recover an interrupted backup restore while loading state. It is not a strictly read-only command. `doctor --refresh` also checks GitHub release metadata for the platform's download asset.
 - **Identity:** Adding a credential requires a verified email returned by Google userinfo. Decoded JWT claims are only local identity hints, not signature verification.
 - **Portable backups:** Metadata exports omit secrets and machine-local vault references. Merge keeps an existing credential when the backup has none. Secret exports use AES-GCM with PBKDF2-HMAC-SHA256 (600,000 iterations); legacy encrypted backups remain readable. Verify and import use the same validation. Imports use a recovery journal; do not delete it after an interrupted restore.
 - **History:** Switch and quota events are local JSONL records with locking and retention. This is not an immutable audit ledger.

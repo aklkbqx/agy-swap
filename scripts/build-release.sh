@@ -29,5 +29,6 @@ go run ./cmd/releasetool checksums "$dist"
 go run ./cmd/releasetool verify-assets "$version" "$dist"
 go run ./cmd/releasetool verify-version "$version" install.sh
 go run ./cmd/releasetool verify-version "$version" install.ps1
+# Generates the local formula only. Publishing the tap is a separate opt-in step.
 ./scripts/update-homebrew-tap.sh "$version" "$dist"
 "$dist/agy-swap_v${version}_darwin_$(go env GOHOSTARCH)" --version
