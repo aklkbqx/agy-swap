@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,11 +17,42 @@ type storyFrameSet struct {
 	Frames  map[string]map[string][]string `json:"frames"`
 }
 
+func TestSiteStoryFramesTerminalEnvironment(t *testing.T) {
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, vars := range map[string][]string{
+		"truecolor": {"TERM=xterm-256color", "COLORTERM=truecolor"},
+		"direct":    {"TERM=xterm-direct"},
+		"256color":  {"TERM=xterm-256color"},
+		"no-color":  {"TERM=xterm-256color", "COLORTERM=24bit", "NO_COLOR=1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cmd := exec.Command(binary, "-test.run=^TestSiteStoryFrames$", "-test.count=1")
+			for _, entry := range os.Environ() {
+				key, _, _ := strings.Cut(entry, "=")
+				switch key {
+				case "TERM", "COLORTERM", "NO_COLOR", "AGY_SWAP_UPDATE_STORY_FRAMES":
+					continue
+				}
+				cmd.Env = append(cmd.Env, entry)
+			}
+			cmd.Env = append(cmd.Env, vars...)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("fixture changed under %s: %v\n%s", name, err, output)
+			}
+		})
+	}
+}
+
 // The website's still frames are produced by the same renderer as the live TUI.
 // Run AGY_SWAP_UPDATE_STORY_FRAMES=1 go test ./internal/app -run TestSiteStoryFrames
 // after changing the TUI renderer or demo data.
 func TestSiteStoryFrames(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("COLORTERM", "")
 	siteDir := filepath.Join("..", "..", "site")
 	packageData, err := os.ReadFile(filepath.Join(siteDir, "package.json"))
 	if err != nil {

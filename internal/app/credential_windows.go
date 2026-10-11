@@ -47,11 +47,15 @@ func platformCredentialGet(context.Context) string {
 	blob := unsafe.Slice(pointer.CredentialBlob, pointer.CredentialBlobSize)
 	return string(blob)
 }
+func (osCredentialBackend) PrepareSession(value string) (string, error) {
+	return windowsSessionCredential(value)
+}
+
 func platformCredentialSet(_ context.Context, value string) bool {
 	target, _ := windows.UTF16PtrFromString("gemini:antigravity")
 	user, _ := windows.UTF16PtrFromString("antigravity")
 	blob := []byte(value)
-	if len(blob) == 0 {
+	if len(blob) == 0 || len(blob) > windowsCredentialBlobLimit {
 		return false
 	}
 	item := credential{Type: credTypeGeneric, TargetName: target, CredentialBlobSize: uint32(len(blob)), CredentialBlob: &blob[0], Persist: 3, UserName: user}
