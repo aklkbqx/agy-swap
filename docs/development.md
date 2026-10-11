@@ -109,3 +109,13 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /tmp/agy-swap-win.exe ./cmd/
 `make release-assets VERSION=X.Y.Z BUILD_ID=release-vX.Y.Z` cross-compiles the six binaries, verifies metadata and checksums, and generates `dist/release/agy-swap.rb`. It does not discover, edit, commit, or push a Homebrew tap.
 
 After the local review gate and owner approval, publish the matching GitHub release and assets before updating Homebrew. Then run `make publish-homebrew-tap VERSION=X.Y.Z` explicitly. It uses `HOMEBREW_TAP_DIR` when set, or the installed `aklkbqx/agy-swap` tap; the tap must be on `main` with a clean working tree and index. Publication fetches the current remote tip, refuses behind/diverged branches and unrelated unpublished commits, and permits retrying a formula-only pending push. It commits only `Formula/agy-swap.rb` and pushes `origin main`. The helper's default invocation without `--publish` only generates the local formula.
+
+## Native Windows installer regression
+
+On Windows with Go and Windows PowerShell 5.1 installed, run:
+
+```powershell
+go test ./cmd/releasetool -run '^TestWindowsInstaller(SavedFile|DecodedText)$' -v
+```
+
+These tests execute the actual saved installer and UTF-8-decoded invocation in isolated temporary targets containing spaces. Only release downloads use controlled fixtures; checksum/version rejection, installation, previous-binary backup and cleanup run in the real script. They do not change the active installation, user PATH, accounts or credentials. The tests are Windows-only; a Mac `make qa` does not replace this native check.
