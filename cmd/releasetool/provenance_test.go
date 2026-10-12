@@ -24,9 +24,40 @@ func TestReadModuleFloor(t *testing.T) {
 	if err != nil || module != "example.com/tool/v2" || toolchain != "go1.27.2" {
 		t.Fatalf("readModuleFloor = %q, %q, %v", module, toolchain, err)
 	}
-	writeTestFile(t, filepath.Join(dir, "go.mod"), "module example.com/tool/v2\n\ngo 1.26.0\n")
+	writeTestFile(t, filepath.Join(dir, "go.mod"), "module example.com/tool/v2\n")
 	if _, _, err := readModuleFloor(dir); err == nil {
-		t.Fatal("go.mod without a toolchain floor was accepted")
+		t.Fatal("go.mod without any Go version floor was accepted")
+	}
+}
+
+// go install applies only the go directive (not the toolchain line), so the
+// directive itself must name the patched compiler.
+func TestRepositoryGoDirectiveEnforcesTheSecurityFloor(t *testing.T) {
+	data, err := os.ReadFile("../../go.mod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	directive := ""
+	for _, line := range strings.Split(string(data), "\n") {
+		if fields := strings.Fields(line); len(fields) == 2 && fields[0] == "go" {
+			directive = "go" + fields[1]
+		}
+	}
+	if version.Compare(directive, "go1.27.2") < 0 {
+		t.Fatalf("go directive %q lets go install build with a vulnerable toolchain", directive)
+	}
+}
+
+func TestReadModuleFloorFallsBackToTheGoDirective(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "go.mod"), "module example.com/tool/v2\n\ngo 1.27.2\n")
+	module, floor, err := readModuleFloor(dir)
+	if err != nil || module != "example.com/tool/v2" || floor != "go1.27.2" {
+		t.Fatalf("readModuleFloor = %q, %q, %v", module, floor, err)
+	}
+	writeTestFile(t, filepath.Join(dir, "go.mod"), "module example.com/tool/v2\n\ngo 1.27.2\n\ntoolchain go1.27.5\n")
+	if _, floor, _ := readModuleFloor(dir); floor != "go1.27.5" {
+		t.Fatalf("newer toolchain line ignored: %q", floor)
 	}
 }
 
