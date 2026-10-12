@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.11.6
+
+### Fixes
+
+- Install: `go.mod` now declares `go 1.27.2`. `go install github.com/aklkbqx/agy-swap/v2/cmd/agy-swap@latest` applies the go directive (not the toolchain line), so builds from source now use a toolchain with the v2.11.5 standard-library security fixes; with the default `GOTOOLCHAIN=auto` an older go command downloads it. Source builds require Go 1.27.2 or later.
+- Release tooling reads the release floor from the newer of the go directive and an optional toolchain line.
+
+### Tests
+
+- End-to-end tests for `switch` (index, email, alias, unknown and ambiguous targets, failed writes keeping the previous session), `remove` (confirmation and vault cleanup), `status`, `list`, `logout` and `add --token -` (verified identity, mismatch and empty input). These commands previously had no coverage.
+
+### Site
+
+- The install page states the Go 1.27.2 requirement in every locale, guarded by a test against `go.mod`. The lazy desktop-only 3D scene chunk has an explicit, tested size limit instead of a recurring build warning.
+
 ## 2.11.5
 
 ### Security
