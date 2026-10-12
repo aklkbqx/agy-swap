@@ -30,24 +30,24 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex
 ```
 
-With Go 1.26 or later:
+With Go (the module requires Go 1.27.2; with the default `GOTOOLCHAIN=auto` an older go command downloads it first):
 
 ```bash
 go install github.com/aklkbqx/agy-swap/v2/cmd/agy-swap@latest
 ```
 
-`go install` compiles with your local Go toolchain, so keep Go on a current patch release. Published binaries are built with Go 1.27.2.
+`go install` builds with Go 1.27.2 or newer, the version that carries the standard-library security fixes. Published binaries use the same floor.
 
 Pre-built binaries for `darwin/amd64`, `darwin/arm64`, `linux/amd64`, `linux/arm64`, `windows/amd64`, and `windows/arm64`, with checksums, are on [GitHub Releases](https://github.com/aklkbqx/agy-swap/releases). The [install page](https://agy-swap.aklkbqx.com/install.html) shows one command at a time for your operating system.
 
 ### Build from source
 
-Requirements: Go 1.26 or later. macOS source builds require Xcode Command Line Tools and `CGO_ENABLED=1` for Keychain writes.
+Requirements: Go 1.27.2 or later. macOS source builds require Xcode Command Line Tools and `CGO_ENABLED=1` for Keychain writes.
 
 ```bash
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-go build -trimpath -ldflags "-s -w -X main.version=2.11.5 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.11.6 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ./agy-swap version
 ```
 
