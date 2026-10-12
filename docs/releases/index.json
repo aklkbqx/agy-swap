@@ -6,7 +6,7 @@
   "versions": [
     {
       "tag": "v2.11.4",
-      "toolCommit": "4301b9c7aca4c17a078a73f77b50eed20c80bec2",
+      "toolCommit": "6603aa2a0237462572505f6ca43747017a532fe9",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.11.4",
       "releaseState": "published",
       "prerelease": false,
@@ -62,7 +62,7 @@
     },
     {
       "tag": "v2.11.3",
-      "toolCommit": "55a7d258aca3015cdb06d7a7ab9164aac21b79d6",
+      "toolCommit": "8dc68b3098b800aee0feba89c1435b485ca7c96c",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.11.3",
       "releaseState": "published",
       "prerelease": false,
@@ -118,7 +118,7 @@
     },
     {
       "tag": "v2.11.2",
-      "toolCommit": "6f5c0afbc6c31921cfb7caf75fe62f7d70292588",
+      "toolCommit": "457138ab28bcd1d8660a9a7b1f6db04a6972fadb",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.11.2",
       "releaseState": "published",
       "prerelease": false,
@@ -174,7 +174,7 @@
     },
     {
       "tag": "v2.11.1",
-      "toolCommit": "3dbbe5bddcf081b66862be95f12e2f56cffc3f29",
+      "toolCommit": "68cf94975d1ed5671108e568179fdf83375b2acc",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.11.1",
       "releaseState": "published",
       "prerelease": false,
@@ -230,7 +230,7 @@
     },
     {
       "tag": "v2.11.0",
-      "toolCommit": "36df7b3243f76f8f6246a021bd04a692b9fcb081",
+      "toolCommit": "0c2df3a0f0edb8629ed0d58ecdbf6bfa458f0f8c",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.11.0",
       "releaseState": "published",
       "prerelease": false,
@@ -286,7 +286,7 @@
     },
     {
       "tag": "v2.10.0",
-      "toolCommit": "8560afe187978401ca34baca76ad85c5f114526b",
+      "toolCommit": "425ba282d57c7d4d037c21a21aecc5b732fed676",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.10.0",
       "releaseState": "published",
       "prerelease": false,
@@ -342,7 +342,7 @@
     },
     {
       "tag": "v2.9.1",
-      "toolCommit": "3e8858b3df111433decc0feb92f5b7b81a01224d",
+      "toolCommit": "f3274acb4e365062ee668526eb90e31545c43bb0",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.9.1",
       "releaseState": "published",
       "prerelease": false,
@@ -398,7 +398,7 @@
     },
     {
       "tag": "v2.9.0",
-      "toolCommit": "c75e1e53aade616945d5f165e2228101c3775b60",
+      "toolCommit": "dc8c6af2e1f8b496b0a4cb347dc2c0cc0ca67ff5",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.9.0",
       "releaseState": "published",
       "prerelease": false,
@@ -454,7 +454,7 @@
     },
     {
       "tag": "v2.8.8",
-      "toolCommit": "4a2a6e84dba565e246494c3e991f787660d47c2b",
+      "toolCommit": "c29239d1f07d036305e8e87e6d889081268d6adb",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.8.8",
       "releaseState": "published",
       "prerelease": false,
@@ -510,7 +510,7 @@
     },
     {
       "tag": "v2.8.7",
-      "toolCommit": "49ab83dfeb297601e037d30c9812023b386fb5c2",
+      "toolCommit": "6c743125a16f9e13875ab0cdc71f95a0aacb5ca0",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.8.7",
       "releaseState": "published",
       "prerelease": false,
@@ -566,7 +566,7 @@
     },
     {
       "tag": "v2.8.6",
-      "toolCommit": "f0a8a8393e7804e33345c2f38f424973d494d933",
+      "toolCommit": "2d2c5f9a2e2440a7a1e60aa6db1a10ee689f51aa",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.8.6",
       "releaseState": "published",
       "prerelease": false,
@@ -622,7 +622,7 @@
     },
     {
       "tag": "v2.8.5",
-      "toolCommit": "230f7833ed7af4c75ecbb526bdd6221e10299653",
+      "toolCommit": "e5ecd9c7660065d4cdfd1f312ed5027ffc52eec6",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.8.5",
       "releaseState": "published",
       "prerelease": false,
@@ -678,7 +678,7 @@
     },
     {
       "tag": "v2.8.4",
-      "toolCommit": "84e38a75c84c8ad1a9e95031c231fe7bf5fb9896",
+      "toolCommit": "b22173bc31d2e4e336c7f40ae1350b2abbaccb6e",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.8.4",
       "releaseState": "published",
       "prerelease": false,
@@ -734,7 +734,7 @@
     },
     {
       "tag": "v2.8.3",
-      "toolCommit": "5588da9f2fd02a30422232570b8fa77938d2bcfd",
+      "toolCommit": "ca59d2de08249be7752909f7e2551079ca198d82",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.8.3",
       "releaseState": "published",
       "prerelease": false,
@@ -790,7 +790,7 @@
     },
     {
       "tag": "v2.8.2",
-      "toolCommit": "1f63d56ebe3db7538d9e24f9ed9ee41b36c3a7d8",
+      "toolCommit": "4855eb2bc4ce12052c0d0cdb0f957b859700e338",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.8.2",
       "releaseState": "published",
       "prerelease": false,
@@ -846,7 +846,7 @@
     },
     {
       "tag": "v2.8.1",
-      "toolCommit": "7160b15d37691964e74378214c68b167653f64f9",
+      "toolCommit": "33b26957de9fb690681d95040dd12372634cfaa9",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.8.1",
       "releaseState": "published",
       "prerelease": false,
@@ -902,7 +902,7 @@
     },
     {
       "tag": "v2.8.0",
-      "toolCommit": "b36d26a4721e46a3ab1a9919823150e53d5b7c40",
+      "toolCommit": "01592a8baea41403f9d96e4fbdbe038edfe99a16",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.8.0",
       "releaseState": "published",
       "prerelease": false,
@@ -958,7 +958,7 @@
     },
     {
       "tag": "v2.7.0",
-      "toolCommit": "87d76dabedac68f608464bb024e05b6cf19c6a6f",
+      "toolCommit": "5d1837ac8c557350b91807e5842d5a5ab5d89334",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.7.0",
       "releaseState": "published",
       "prerelease": false,
@@ -1014,7 +1014,7 @@
     },
     {
       "tag": "v2.6.1",
-      "toolCommit": "dd8e7f88ffcd0811b0f6388c0c42bc070ec29484",
+      "toolCommit": "4906247e7fff4ea9879921f5cfca9002fbdd0457",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.6.1",
       "releaseState": "published",
       "prerelease": false,
@@ -1070,7 +1070,7 @@
     },
     {
       "tag": "v2.6.0",
-      "toolCommit": "09cc81e878124579790ffd59a80ddb710e6c5d93",
+      "toolCommit": "b4486590d93587ae385591529564e8542535de64",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.6.0",
       "releaseState": "published",
       "prerelease": false,
@@ -1126,7 +1126,7 @@
     },
     {
       "tag": "v2.5.1",
-      "toolCommit": "6525498b3bff3f2e7bba322dac13dff4d8b9082d",
+      "toolCommit": "e570d2c4115813ce1541a516b8ad0349fcae4653",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.5.1",
       "releaseState": "published",
       "prerelease": false,
@@ -1182,7 +1182,7 @@
     },
     {
       "tag": "v2.5.0",
-      "toolCommit": "6f2200f5755605a45a929c99a783e6a3c8a6fe4f",
+      "toolCommit": "ede43d2a5f838470e567a4649295946c710af006",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.5.0",
       "releaseState": "published",
       "prerelease": false,
@@ -1238,7 +1238,7 @@
     },
     {
       "tag": "v2.4.1",
-      "toolCommit": "48681fc20f18445ce5dfdf9b3d64dd4ed5f64791",
+      "toolCommit": "78ac81f19b436a7202a7a3fa8c9e9b9ea0f7211d",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.4.1",
       "releaseState": "published",
       "prerelease": false,
@@ -1294,7 +1294,7 @@
     },
     {
       "tag": "v2.4.0",
-      "toolCommit": "fff8b449a6d96ebc1576295056998d212ab059d9",
+      "toolCommit": "1671227c8aa2fa5fb0e10fde9fdd11340fab83c3",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.4.0",
       "releaseState": "published",
       "prerelease": false,
@@ -1350,7 +1350,7 @@
     },
     {
       "tag": "v2.3.3",
-      "toolCommit": "84d4bea4a53b1f00dcb442d686b6368ad10dc42a",
+      "toolCommit": "3081397994730787ed4ff4025289d6ae339431a8",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.3.3",
       "releaseState": "published",
       "prerelease": false,
@@ -1406,7 +1406,7 @@
     },
     {
       "tag": "v2.3.2",
-      "toolCommit": "3fadf0ecf91dc8080f2d77e758fc42be165457bc",
+      "toolCommit": "180b557d79cb7e7757836aab873a94b28cb2deb9",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.3.2",
       "releaseState": "published",
       "prerelease": false,
@@ -1462,7 +1462,7 @@
     },
     {
       "tag": "v2.3.1",
-      "toolCommit": "7b4186d40867fd0018d89589e269ac3999fb3fdf",
+      "toolCommit": "b0ae2ea6f42729452575283fccb2e6e3ee9393bf",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.3.1",
       "releaseState": "published",
       "prerelease": false,
@@ -1518,7 +1518,7 @@
     },
     {
       "tag": "v2.3.0",
-      "toolCommit": "f9868afb3ea5e04740180c9c6b912f9a22dca384",
+      "toolCommit": "762c691bd6bc16893a3f2663828c0a9bf73396c7",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.3.0",
       "releaseState": "published",
       "prerelease": false,
@@ -1610,7 +1610,7 @@
     },
     {
       "tag": "v2.2.1",
-      "toolCommit": "92f1d46b4240c38cee2d1c9e5d8c100e0a392b85",
+      "toolCommit": "d386d333e7720b6e795fbaf26b4f5d541c3991a7",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.2.1",
       "releaseState": "published",
       "prerelease": false,
@@ -1666,7 +1666,7 @@
     },
     {
       "tag": "v2.2.0",
-      "toolCommit": "4f3e03773375fd26b610e3310a18ca1431f349dc",
+      "toolCommit": "42d9e6fcf24439cc992415a91d14a09860dcb581",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.2.0",
       "releaseState": "published",
       "prerelease": false,
@@ -1722,7 +1722,7 @@
     },
     {
       "tag": "v2.1.3",
-      "toolCommit": "46236469f9b289edfc029888b6dbe24bbb56aeb5",
+      "toolCommit": "8959972f8e9992e85f9ebaad770306b2527a65a3",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.1.3",
       "releaseState": "published",
       "prerelease": false,
@@ -1778,7 +1778,7 @@
     },
     {
       "tag": "v2.1.2",
-      "toolCommit": "4fc3b78a33fa8f6b87f9b9dd95e329145c65e337",
+      "toolCommit": "0cc77c07d8c0c158ef3b3c14908670c71446775c",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.1.2",
       "releaseState": "published",
       "prerelease": false,
@@ -1822,7 +1822,7 @@
     },
     {
       "tag": "v2.1.1",
-      "toolCommit": "dd40489b2fd0265b401fc7c49f43d46c93c9012c",
+      "toolCommit": "91e779a3aedb8f94476de3a1a97d04d8eead64fb",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.1.1",
       "releaseState": "published",
       "prerelease": false,
@@ -1878,7 +1878,7 @@
     },
     {
       "tag": "v2.1.0",
-      "toolCommit": "eb4e57318215b034da762a3161362ffbb54e0a38",
+      "toolCommit": "43e89c58d5be5c5d35c5c47167ff8b8e792b4563",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.1.0",
       "releaseState": "published",
       "prerelease": false,
@@ -1934,7 +1934,7 @@
     },
     {
       "tag": "v2.0.0",
-      "toolCommit": "9f88487153cab6f84eeafaee7e1348c7f396b659",
+      "toolCommit": "0346ca9e72563fa553484bc370432af82cc0d082",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.0.0",
       "releaseState": "published",
       "prerelease": false,
@@ -1996,7 +1996,7 @@
     },
     {
       "tag": "v1.8.2",
-      "toolCommit": "e209e8bdb57d2a542b8459621595b2fab8693596",
+      "toolCommit": "a7a74d82f7037ec76a5da14ceb8caee0bce602ad",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v1.8.2",
       "releaseState": "published",
       "prerelease": false,
@@ -2022,7 +2022,7 @@
     },
     {
       "tag": "v1.8.1",
-      "toolCommit": "09c26ade53407ff31ac116fcc7fb6da84ecd12f0",
+      "toolCommit": "49d27d462d161533ace38bc45a84363dbabc57d3",
       "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v1.8.1",
       "releaseState": "published",
       "prerelease": false,
