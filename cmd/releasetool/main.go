@@ -24,7 +24,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: releasetool <checksums|verify-version|verify-assets|verify-metadata|verify-source|verify-builds|verify-live|bump> [args]")
+		return errors.New("usage: releasetool <checksums|verify-version|verify-assets|verify-metadata|verify-source|verify-builds|verify-live|release-notes|bump> [args]")
 	}
 	switch args[0] {
 	case "bump":
@@ -61,6 +61,16 @@ func run(args []string) error {
 			return errors.New("usage: releasetool verify-source VERSION ROOT")
 		}
 		return verifySource(args[1], args[2], runtime.Version())
+	case "release-notes":
+		if len(args) != 3 {
+			return errors.New("usage: releasetool release-notes VERSION CHANGELOG")
+		}
+		notes, err := releaseNotes(args[1], args[2])
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Print(notes)
+		return err
 	case "verify-live":
 		if len(args) != 4 {
 			return errors.New("usage: releasetool verify-live VERSION DIST_DIR BASE_URL")
