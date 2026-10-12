@@ -1,6 +1,6 @@
 # Release history
 
-All 47 observed Tool version tags are recorded: 46 published stable Releases and 1 tag-only versions. Latest stable: **v2.11.4**.
+All 48 observed Tool version tags are recorded: 47 published stable Releases and 1 tag-only versions. Latest stable: **v2.11.5**.
 
 The [JSON inventory](index.json) contains public Tool commits and actual asset metadata. Historical metadata is not retrospective installation/deployment verification. Missing Site tags mean no matching tag was observed, not that no deployment occurred.
 
@@ -8,6 +8,7 @@ Historical documentation covers all versions; security fixes support only latest
 
 | Version | GitHub record | Published UTC | Assets | Matching Site tag observed | Evidence |
 | --- | --- | --- | ---: | --- | --- |
+| v2.11.5 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.11.5) | 2026-10-12T05:18:21Z | 7 | Yes | [Delivery summary](v2.11.5.md) |
 | v2.11.4 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.11.4) | 2026-10-11T10:34:04Z | 7 | Yes | [Delivery summary](v2.11.4.md) |
 | v2.11.3 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.11.3) | 2026-10-11T09:17:13Z | 7 | Yes | [Delivery summary](v2.11.3.md) |
 | v2.11.2 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.11.2) | 2026-10-11T08:06:11Z | 7 | Yes | [Delivery summary](v2.11.2.md) |
@@ -61,5 +62,3 @@ Historical documentation covers all versions; security fixes support only latest
 From the Tool repository, run `node scripts/github-history.mjs --write`, then `node scripts/github-history.mjs --check`. Reads use paginated GitHub APIs; writes affect this generated index only. Use `--input` with a reviewed JSON fixture for offline verification. The helper does not publish source, change Issues/tags/Releases or overwrite human version evidence.
 
 Missing Site access or invalid history fails before output changes. Keep version evidence in separate `vX.Y.Z.md` files. New records begin as historical metadata; promote evidence only after checks have actually been recorded.
-
-[Source history maintenance](history-maintenance.md) records the source-history maintenance republished on 2026-10-12 and preserved release artifacts.
