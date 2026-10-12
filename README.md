@@ -36,6 +36,8 @@ With Go 1.26 or later:
 go install github.com/aklkbqx/agy-swap/v2/cmd/agy-swap@latest
 ```
 
+`go install` compiles with your local Go toolchain, so keep Go on a current patch release. Published binaries are built with Go 1.27.2.
+
 Pre-built binaries for `darwin/amd64`, `darwin/arm64`, `linux/amd64`, `linux/arm64`, `windows/amd64`, and `windows/arm64`, with checksums, are on [GitHub Releases](https://github.com/aklkbqx/agy-swap/releases). The [install page](https://agy-swap.aklkbqx.com/install.html) shows one command at a time for your operating system.
 
 ### Build from source
