@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/aklkbqx/agy-swap/internal/config"
+	"github.com/aklkbqx/agy-swap/v2/internal/config"
 )
 
 // EnsurePrivateDir creates a directory with private permissions (0700 on POSIX).

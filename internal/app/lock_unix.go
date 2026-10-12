@@ -2,7 +2,7 @@
 
 package app
 
-import "github.com/aklkbqx/agy-swap/internal/store"
+import "github.com/aklkbqx/agy-swap/v2/internal/store"
 
 type fileLock struct{ inner store.FileLock }
 

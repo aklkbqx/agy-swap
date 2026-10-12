@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/aklkbqx/agy-swap/internal/demoserver"
+	"github.com/aklkbqx/agy-swap/v2/internal/demoserver"
 )
 
 func main() {
