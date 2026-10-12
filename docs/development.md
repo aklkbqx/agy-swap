@@ -6,7 +6,7 @@ This document guides contributors through setting up, testing, and verifying cha
 
 ## 1. Prerequisites
 
-- **Go**: Version 1.26 or newer (`go version`).
+- **Go**: Version 1.26 or newer (`go version`). `go.mod` declares `toolchain go1.27.2`; with the default `GOTOOLCHAIN=auto` the go command downloads and uses that patched toolchain inside this module (`go env GOVERSION` shows it).
 - **Make**: Standard POSIX make.
 - **Xcode Command Line Tools** (macOS only): Required for compiling CGO bindings with Apple's `Security.framework`.
 - **Bun** or **Node.js** (Optional): For developing the React site and native browser terminal in `site/`.
@@ -33,13 +33,19 @@ make race
 # Run Go static analysis
 make vet
 
+# Run golangci-lint (installed binary, or the pinned version through go run)
+make lint
+
+# Check reachable code against the Go vulnerability database (needs network)
+make vuln
+
 # Run memory allocation benchmarks
 make benchmark
 
 # Run terminal UI smoke test across multiple viewport dimensions
 make tui-smoke
 
-# Complete QA verification (formatting, test, race, vet, tui-smoke)
+# Complete QA verification (formatting, test, race, vet, lint, tui-smoke)
 make qa
 ```
 
@@ -106,9 +112,16 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /tmp/agy-swap-win.exe ./cmd/
 
 ## 5. Release Assets and Homebrew Publication
 
-`make release-assets VERSION=X.Y.Z BUILD_ID=release-vX.Y.Z` cross-compiles the six binaries, verifies metadata and checksums, and generates `dist/release/agy-swap.rb`. It does not discover, edit, commit, or push a Homebrew tap.
+Release assets are built from the release tag, not from a working tree. After the local review gate and owner approval: commit the release, create the annotated tag (`git tag -a vX.Y.Z -m vX.Y.Z`), then run `make release-assets VERSION=X.Y.Z BUILD_ID=release-vX.Y.Z`. In order, it:
 
-After the local review gate and owner approval, publish the matching GitHub release and assets before updating Homebrew. Then run `make publish-homebrew-tap VERSION=X.Y.Z` explicitly. It uses `HOMEBREW_TAP_DIR` when set, or the installed `aklkbqx/agy-swap` tap; the tap must be on `main` with a clean working tree and index. Publication fetches the current remote tip, refuses behind/diverged branches and unrelated unpublished commits, and permits retrying a formula-only pending push. It commits only `Formula/agy-swap.rb` and pushes `origin main`. The helper's default invocation without `--publish` only generates the local formula.
+1. verifies version metadata;
+2. runs `releasetool verify-source`, which refuses uncommitted or untracked files, a HEAD that is not the annotated `vX.Y.Z` tag, and a compiler older than the `go.mod` toolchain floor;
+3. runs govulncheck (pinned by `GOVULNCHECK_VERSION`) and stops on any reachable vulnerability;
+4. cross-compiles the six binaries and writes checksums;
+5. runs `releasetool verify-builds`, which reads each asset's Go build information and requires the `github.com/aklkbqx/agy-swap/v2` module, the exact `vX.Y.Z` version (no `+dirty` or pseudo-version) and a Go version at or above the floor;
+6. generates `dist/release/agy-swap.rb`. It does not discover, edit, commit, or push a Homebrew tap.
+
+Push the commit and tag, then publish the matching GitHub release and assets before updating Homebrew. Then run `make publish-homebrew-tap VERSION=X.Y.Z` explicitly. It uses `HOMEBREW_TAP_DIR` when set, or the installed `aklkbqx/agy-swap` tap; the tap must be on `main` with a clean working tree and index. Publication fetches the current remote tip, refuses behind/diverged branches and unrelated unpublished commits, and permits retrying a formula-only pending push. It commits only `Formula/agy-swap.rb` and pushes `origin main`. The helper's default invocation without `--publish` only generates the local formula.
 
 ## Native Windows installer regression
 
