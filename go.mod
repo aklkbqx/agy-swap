@@ -1,8 +1,6 @@
 module github.com/aklkbqx/agy-swap/v2
 
-go 1.26.0
-
-toolchain go1.27.2
+go 1.27.2
 
 require (
 	github.com/coder/websocket v1.8.15

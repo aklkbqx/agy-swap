@@ -18,22 +18,27 @@ var releaseTargets = []string{
 	"windows_amd64.exe", "windows_arm64.exe",
 }
 
-// readModuleFloor returns the module path and the minimum release toolchain
-// declared by go.mod's toolchain line.
+// readModuleFloor returns the module path and the minimum release toolchain:
+// the newer of go.mod's go directive and its optional toolchain line.
 func readModuleFloor(root string) (string, string, error) {
 	file, err := os.Open(filepath.Join(root, "go.mod"))
 	if err != nil {
 		return "", "", err
 	}
 	defer func() { _ = file.Close() }()
-	var module, toolchain string
+	var module, directive, toolchain string
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
-		if len(fields) == 2 && fields[0] == "module" {
-			module = fields[1]
+		if len(fields) != 2 {
+			continue
 		}
-		if len(fields) == 2 && fields[0] == "toolchain" {
+		switch fields[0] {
+		case "module":
+			module = fields[1]
+		case "go":
+			directive = "go" + fields[1]
+		case "toolchain":
 			toolchain = fields[1]
 		}
 	}
@@ -43,10 +48,14 @@ func readModuleFloor(root string) (string, string, error) {
 	if module == "" {
 		return "", "", errors.New("go.mod declares no module path")
 	}
-	if !version.IsValid(toolchain) {
-		return "", "", errors.New("go.mod must declare a release toolchain floor (toolchain goX.Y.Z)")
+	floor := directive
+	if version.IsValid(toolchain) && version.Compare(toolchain, floor) > 0 {
+		floor = toolchain
 	}
-	return module, toolchain, nil
+	if !version.IsValid(floor) {
+		return "", "", errors.New("go.mod must declare a Go version floor (go X.Y.Z)")
+	}
+	return module, floor, nil
 }
 
 // goRelease drops build suffixes such as " X:boringcrypto" from a Go version.
