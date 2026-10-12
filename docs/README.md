@@ -12,8 +12,8 @@ GitHub is the project workspace. The Tool repository is public; the Site reposit
 | Local development and verification | [Development](development.md), [contributing](../CONTRIBUTING.md) |
 | GitHub workspace migration execution | [Epic #5](https://github.com/aklkbqx/agy-swap/issues/5), [Milestone](https://github.com/aklkbqx/agy-swap/milestone/1) |
 | All historical versions | [Release index](releases/README.md), [machine-readable inventory](releases/index.json), [changelog](../CHANGELOG.md), [source history maintenance](releases/history-maintenance.md) |
-| Latest recorded delivery | [v2.11.5 installation and live verification](releases/v2.11.5.md) |
-| Latest patch plan | [v2.11.5 release hardening plan](plans/2026-10-12-v2.11.5-release-hardening.md), [v2.11.5 delivery](releases/v2.11.5.md) |
+| Latest recorded delivery | [v2.11.6 installation and live verification](releases/v2.11.6.md) |
+| Latest patch plan | [v2.11.5 release hardening plan](plans/2026-10-12-v2.11.5-release-hardening.md), [v2.11.6 delivery](releases/v2.11.6.md) |
 | New task, PR, checkpoint, decision, release | [Templates](templates/README.md) |
 
 There is one canonical document per subject. Link existing architecture/development documentation rather than copying it into Issues. Store decisions in `docs/decisions/`, specifications in `docs/specs/`, and approved implementation plans in `docs/plans/`. An Issue records execution state and links the relevant document at its reviewed commit. Local scratch files are working material until reviewed and published.
