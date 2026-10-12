@@ -1,9 +1,11 @@
-VERSION ?= 2.11.4
+VERSION ?= 2.11.5
 BUILD_ID ?= dev
 GOCACHE ?= /tmp/agy-swap-go-cache
 TARGET_DIR ?= $(HOME)/.local/bin
+GOLANGCI_LINT_VERSION ?= v2.14.0
+GOVULNCHECK_VERSION ?= v1.9.0
 
-.PHONY: help build test race vet lint benchmark tui-smoke qa bump install release-assets publish-homebrew-tap live site-preview site-release
+.PHONY: help build test race vet lint vuln benchmark tui-smoke qa bump install release-assets publish-homebrew-tap live site-preview site-release
 
 help:
 	@echo "Available make targets:"
@@ -12,10 +14,11 @@ help:
 	@echo "  test            Run unit tests across all packages"
 	@echo "  race            Run unit tests with Go race detector"
 	@echo "  vet             Run go vet"
-	@echo "  lint            Run golangci-lint (or vet/fmt fallback)"
+	@echo "  lint            Run golangci-lint (installed, or the pinned version via go run)"
+	@echo "  vuln            Run govulncheck against reachable code (needs network)"
 	@echo "  benchmark       Run memory allocation benchmarks"
 	@echo "  tui-smoke       Run terminal UI smoke tests"
-	@echo "  qa              Run complete QA pipeline (gofmt, test, race, vet, tui-smoke)"
+	@echo "  qa              Run complete QA pipeline (gofmt, test, race, vet, lint, tui-smoke)"
 	@echo "  release-assets  Cross-compile release assets for all platforms"
 	@echo "  publish-homebrew-tap  Explicitly commit/push the tap after release approval"
 	@echo "  live            Run AGY Live locally (demo gateway + Vite, first free ports)"
@@ -34,7 +37,7 @@ bump:
 	go run ./cmd/releasetool bump $(if $(VERSION),$(VERSION),patch) .
 
 release-assets:
-	./scripts/build-release.sh $(VERSION) $(BUILD_ID) dist/release
+	GOVULNCHECK_VERSION=$(GOVULNCHECK_VERSION) ./scripts/build-release.sh $(VERSION) $(BUILD_ID) dist/release
 
 publish-homebrew-tap:
 	./scripts/update-homebrew-tap.sh $(VERSION) dist/release --publish
@@ -59,11 +62,13 @@ vet:
 
 lint:
 	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run ./...; \
+		GOCACHE=$(GOCACHE) golangci-lint run ./...; \
 	else \
-		$(MAKE) vet; \
-		test -z "$$(gofmt -l cmd internal)" || (echo "gofmt required:"; gofmt -l cmd internal; exit 1); \
+		GOCACHE=$(GOCACHE) go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...; \
 	fi
+
+vuln:
+	GOCACHE=$(GOCACHE) go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 benchmark:
 	GOCACHE=$(GOCACHE) go test -run '^$$' -bench . -benchmem ./internal/app
@@ -76,4 +81,5 @@ qa:
 	$(MAKE) test
 	$(MAKE) race
 	$(MAKE) vet
+	$(MAKE) lint
 	$(MAKE) tui-smoke

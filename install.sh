@@ -2,7 +2,7 @@
 # Install the native agy-swap binary. No Python runtime is required.
 set -euo pipefail
 
-VERSION="${AGY_SWAP_VERSION:-2.11.4}"
+VERSION="${AGY_SWAP_VERSION:-2.11.5}"
 VERSION="${VERSION#v}"
 TARGET_DIR="${AGY_SWAP_TARGET_DIR:-${HOME}/.local/bin}"
 TARGET_FILE="${TARGET_DIR}/agy-swap"
@@ -129,7 +129,7 @@ if ! download_file "${RELEASE_BASE}/${asset_name}" "${tmp_dir}/${asset_name}"; t
   printf "  1) Run with proxy tolerance (%bSHA-256 integrity remains strictly verified%b):\n" "$BOLD" "$NC" >&2
   printf "     %bcurl -k -fsSL https://agy-swap.aklkbqx.com/install.sh | AGY_SWAP_INSECURE=1 bash%b\n" "$BOLD" "$NC" >&2
   printf "  2) Or compile directly with Go (bypasses GitHub releases):\n" >&2
-  printf "     %bgo install github.com/aklkbqx/agy-swap/cmd/agy-swap@latest%b\n\n" "$BOLD" "$NC" >&2
+  printf "     %bgo install github.com/aklkbqx/agy-swap/v2/cmd/agy-swap@latest%b\n\n" "$BOLD" "$NC" >&2
   exit 1
 fi
 
