@@ -5,11 +5,14 @@ TARGET_DIR ?= $(HOME)/.local/bin
 GOLANGCI_LINT_VERSION ?= v2.14.0
 GOVULNCHECK_VERSION ?= v1.9.0
 
-.PHONY: help status build test race vet lint vuln benchmark tui-smoke qa bump install release-assets publish-homebrew-tap live site-preview site-release site-verify-live
+.PHONY: help status release-check release-notes release-evidence build test race vet lint vuln benchmark tui-smoke qa bump install release-assets publish-homebrew-tap live site-preview site-release site-verify-live
 
 help:
 	@echo "Available make targets:"
 	@echo "  status          Read-only overview: repo sync, versions, live site, installed binary, open work"
+	@echo "  release-check   Every pre-gate check: qa, vuln, Site build and tests, production preview"
+	@echo "  release-notes   Print the CHANGELOG section for VERSION (use as gh release --notes-file)"
+	@echo "  release-evidence  Post-publication checks for VERSION, printed as delivery-record Markdown"
 	@echo "  build           Build local agy-swap binary"
 	@echo "  install         Build and install binary to $(TARGET_DIR)"
 	@echo "  test            Run unit tests across all packages"
@@ -58,6 +61,16 @@ site-verify-live:
 
 status:
 	@./scripts/project-status.sh
+
+release-check: qa vuln
+	cd site && bun install --frozen-lockfile && bun run build && bun test
+	./scripts/site-image.sh preview
+
+release-notes:
+	@GOCACHE=$(GOCACHE) go run ./cmd/releasetool release-notes $(VERSION) CHANGELOG.md
+
+release-evidence:
+	@GOCACHE=$(GOCACHE) ./scripts/release-evidence.sh $(VERSION)
 
 test:
 	GOCACHE=$(GOCACHE) go test ./...
