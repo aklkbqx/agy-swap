@@ -61,3 +61,5 @@ Historical documentation covers all versions; security fixes support only latest
 From the Tool repository, run `node scripts/github-history.mjs --write`, then `node scripts/github-history.mjs --check`. Reads use paginated GitHub APIs; writes affect this generated index only. Use `--input` with a reviewed JSON fixture for offline verification. The helper does not publish source, change Issues/tags/Releases or overwrite human version evidence.
 
 Missing Site access or invalid history fails before output changes. Keep version evidence in separate `vX.Y.Z.md` files. New records begin as historical metadata; promote evidence only after checks have actually been recorded.
+
+[Source history maintenance](history-maintenance.md) records the 2026-10-11 source-reference reconciliation and preserved release artifacts.
