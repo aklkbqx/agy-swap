@@ -62,4 +62,4 @@ From the Tool repository, run `node scripts/github-history.mjs --write`, then `n
 
 Missing Site access or invalid history fails before output changes. Keep version evidence in separate `vX.Y.Z.md` files. New records begin as historical metadata; promote evidence only after checks have actually been recorded.
 
-[Source history maintenance](history-maintenance.md) records the 2026-10-11 source-reference reconciliation and preserved release artifacts.
+[Source history maintenance](history-maintenance.md) records the source-history maintenance republished on 2026-10-12 and preserved release artifacts.
