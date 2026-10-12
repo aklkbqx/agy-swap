@@ -336,3 +336,157 @@ func TestReleaseBuildStopsWhenSourceIsNotReleasable(t *testing.T) {
 		t.Fatalf("assets compiled from unverified source:\n%s", log)
 	}
 }
+
+const liveVerifyStubs = `#!/bin/sh
+printf '%s %s\n' "$(basename "$0")" "$*" >> "$STUB_LOG"
+case "$(basename "$0"):$1" in
+git:-C)
+  if [ "$3:$4" = "worktree:add" ]; then mkdir -p "$6"; fi;;
+bun:run) mkdir -p dist/client;;
+curl:*) printf '{"softwareVersion": "v%s"}' "$LIVE_VERSION";;
+esac
+exit 0
+`
+
+func runSiteVerifyLive(t *testing.T, liveVersion string) (string, error) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX release scripts require the macOS release builder")
+	}
+	root := t.TempDir()
+	bin := filepath.Join(root, "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"git", "bun", "curl", "go"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(liveVerifyStubs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	log := filepath.Join(root, "calls.log")
+	cmd := exec.Command("sh", "./scripts/site-verify-live.sh", "2.0.0")
+	cmd.Dir = "../.."
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "STUB_LOG="+log, "LIVE_VERSION="+liveVersion, "AGY_SITE_WAIT=0", "AGY_SITE_URL=https://site.example.invalid")
+	out, err := cmd.CombinedOutput()
+	calls, _ := os.ReadFile(log)
+	return string(out) + "\n--- calls\n" + string(calls), err
+}
+
+func TestSiteVerifyLiveChecksTheTagBuildOncePublished(t *testing.T) {
+	out, err := runSiteVerifyLive(t, "2.0.0")
+	if err != nil {
+		t.Fatalf("verification failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "worktree add --detach") || !strings.Contains(out, " v2.0.0") {
+		t.Fatalf("site tag was not checked out:\n%s", out)
+	}
+	if !strings.Contains(out, "go run ./cmd/releasetool verify-live 2.0.0 ") || !strings.Contains(out, "/dist/client https://site.example.invalid") {
+		t.Fatalf("live comparison not run against the tag build:\n%s", out)
+	}
+}
+
+func TestSiteVerifyLiveStopsWhenProductionNeverUpdates(t *testing.T) {
+	out, err := runSiteVerifyLive(t, "1.9.0")
+	if err == nil {
+		t.Fatalf("stale production accepted:\n%s", out)
+	}
+	if strings.Contains(out, "go run ./cmd/releasetool verify-live") {
+		t.Fatalf("compared before production reported the version:\n%s", out)
+	}
+}
+
+const statusStubs = `#!/bin/sh
+case "$(basename "$0")" in
+gh)
+  case "$1 $2" in
+  "release view") echo "v$STUB_RELEASE 2026-10-12T00:00:00Z";;
+  "issue list") case "$*" in *agy-swap-site*) printf '%s' "$STUB_SITE_ISSUES";; *) printf '%s' "$STUB_TOOL_ISSUES";; esac;;
+  "pr list") echo "$STUB_PRS";;
+  esac;;
+curl)
+  case "$*" in *-w*) printf '%s' "$STUB_HEALTH";; *) printf '{"softwareVersion": "v%s"}' "$STUB_LIVE";; esac;;
+agy-swap) echo "agy-swap v$STUB_INSTALLED (release-v$STUB_INSTALLED)";;
+esac
+`
+
+type statusFixture struct {
+	root string
+	env  []string
+}
+
+// newStatusFixture builds paired Tool/Site repositories, in sync with local
+// bare remotes, at version 2.0.0; gh, curl and agy-swap are stubs.
+func newStatusFixture(t *testing.T) statusFixture {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX project scripts require the macOS release builder")
+	}
+	base := t.TempDir()
+	root := filepath.Join(base, "tool")
+	for _, dir := range []string{root, filepath.Join(root, "site"), filepath.Join(base, "bin")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeTestFile(t, filepath.Join(root, "Makefile"), "VERSION ?= 2.0.0\n")
+	writeTestFile(t, filepath.Join(root, ".gitignore"), "/site/\n")
+	writeTestFile(t, filepath.Join(root, "site", "package.json"), "{\n  \"version\": \"2.0.0\"\n}\n")
+	for _, repo := range []string{root, filepath.Join(root, "site")} {
+		remote := filepath.Join(base, filepath.Base(repo)+"-remote.git")
+		scriptGit(t, base, "init", "--bare", "--initial-branch=main", remote)
+		scriptGit(t, repo, "init", "--initial-branch=main")
+		scriptGit(t, repo, "config", "user.name", "Status test")
+		scriptGit(t, repo, "config", "user.email", "status@example.invalid")
+		scriptGit(t, repo, "add", ".")
+		scriptGit(t, repo, "commit", "-m", "initial")
+		scriptGit(t, repo, "tag", "-a", "v2.0.0", "-m", "v2.0.0")
+		scriptGit(t, repo, "remote", "add", "origin", remote)
+		scriptGit(t, repo, "push", "-q", "-u", "origin", "main", "--tags")
+	}
+	for _, name := range []string{"gh", "curl", "agy-swap"} {
+		if err := os.WriteFile(filepath.Join(base, "bin", name), []byte(statusStubs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	env := append(os.Environ(), "PATH="+filepath.Join(base, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"AGY_STATUS_ROOT="+root, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull,
+		"STUB_RELEASE=2.0.0", "STUB_LIVE=2.0.0", "STUB_INSTALLED=2.0.0", "STUB_HEALTH=200", "STUB_PRS=0",
+		"STUB_TOOL_ISSUES=#7 p2 ready [distribution] verify windows\n", "STUB_SITE_ISSUES=")
+	return statusFixture{root: root, env: env}
+}
+
+func runStatus(t *testing.T, f statusFixture, extra ...string) string {
+	t.Helper()
+	cmd := exec.Command("sh", "./scripts/project-status.sh")
+	cmd.Dir = "../.."
+	cmd.Env = append(append([]string{}, f.env...), extra...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("status failed: %v\n%s", err, out)
+	}
+	return string(out)
+}
+
+func TestProjectStatusReportsInSyncProject(t *testing.T) {
+	out := runStatus(t, newStatusFixture(t))
+	for _, want := range []string{"Drift: none", "v2.0.0", "#7 p2 ready [distribution] verify windows"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("status missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestProjectStatusFlagsDrift(t *testing.T) {
+	f := newStatusFixture(t)
+	writeTestFile(t, filepath.Join(f.root, "notes.txt"), "draft")
+	scriptGit(t, filepath.Join(f.root, "site"), "commit", "--allow-empty", "-m", "unpushed")
+	out := runStatus(t, f, "STUB_LIVE=1.9.0", "STUB_INSTALLED=1.9.0", "STUB_PRS=2", "STUB_HEALTH=503")
+	for _, want := range []string{"tool: 1 uncommitted", "site: 1 unpushed", "live site v1.9.0", "installed v1.9.0", "2 open PRs", "health 503"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("drift %q not reported:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Drift: none") {
+		t.Fatalf("drift hidden:\n%s", out)
+	}
+}
