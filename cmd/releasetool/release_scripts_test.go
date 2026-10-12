@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -488,5 +490,99 @@ func TestProjectStatusFlagsDrift(t *testing.T) {
 	}
 	if strings.Contains(out, "Drift: none") {
 		t.Fatalf("drift hidden:\n%s", out)
+	}
+}
+
+const evidenceStubs = `#!/bin/sh
+case "$(basename "$0")" in
+gh)
+  case "$1 $2" in
+  "release view")
+    case "$*" in
+    *isDraft*) echo "false false 2026-10-13T00:00:00Z 3";;
+    *) printf 'agy-swap_v2.0.0_darwin_arm64 sha256:%s\nagy-swap_v2.0.0_linux_amd64 sha256:%s\nchecksums.txt sha256:%s\n' "$STUB_HOST_SHA" "$STUB_LINUX_DIGEST" "$STUB_CHECKSUMS_SHA";;
+    esac;;
+  "release download")
+    while [ "$#" -gt 0 ]; do if [ "$1" = -D ]; then shift; dir=$1; fi; shift; done
+    printf '%s  agy-swap_v2.0.0_darwin_arm64\n%s  agy-swap_v2.0.0_linux_amd64\n' "$STUB_HOST_SHA" "$STUB_LINUX_SHA" > "$dir/checksums.txt";;
+  esac;;
+go)
+  case "$1" in
+  env) case "$2" in GOHOSTOS) echo darwin;; GOHOSTARCH) echo arm64;; esac;;
+  list) echo "github.com/aklkbqx/agy-swap/v2 v$STUB_PROXY_VERSION";;
+  install) printf '#!/bin/sh\necho "agy-swap v%s (dev)"\n' "$STUB_PROXY_VERSION" > "$GOBIN/agy-swap"; chmod +x "$GOBIN/agy-swap";;
+  version) echo "$3: $STUB_PROXY_GO";;
+  run) [ "$STUB_BUILDS_OK" = 1 ];;
+  esac;;
+curl) printf '{"softwareVersion": "v%s"}' "$STUB_LIVE";;
+brew) echo "==> aklkbqx/agy-swap/agy-swap: stable $STUB_FORMULA";;
+docker) case "$*" in *:latest*) echo "\"sha256:$STUB_LATEST_DIGEST\"";; *) echo "\"sha256:aaaa\"";; esac;;
+git) echo abc1234;;
+esac
+`
+
+func runReleaseEvidence(t *testing.T, extra ...string) (string, error) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX release scripts require the macOS release builder")
+	}
+	base := t.TempDir()
+	root := filepath.Join(base, "tool")
+	bin := filepath.Join(base, "bin")
+	for _, dir := range []string{filepath.Join(root, "dist", "release"), bin} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeTestFile(t, filepath.Join(root, "go.mod"), "module github.com/aklkbqx/agy-swap/v2\n\ngo 1.27.2\n")
+	writeTestFile(t, filepath.Join(root, "dist", "release", "agy-swap_v2.0.0_darwin_arm64"), "asset")
+	for _, name := range []string{"gh", "go", "curl", "brew", "docker", "git"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(evidenceStubs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The installed binary is a script whose bytes the host asset digest names.
+	installed := "#!/bin/sh\necho \"agy-swap $STUB_INSTALLED_TEXT\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "agy-swap"), []byte(installed), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hostSHA := fmt.Sprintf("%x", sha256.Sum256([]byte(installed)))
+	cmd := exec.Command("sh", "./scripts/release-evidence.sh", "2.0.0")
+	cmd.Dir = "../.."
+	cmd.Env = append(append([]string{}, os.Environ()...), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"AGY_EVIDENCE_ROOT="+root, "STUB_HOST_SHA="+hostSHA, "STUB_LINUX_SHA="+strings.Repeat("b", 64), "STUB_LINUX_DIGEST="+strings.Repeat("b", 64),
+		"STUB_CHECKSUMS_SHA="+strings.Repeat("c", 64), "STUB_PROXY_VERSION=2.0.0", "STUB_PROXY_GO=go1.27.2", "STUB_BUILDS_OK=1",
+		"STUB_LIVE=2.0.0", "STUB_FORMULA=2.0.0", "STUB_LATEST_DIGEST=aaaa", "STUB_INSTALLED_TEXT=v2.0.0 (release-v2.0.0)")
+	cmd.Env = append(cmd.Env, extra...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func TestReleaseEvidenceReportsAVerifiedRelease(t *testing.T) {
+	out, err := runReleaseEvidence(t)
+	if err != nil {
+		t.Fatalf("evidence failed: %v\n%s", err, out)
+	}
+	for _, want := range []string{"## Evidence for v2.0.0", "digests match `checksums.txt`", "go1.27.2", "v2.0.0 (release-v2.0.0)", "@latest` resolves to v2.0.0", "softwareVersion v2.0.0", "sha256:aaaa"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("evidence missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "FAIL") {
+		t.Fatalf("unexpected failure:\n%s", out)
+	}
+}
+
+func TestReleaseEvidenceFailsOnEveryMismatch(t *testing.T) {
+	out, err := runReleaseEvidence(t,
+		"STUB_LINUX_DIGEST="+strings.Repeat("d", 64), "STUB_BUILDS_OK=0", "STUB_INSTALLED_TEXT=v1.9.0 (release-v1.9.0)",
+		"STUB_PROXY_VERSION=1.9.0", "STUB_PROXY_GO=go1.27.0", "STUB_LIVE=1.9.0", "STUB_FORMULA=1.9.0", "STUB_LATEST_DIGEST=bbbb")
+	if err == nil {
+		t.Fatalf("mismatched release reported as verified:\n%s", out)
+	}
+	for _, want := range []string{"agy-swap_v2.0.0_linux_amd64", "build information", "installed", "@latest", "go1.27.0", "softwareVersion", "formula", ":latest"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("failure for %q not reported:\n%s", want, out)
+		}
 	}
 }
