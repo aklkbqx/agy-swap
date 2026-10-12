@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aklkbqx/agy-swap/internal/client"
+	"github.com/aklkbqx/agy-swap/v2/internal/client"
 )
 
 type releaseAsset struct {

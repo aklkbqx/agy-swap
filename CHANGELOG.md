@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.11.5
+
+### Security
+
+- Build with Go 1.27.2. The module now declares `toolchain go1.27.2`, which fixes nine standard-library vulnerabilities reachable from the HTTPS client (GO-2026-6603, GO-2026-6605, GO-2026-6607, GO-2026-6608, GO-2026-6610, GO-2026-6611, GO-2026-6612, GO-2026-6613, GO-2026-6617). v2.11.4 executables were built with Go 1.27.0.
+- Update `golang.org/x/sys` to v0.49.0 and `golang.org/x/term` to v0.47.0.
+
+### Fixes
+
+- Install: `go install` uses the v2 module path, `go install github.com/aklkbqx/agy-swap/v2/cmd/agy-swap@latest`. The previous unsuffixed path can only resolve v1 versions and installed v1.8.2.
+- Release: assets are built only from a clean, annotated `vX.Y.Z` tag with a toolchain at or above the module floor, after govulncheck passes. Every asset's Go build information must record the v2 module path, the exact tag and a patched Go version.
+- Development: `make qa` runs golangci-lint (installed, or a pinned version through `go run`); `make vuln` runs govulncheck.
+
 ## 2.11.4
 
 ### Fixes

@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -23,7 +24,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: releasetool <checksums|verify-version|verify-assets|verify-metadata|bump> [args]")
+		return errors.New("usage: releasetool <checksums|verify-version|verify-assets|verify-metadata|verify-source|verify-builds|bump> [args]")
 	}
 	switch args[0] {
 	case "bump":
@@ -55,6 +56,20 @@ func run(args []string) error {
 			return errors.New("usage: releasetool verify-assets VERSION DIST_DIR")
 		}
 		return verifyAssets(args[1], args[2])
+	case "verify-source":
+		if len(args) != 3 {
+			return errors.New("usage: releasetool verify-source VERSION ROOT")
+		}
+		return verifySource(args[1], args[2], runtime.Version())
+	case "verify-builds":
+		if len(args) != 4 {
+			return errors.New("usage: releasetool verify-builds VERSION DIST_DIR ROOT")
+		}
+		module, floor, err := readModuleFloor(args[3])
+		if err != nil {
+			return err
+		}
+		return verifyBuilds(args[1], args[2], module, floor)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
@@ -65,10 +80,7 @@ func verifyAssets(version, dir string) error {
 	if err != nil {
 		return err
 	}
-	for _, target := range []string{
-		"darwin_amd64", "darwin_arm64", "linux_amd64", "linux_arm64",
-		"windows_amd64.exe", "windows_arm64.exe",
-	} {
+	for _, target := range releaseTargets {
 		name := "agy-swap_v" + version + "_" + target
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			return fmt.Errorf("release asset missing: %s", name)

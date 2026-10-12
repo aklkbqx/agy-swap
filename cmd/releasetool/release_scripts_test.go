@@ -268,3 +268,71 @@ esac
 		t.Fatal("local release build changed or published tap")
 	}
 }
+
+// Records every go invocation so the test can check release gate ordering.
+const recordingGoStub = `#!/bin/sh
+printf '%s\n' "$*" >> "$GO_STUB_LOG"
+case "$1:$2" in
+env:GOHOSTOS) echo darwin;;
+env:GOHOSTARCH) echo arm64;;
+build:*)
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = -o ]; then shift; printf '#!/bin/sh\necho "agy-swap v2.0.0 (test)"\n' > "$1"; chmod +x "$1"; break; fi
+    shift
+  done;;
+run:./cmd/releasetool)
+  if [ "$3" = "$GO_STUB_FAIL" ]; then exit 1; fi;;
+run:*) exit 0;;
+*) exit 1;;
+esac
+`
+
+func runRecordedReleaseBuild(t *testing.T, fail string) (string, error) {
+	t.Helper()
+	f := newTapFixture(t)
+	bin := filepath.Join(f.root, "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "go"), []byte(recordingGoStub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(f.root, "go.log")
+	cmd := exec.Command("sh", "./scripts/build-release.sh", "2.0.0", "test", f.dist)
+	cmd.Dir = "../.."
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "GO_STUB_LOG="+log, "GO_STUB_FAIL="+fail, "HOMEBREW_TAP_DIR="+f.tap, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
+	out, err := cmd.CombinedOutput()
+	data, readErr := os.ReadFile(log)
+	if readErr != nil {
+		t.Fatalf("%v\n%s", readErr, out)
+	}
+	return string(data), err
+}
+
+func TestReleaseBuildGatesSourceBeforeCompilingAndBuildsAfter(t *testing.T) {
+	log, err := runRecordedReleaseBuild(t, "")
+	if err != nil {
+		t.Fatalf("release build failed: %v\n%s", err, log)
+	}
+	source := strings.Index(log, "run ./cmd/releasetool verify-source 2.0.0 .")
+	vuln := strings.Index(log, "run golang.org/x/vuln/cmd/govulncheck@")
+	firstBuild := strings.Index(log, "\nbuild ")
+	lastBuild := strings.LastIndex(log, "\nbuild ")
+	builds := strings.Index(log, "run ./cmd/releasetool verify-builds 2.0.0 ")
+	if source < 0 || vuln < 0 || firstBuild < 0 || builds < 0 {
+		t.Fatalf("release gates missing:\n%s", log)
+	}
+	if source > firstBuild || vuln > firstBuild || builds < lastBuild {
+		t.Fatalf("release gates out of order:\n%s", log)
+	}
+}
+
+func TestReleaseBuildStopsWhenSourceIsNotReleasable(t *testing.T) {
+	log, err := runRecordedReleaseBuild(t, "verify-source")
+	if err == nil {
+		t.Fatalf("release build continued after source verification failed:\n%s", log)
+	}
+	if strings.Contains(log, "\nbuild ") {
+		t.Fatalf("assets compiled from unverified source:\n%s", log)
+	}
+}

@@ -13,6 +13,9 @@ if [ "$(go env GOHOSTOS)" != darwin ]; then
   exit 1
 fi
 go run ./cmd/releasetool verify-metadata "$version" .
+# Assets come only from the clean annotated tag, built by a patched toolchain.
+go run ./cmd/releasetool verify-source "$version" .
+go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION:-v1.9.0}" ./...
 mkdir -p "$dist"
 for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
   platform=${target%/*}
@@ -27,6 +30,7 @@ for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 wi
 done
 go run ./cmd/releasetool checksums "$dist"
 go run ./cmd/releasetool verify-assets "$version" "$dist"
+go run ./cmd/releasetool verify-builds "$version" "$dist" .
 go run ./cmd/releasetool verify-version "$version" install.sh
 go run ./cmd/releasetool verify-version "$version" install.ps1
 # Generates the local formula only. Publishing the tap is a separate opt-in step.

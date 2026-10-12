@@ -33,7 +33,7 @@ irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex
 With Go 1.26 or later:
 
 ```bash
-go install github.com/aklkbqx/agy-swap/cmd/agy-swap@latest
+go install github.com/aklkbqx/agy-swap/v2/cmd/agy-swap@latest
 ```
 
 Pre-built binaries for `darwin/amd64`, `darwin/arm64`, `linux/amd64`, `linux/arm64`, `windows/amd64`, and `windows/arm64`, with checksums, are on [GitHub Releases](https://github.com/aklkbqx/agy-swap/releases). The [install page](https://agy-swap.aklkbqx.com/install.html) shows one command at a time for your operating system.
@@ -45,7 +45,7 @@ Requirements: Go 1.26 or later. macOS source builds require Xcode Command Line T
 ```bash
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-go build -trimpath -ldflags "-s -w -X main.version=2.11.4 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.11.5 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ./agy-swap version
 ```
 
