@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/aklkbqx/agy-swap/internal/config"
+	"github.com/aklkbqx/agy-swap/v2/internal/config"
 )
 
 const (

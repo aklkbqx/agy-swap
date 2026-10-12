@@ -12,7 +12,7 @@ import (
 // CRED_MAX_CREDENTIAL_BLOB_SIZE, in bytes (wincred.h).
 const windowsCredentialBlobLimit = 2560
 
-var errWindowsCredentialTooLarge = errors.New("Windows credential exceeds the Credential Manager size limit")
+var errWindowsCredentialTooLarge = errors.New("Windows credential exceeds the Credential Manager size limit") //nolint:staticcheck // "Windows" is a proper noun
 
 // Windows consumes compact JSON rather than the saved vault's base64 wrapper.
 // Refresh prefers a nested ID token; promote it before removing its duplicate.

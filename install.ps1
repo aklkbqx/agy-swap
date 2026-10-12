@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
 
-if ([string]::IsNullOrWhiteSpace($Version)) { $Version = '2.11.4' }
+if ([string]::IsNullOrWhiteSpace($Version)) { $Version = '2.11.5' }
 if ([string]::IsNullOrWhiteSpace($TargetDir)) { $TargetDir = Join-Path $env:LOCALAPPDATA 'Programs\agy-swap' }
 
 $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
@@ -79,7 +79,7 @@ try {
   Write-Host "`nError during installation: $_" -ForegroundColor Red
   Write-Host "If you are behind a corporate proxy or VPN with custom SSL inspection, try:" -ForegroundColor Yellow
   Write-Host "  irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex -Insecure" -ForegroundColor Gray
-  Write-Host "  or compile via Go: go install github.com/aklkbqx/agy-swap/cmd/agy-swap@latest" -ForegroundColor Gray
+  Write-Host "  or compile via Go: go install github.com/aklkbqx/agy-swap/v2/cmd/agy-swap@latest" -ForegroundColor Gray
   exit 1
 } finally {
   if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue }
