@@ -5,7 +5,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/aklkbqx/agy-swap/internal/store"
+	"github.com/aklkbqx/agy-swap/v2/internal/store"
 )
 
 func ensurePrivateDir(path string) error {
