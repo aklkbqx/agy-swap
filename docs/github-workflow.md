@@ -27,7 +27,7 @@ Use Issues for questions that require action or a decision. A discussion may exp
 
 ## Work lifecycle
 
-Use exactly one `status:*` label on an open task. Other labels are independent: `scope:tool|site|cross`, `type:task|bug|docs|decision|release`, `priority:p0|p1|p2|p3`. Priority reflects impact; leave it unset if it has not been assessed. Existing labels and reporter content are preserved.
+Use exactly one `status:*` label on an open task. Other labels are independent: `scope:tool|site|cross`, `type:task|bug|docs|decision|release`, `priority:p0|p1|p2|p3`, and `epic:switching|quota-tui|distribution|release-integrity|site|governance` for the product area a task advances. Priority reflects impact; leave it unset if it has not been assessed. Existing labels and reporter content are preserved.
 
 | State | Entry criterion | Next action |
 | --- | --- | --- |
