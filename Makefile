@@ -5,10 +5,11 @@ TARGET_DIR ?= $(HOME)/.local/bin
 GOLANGCI_LINT_VERSION ?= v2.14.0
 GOVULNCHECK_VERSION ?= v1.9.0
 
-.PHONY: help build test race vet lint vuln benchmark tui-smoke qa bump install release-assets publish-homebrew-tap live site-preview site-release
+.PHONY: help status build test race vet lint vuln benchmark tui-smoke qa bump install release-assets publish-homebrew-tap live site-preview site-release site-verify-live
 
 help:
 	@echo "Available make targets:"
+	@echo "  status          Read-only overview: repo sync, versions, live site, installed binary, open work"
 	@echo "  build           Build local agy-swap binary"
 	@echo "  install         Build and install binary to $(TARGET_DIR)"
 	@echo "  test            Run unit tests across all packages"
@@ -24,6 +25,7 @@ help:
 	@echo "  live            Run AGY Live locally (demo gateway + Vite, first free ports)"
 	@echo "  site-preview    Build and serve the production site image locally on :4796"
 	@echo "  site-release    Build, smoke-test, and (PUSH=1) publish the site image for VERSION"
+	@echo "  site-verify-live  Wait for production to serve VERSION, then compare it with the tag build"
 
 build:
 	GOCACHE=$(GOCACHE) go build -trimpath -ldflags "-s -w -X main.version=$(VERSION) -X main.buildID=$(BUILD_ID)" -o agy-swap ./cmd/agy-swap
@@ -50,6 +52,12 @@ site-preview:
 
 site-release:
 	./scripts/site-image.sh release $(VERSION) $(if $(PUSH),--push,)
+
+site-verify-live:
+	GOCACHE=$(GOCACHE) ./scripts/site-verify-live.sh $(VERSION)
+
+status:
+	@./scripts/project-status.sh
 
 test:
 	GOCACHE=$(GOCACHE) go test ./...
