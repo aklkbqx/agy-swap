@@ -24,7 +24,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: releasetool <checksums|verify-version|verify-assets|verify-metadata|verify-source|verify-builds|bump> [args]")
+		return errors.New("usage: releasetool <checksums|verify-version|verify-assets|verify-metadata|verify-source|verify-builds|verify-live|bump> [args]")
 	}
 	switch args[0] {
 	case "bump":
@@ -61,6 +61,11 @@ func run(args []string) error {
 			return errors.New("usage: releasetool verify-source VERSION ROOT")
 		}
 		return verifySource(args[1], args[2], runtime.Version())
+	case "verify-live":
+		if len(args) != 4 {
+			return errors.New("usage: releasetool verify-live VERSION DIST_DIR BASE_URL")
+		}
+		return verifyLive(args[1], args[2], args[3], liveClient())
 	case "verify-builds":
 		if len(args) != 4 {
 			return errors.New("usage: releasetool verify-builds VERSION DIST_DIR ROOT")
@@ -168,19 +173,25 @@ func verifyVersion(version, installerPath string) error {
 		return err
 	}
 	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
-	text := string(installer)
-	patterns := []string{
+	if installerHasVersion(string(installer), version) {
+		return nil
+	}
+	return fmt.Errorf("%s does not contain the expected installer version %s", installerPath, version)
+}
+
+// installerHasVersion reports whether a shell or PowerShell installer pins version.
+func installerHasVersion(text, version string) bool {
+	for _, pattern := range []string{
 		`VERSION="` + version + `"`,
 		`VERSION="${AGY_SWAP_VERSION:-` + version + `}"`,
 		`$Version = '` + version + `'`,
 		`$Version = "` + version + `"`,
-	}
-	for _, pattern := range patterns {
+	} {
 		if strings.Contains(text, pattern) {
-			return nil
+			return true
 		}
 	}
-	return fmt.Errorf("%s does not contain the expected installer version %s", installerPath, version)
+	return false
 }
 
 func verifyMetadata(version, root string) error {

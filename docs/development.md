@@ -18,6 +18,10 @@ This document guides contributors through setting up, testing, and verifying cha
 All standard workflows are codified in the [`Makefile`](../Makefile):
 
 ```bash
+# Read-only overview: repository sync, VERSION/tag/Release, live site,
+# installed binary, open Issues/PRs in both repositories, and any drift
+make status
+
 # Compile local binary to ./agy-swap
 make build
 
@@ -122,6 +126,10 @@ Release assets are built from the release tag, not from a working tree. After th
 6. generates `dist/release/agy-swap.rb`. It does not discover, edit, commit, or push a Homebrew tap.
 
 Push the commit and tag, then publish the matching GitHub release and assets before updating Homebrew. Then run `make publish-homebrew-tap VERSION=X.Y.Z` explicitly. It uses `HOMEBREW_TAP_DIR` when set, or the installed `aklkbqx/agy-swap` tap; the tap must be on `main` with a clean working tree and index. Publication fetches the current remote tip, refuses behind/diverged branches and unrelated unpublished commits, and permits retrying a formula-only pending push. It commits only `Formula/agy-swap.rb` and pushes `origin main`. The helper's default invocation without `--publish` only generates the local formula.
+
+## 6. Live Site Verification
+
+After `make site-release VERSION=X.Y.Z PUSH=1`, run `make site-verify-live VERSION=X.Y.Z`. It builds Site tag `vX.Y.Z` in a temporary worktree, waits up to ten minutes (`AGY_SITE_WAIT`) for production to report that version, then runs `releasetool verify-live`: health and page status codes, `softwareVersion`, both installer redirects and the version of the installers they promote, the production demo endpoint returning 404, and byte equality of every built file. `sitemap.xml` carries its build date and is skipped; the Cloudflare Web Analytics beacon that the edge injects into HTML is removed before comparison, and any other difference fails. `AGY_SITE_URL` points it at another deployment.
 
 ## Native Windows installer regression
 
