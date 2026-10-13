@@ -201,7 +201,7 @@ func (a *Application) tuiHeaderLinesWithVersion(version string, state *tuiState,
 func (a *Application) displayVersion() string {
 	v := stateVersion(a.Version)
 	build := strings.TrimSpace(a.BuildID)
-	if build != "" && build != "unknown" && build != "release" && build != "demo" {
+	if build != "" && build != "unknown" && build != "release" && build != "release-v"+v && build != "demo" {
 		if !strings.HasSuffix(v, "-"+build) {
 			return v + "-" + build
 		}
