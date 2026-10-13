@@ -242,3 +242,71 @@ func TestCLIAddFromStdinVerifiesAndSavesTheAccount(t *testing.T) {
 		t.Fatalf("empty token accepted: code %d", code)
 	}
 }
+
+// next must move away from the active account whenever another account is
+// eligible, whatever the policy; balanced then prefers the most quota.
+func TestCLINextNeverRotatesToTheActiveAccount(t *testing.T) {
+	quotas := map[string]float64{"alpha@example.com": 0.3, "beta@example.com": 0.9, "gamma@example.com": 0.5, "delta@example.com": 0.7}
+	for policy, want := range map[string]string{"sticky": "gamma@example.com", "round-robin": "gamma@example.com", "balanced": "delta@example.com"} {
+		f := newCLIFixture(t, "alpha@example.com", "beta@example.com", "gamma@example.com", "delta@example.com")
+		accounts, err := f.a.store.Load(true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for email, remaining := range quotas {
+			for key, value := range quotaAccount(email, remaining, remaining, time.Now().Add(time.Hour)) {
+				accounts.ByEmail[email][key] = value
+			}
+		}
+		if err := f.a.store.Save(accounts); err != nil {
+			t.Fatal(err)
+		}
+		settings := defaultSettings()
+		settings.Policy.Name = policy
+		if err := f.a.store.SaveSettings(settings); err != nil {
+			t.Fatal(err)
+		}
+		// Refresh fails offline, so the fresh snapshots above decide eligibility.
+		f.a.http.cloudAPI = "http://127.0.0.1:1/"
+		f.a.quota = NewQuotaService(f.a.http, f.a.store)
+		f.a.quota.SetVault(f.a.vault)
+		if code := f.run("", "switch", "beta@example.com"); code != 0 {
+			t.Fatalf("%s: switch: %s", policy, f.errOut)
+		}
+		f.userInfo = "beta@example.com"
+		if code := f.run("", "next"); code != 0 || !strings.Contains(f.out.String(), "auto-rotated to "+want) {
+			t.Fatalf("%s: next from the fullest active account: code=%d\n%s%s", policy, code, f.out, f.errOut)
+		}
+	}
+}
+
+func TestCLINextKeepsTheOnlyEligibleAccount(t *testing.T) {
+	f := newCLIFixture(t, "alpha@example.com", "beta@example.com")
+	accounts, err := f.a.store.Load(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for email, remaining := range map[string]float64{"alpha@example.com": 0.8, "beta@example.com": 0} {
+		for key, value := range quotaAccount(email, remaining, remaining, time.Now().Add(time.Hour)) {
+			accounts.ByEmail[email][key] = value
+		}
+	}
+	if err := f.a.store.Save(accounts); err != nil {
+		t.Fatal(err)
+	}
+	settings := defaultSettings()
+	settings.Policy.Name = "balanced"
+	if err := f.a.store.SaveSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	f.a.http.cloudAPI = "http://127.0.0.1:1/"
+	f.a.quota = NewQuotaService(f.a.http, f.a.store)
+	f.a.quota.SetVault(f.a.vault)
+	if code := f.run("", "switch", "alpha@example.com"); code != 0 {
+		t.Fatal(f.errOut)
+	}
+	f.userInfo = "alpha@example.com"
+	if code := f.run("", "next"); code != 0 || !strings.Contains(f.out.String(), "auto-rotated to alpha@example.com") {
+		t.Fatalf("only eligible account: code=%d\n%s%s", code, f.out, f.errOut)
+	}
+}
