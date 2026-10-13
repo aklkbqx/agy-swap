@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestCompareVersions(t *testing.T) {
 	cases := []struct {
@@ -34,5 +37,9 @@ func TestDefaultPaths(t *testing.T) {
 	}
 	if paths.Home == "" || paths.ConfigDir == "" || paths.Accounts == "" {
 		t.Fatalf("invalid paths: %#v", paths)
+	}
+	wantJetski := filepath.Join(paths.Home, ".gemini", "jetski-standalone-oauth-token")
+	if paths.JetskiToken != wantJetski {
+		t.Fatalf("paths.JetskiToken = %q, want %q", paths.JetskiToken, wantJetski)
 	}
 }
