@@ -129,17 +129,9 @@ func (a *Application) cmdUpdate(ctx context.Context, args cliArgs) int {
 	if isHomebrewManaged(current) {
 		fmt.Fprintf(a.Out, "%s● Detected Homebrew installation. Upgrading via brew...%s\n", a.p.Cyan, a.p.Reset)
 		cleanShadowedLocalBinary(a.Out, a.p)
-		cmd := exec.CommandContext(ctx, "brew", "upgrade", "aklkbqx/agy-swap/agy-swap")
-		cmd.Stdout = a.Out
-		cmd.Stderr = a.Err
-		if runErr := cmd.Run(); runErr != nil {
-			cmdFallback := exec.CommandContext(ctx, "brew", "upgrade", "agy-swap")
-			cmdFallback.Stdout = a.Out
-			cmdFallback.Stderr = a.Err
-			if runErrFallback := cmdFallback.Run(); runErrFallback != nil {
-				fmt.Fprintf(a.Err, "%s✕ Homebrew upgrade failed: %v%s\n", a.p.Red, runErrFallback, a.p.Reset)
-				return 1
-			}
+		if upgradeErr := upgradeViaHomebrew(ctx, latest, a.Out, a.Err); upgradeErr != nil {
+			fmt.Fprintf(a.Err, "%s✕ Homebrew update not completed: %v%s\n", a.p.Red, upgradeErr, a.p.Reset)
+			return 1
 		}
 		fmt.Fprintf(a.Out, "%s✓ Updated agy-swap v%s → v%s via Homebrew%s\n", a.p.Green, a.Version, latest, a.p.Reset)
 		if release.HTMLURL != "" {
@@ -328,6 +320,56 @@ func (a *Application) runUpdateFinalizer(ctx context.Context, args []string) int
 	}
 	fmt.Fprintf(a.Out, "✓ Updated agy-swap to v%s\n", latest)
 	return 0
+}
+
+// upgradeViaHomebrew upgrades the formula and confirms that the binary
+// Homebrew links reports latest. brew upgrade exits 0 when its tap has not
+// refreshed yet, so the version check is the success signal; a stale result
+// gets one brew update and a second upgrade.
+func upgradeViaHomebrew(ctx context.Context, latest string, out, errOut io.Writer) error {
+	run := func(args ...string) error {
+		cmd := exec.CommandContext(ctx, "brew", args...)
+		cmd.Stdout, cmd.Stderr = out, errOut
+		return cmd.Run()
+	}
+	upgrade := func() error {
+		if err := run("upgrade", "aklkbqx/agy-swap/agy-swap"); err != nil {
+			return run("upgrade", "agy-swap")
+		}
+		return nil
+	}
+	prefix, err := exec.CommandContext(ctx, "brew", "--prefix").Output()
+	if err != nil {
+		return fmt.Errorf("brew --prefix: %w", err)
+	}
+	linked := filepath.Join(strings.TrimSpace(string(prefix)), "bin", "agy-swap")
+	if err := upgrade(); err != nil {
+		return fmt.Errorf("brew upgrade: %w", err)
+	}
+	if verifyUpdateBinary(ctx, linked, latest) == nil {
+		return nil
+	}
+	if err := run("update", "--quiet"); err != nil {
+		return fmt.Errorf("brew update: %w", err)
+	}
+	if err := upgrade(); err != nil {
+		return fmt.Errorf("brew upgrade: %w", err)
+	}
+	if err := verifyUpdateBinary(ctx, linked, latest); err != nil {
+		return fmt.Errorf("Homebrew still installs %s, not v%s; run brew update and retry", installedVersion(ctx, linked), latest) //nolint:staticcheck,revive // "Homebrew" is a proper noun
+	}
+	return nil
+}
+
+// installedVersion returns the version token a binary reports, or "an unknown version".
+func installedVersion(ctx context.Context, path string) string {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, path, "--version").Output()
+	if fields := strings.Fields(string(output)); err == nil && len(fields) >= 2 {
+		return fields[1]
+	}
+	return "an unknown version"
 }
 
 func isHomebrewManaged(path string) bool {

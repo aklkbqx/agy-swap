@@ -26,6 +26,9 @@ smoke() { # IMAGE VERSION
     code=$(curl -s -o /dev/null -w '%{http_code}' "$base$path"); [ "$code" = 302 ] || { echo "$path returned $code, want 302" >&2; return 1; }
   done
   code=$(curl -s -o /dev/null -w '%{http_code}' "$base/demo/ws"); [ "$code" = 404 ] || { echo "/demo/ws returned $code, want 404" >&2; return 1; }
+  code=$(curl -s -o /dev/null -w '%{http_code}' "$base/install"); [ "$code" = 200 ] || { echo "/install returned $code, want 200" >&2; return 1; }
+  curl -fsS "$base/install" | grep -q "<title>Install agy-swap" || { echo "/install does not serve the install page" >&2; return 1; }
+  code=$(curl -s -o /dev/null -w '%{http_code}' "$base/no-such-page"); [ "$code" = 404 ] || { echo "/no-such-page returned $code, want 404" >&2; return 1; }
   curl -fsS "$base/" | grep -q "\"softwareVersion\": \"v$2\"" || { echo "page does not report v$2" >&2; return 1; }
 }
 
