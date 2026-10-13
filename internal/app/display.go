@@ -13,9 +13,9 @@ import (
 )
 
 type palette struct {
-	Orange, Green, Blue, Red, Yellow, Cyan, Gray, DarkGray, White, Bold, Reset string
-	SelectionBg                                                                string
-	TrackBg                                                                    string
+	Orange, Green, Blue, Red, Yellow, Cyan, Magenta, Gray, DarkGray, White, Bold, Dim, Reset string
+	SelectionBg                                                                              string
+	TrackBg                                                                                  string
 }
 
 func isTrueColorSupported() bool {
@@ -45,10 +45,12 @@ func makePalette(color bool) palette {
 			Red:         "\x1b[38;2;248;113;113m",
 			Yellow:      "\x1b[38;2;251;191;36m",
 			Cyan:        "\x1b[38;2;56;189;248m",
+			Magenta:     "\x1b[38;2;192;132;252m",
 			Gray:        "\x1b[38;2;139;148;158m",
 			DarkGray:    "\x1b[38;2;48;54;61m",
 			White:       "\x1b[38;2;240;246;252m",
 			Bold:        "\x1b[1m",
+			Dim:         "\x1b[2m",
 			Reset:       "\x1b[0m",
 			SelectionBg: "\x1b[48;2;22;27;34m",
 			TrackBg:     "\x1b[38;2;33;38;45m",
@@ -61,10 +63,12 @@ func makePalette(color bool) palette {
 		Red:         "\x1b[38;5;203m",
 		Yellow:      "\x1b[38;5;220m",
 		Cyan:        "\x1b[38;5;86m",
+		Magenta:     "\x1b[38;5;177m",
 		Gray:        "\x1b[38;5;244m",
 		DarkGray:    "\x1b[38;5;238m",
 		White:       "\x1b[38;5;255m",
 		Bold:        "\x1b[1m",
+		Dim:         "\x1b[2m",
 		Reset:       "\x1b[0m",
 		SelectionBg: "\x1b[48;5;235m",
 		TrackBg:     "\x1b[38;5;236m",
@@ -309,7 +313,7 @@ func accountStatus(account Account, p palette, now time.Time) string {
 		}
 		status := fmt.Sprintf("[%s] %sReady%s · %s %.2f%% available", tier, color, p.Reset, best.label, best.fraction*100)
 		if limited := limitedQuotaGroupLabels(groups); len(limited) > 0 {
-			status += " · " + strings.Join(limited, "/") + " limited"
+			status += fmt.Sprintf(" · %s%s limited%s", p.Red, strings.Join(limited, "/"), p.Reset)
 		}
 		return status
 	}
@@ -374,26 +378,69 @@ func renderFractionalBar(fraction float64, width int, filledColor, emptyColor, r
 	return sb.String()
 }
 
+func cleanBucketName(name, window string) string {
+	switch strings.ToLower(window) {
+	case "weekly":
+		return "Weekly"
+	case "5h":
+		return "5-Hour"
+	}
+	lower := strings.ToLower(name)
+	if strings.Contains(lower, "week") {
+		return "Weekly"
+	}
+	if strings.Contains(lower, "five hour") || strings.Contains(lower, "5h") || strings.Contains(lower, "5-hour") {
+		return "5-Hour"
+	}
+	return firstString(name, "Limit")
+}
+
 func formatQuotaBar(bucket map[string]any, p palette, now time.Time, width int) string {
 	fraction, _ := getFloat(bucket["remaining_fraction"])
 	fraction = max(0, min(1, fraction))
-	color := p.Green
+	barColor := p.Green
 	if fraction <= .1 {
-		color = p.Red
+		barColor = p.Red
 	} else if fraction <= .3 {
-		color = p.Yellow
+		barColor = p.Yellow
 	}
-	bar := renderFractionalBar(fraction, width, color, p.DarkGray, p.Reset)
+	bar := renderFractionalBar(fraction, width, barColor, p.DarkGray, p.Reset)
+
+	var pctColor, statusTag string
+	if fraction <= 0.0001 {
+		pctColor = p.Red + p.Bold
+		statusTag = p.Red + "(Depleted)" + p.Reset
+	} else if fraction <= 0.15 {
+		pctColor = p.Red
+		statusTag = p.Red + "(Low)     " + p.Reset
+	} else if fraction <= 0.35 {
+		pctColor = p.Yellow
+		statusTag = p.Yellow + "(Fair)    " + p.Reset
+	} else {
+		pctColor = p.Green
+		statusTag = p.Green + "(Good)    " + p.Reset
+	}
+
 	reset := ""
 	if at, err := parseUTC(getString(bucket, "reset_at")); err == nil {
 		remaining := at.Sub(now)
-		if remaining > 0 {
-			reset = " · resets in " + formatDuration(remaining.Seconds())
+		localAt := at.Local()
+		dateStr := localAt.Format("Mon, Jan 02 15:04")
+		durStr := formatDuration(remaining.Seconds())
+
+		if remaining <= 0 {
+			reset = fmt.Sprintf(" %s· refresh due (%s)%s", p.Yellow+p.Bold, dateStr, p.Reset)
+		} else if remaining <= 30*time.Minute {
+			reset = fmt.Sprintf(" %s· ⚡ resets in %s (%s) [SOON]%s", p.Yellow+p.Bold, durStr, dateStr, p.Reset)
+		} else if remaining <= 2*time.Hour {
+			reset = fmt.Sprintf(" %s· ⏳ resets in %s (%s)%s", p.Cyan+p.Bold, durStr, dateStr, p.Reset)
+		} else if remaining <= 24*time.Hour {
+			reset = fmt.Sprintf(" %s· resets in %s (%s)%s", p.White, durStr, dateStr, p.Reset)
 		} else {
-			reset = " · refresh due"
+			reset = fmt.Sprintf(" %s· resets in %s (%s)%s", p.Gray, durStr, dateStr, p.Reset)
 		}
 	}
-	return fmt.Sprintf("[%s] %.2f%% remaining%s", bar, fraction*100, reset)
+	return fmt.Sprintf("[%s] %s%6.2f%%%s %s%s", bar, pctColor, fraction*100, p.Reset, statusTag, reset)
 }
 
 // formatQuotaBarResponsive keeps the value and reset window visible when a
@@ -606,4 +653,39 @@ func titleWord(value string) string {
 		}
 		return r
 	}, value)
+}
+
+// accountWeeklyReset returns the weekly reset time for a given model family (or any group if family is empty).
+func accountWeeklyReset(account Account, targetGroup string) (time.Time, bool) {
+	for _, rawGroup := range quotaGroups(account) {
+		group := getMap(rawGroup)
+		gID := strings.ToLower(cleanText(getString(group, "id")))
+		gName := strings.ToLower(cleanText(getString(group, "name")))
+
+		isMatch := false
+		if targetGroup == "" {
+			isMatch = true
+		} else if targetGroup == "gemini" && (gID == "gemini" || strings.Contains(gName, "gemini")) {
+			isMatch = true
+		} else if targetGroup == "third_party" && (gID == "third_party" || strings.Contains(gName, "claude") || strings.Contains(gName, "gpt")) {
+			isMatch = true
+		}
+
+		if !isMatch {
+			continue
+		}
+
+		for _, rawBucket := range getSlice(group["buckets"]) {
+			bucket := getMap(rawBucket)
+			window := strings.ToLower(cleanText(getString(bucket, "window")))
+			bID := strings.ToLower(cleanText(getString(bucket, "id")))
+			bName := strings.ToLower(cleanText(getString(bucket, "name")))
+			if window == "weekly" || strings.Contains(bID, "weekly") || strings.Contains(bName, "weekly") {
+				if t, err := parseUTC(getString(bucket, "reset_at")); err == nil && !t.IsZero() {
+					return t, true
+				}
+			}
+		}
+	}
+	return time.Time{}, false
 }

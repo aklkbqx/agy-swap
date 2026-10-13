@@ -69,6 +69,9 @@ func (c *Credentials) Delete(ctx context.Context) bool { return c.backend.Delete
 
 func (c *Credentials) readOAuthToken() string {
 	data, err := os.ReadFile(c.paths.OAuthToken)
+	if err != nil && c.paths.JetskiToken != "" {
+		data, err = os.ReadFile(c.paths.JetskiToken)
+	}
 	if err != nil {
 		return ""
 	}
@@ -86,6 +89,9 @@ func (c *Credentials) writeOAuthFiles(tokenData, email string) bool {
 		return false
 	}
 	paths := []string{c.paths.OAuthToken, c.paths.OAuthCredentials}
+	if c.paths.JetskiToken != "" {
+		paths = append(paths, c.paths.JetskiToken)
+	}
 	if email != "" {
 		paths = append(paths, c.paths.GoogleAccounts)
 	}
@@ -102,6 +108,12 @@ func (c *Credentials) writeOAuthFiles(tokenData, email string) bool {
 	if err := atomicWriteJSON(c.paths.OAuthToken, decoded); err != nil {
 		_ = restoreFiles(snapshot)
 		return false
+	}
+	if c.paths.JetskiToken != "" {
+		if err := atomicWriteJSON(c.paths.JetskiToken, decoded); err != nil {
+			_ = restoreFiles(snapshot)
+			return false
+		}
 	}
 	if err := atomicWriteJSON(c.paths.OAuthCredentials, creds); err != nil {
 		_ = restoreFiles(snapshot)
@@ -217,7 +229,11 @@ func (c *Credentials) Apply(ctx context.Context, tokenData, email string) bool {
 
 func (c *Credentials) deleteOAuthFiles() bool {
 	ok := true
-	for _, path := range []string{c.paths.OAuthToken, c.paths.OAuthCredentials, c.paths.GoogleAccounts} {
+	paths := []string{c.paths.OAuthToken, c.paths.OAuthCredentials, c.paths.GoogleAccounts}
+	if c.paths.JetskiToken != "" {
+		paths = append(paths, c.paths.JetskiToken)
+	}
+	for _, path := range paths {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			ok = false
 		}

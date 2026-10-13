@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -476,7 +477,11 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 	defer func() { _ = lock.Close() }()
 	current := a.credentials.Current(ctx)
 	backupSecure := a.credentials.Secure(ctx)
-	snapshot, err := snapshotFiles(a.paths.OAuthToken, a.paths.OAuthCredentials, a.paths.GoogleAccounts)
+	snapshotPaths := []string{a.paths.OAuthToken, a.paths.OAuthCredentials, a.paths.GoogleAccounts}
+	if a.paths.JetskiToken != "" {
+		snapshotPaths = append(snapshotPaths, a.paths.JetskiToken)
+	}
+	snapshot, err := snapshotFiles(snapshotPaths...)
 	if err != nil {
 		return a.storeError(err)
 	}
@@ -686,30 +691,112 @@ func (a *Application) cmdList(ctx context.Context, args cliArgs) int {
 	} else if hasLimits {
 		fmt.Fprintf(a.Out, "%sGoogle usage unavailable; cooldown bars below come from recent local errors.%s\n", a.p.Gray, a.p.Reset)
 	}
+	// Display accounts sorted by weekly reset time (earliest reset first), prioritizing Gemini Models.
+	type displayAccount struct {
+		email        string
+		origIndex    int
+		geminiReset  time.Time
+		claudeReset  time.Time
+		hasGemini    bool
+		hasClaude    bool
+	}
+	displayList := make([]displayAccount, len(accounts.Order))
 	for i, email := range accounts.Order {
+		acc := accounts.ByEmail[email]
+		gReset, hasG := accountWeeklyReset(acc, "gemini")
+		cReset, hasC := accountWeeklyReset(acc, "third_party")
+		displayList[i] = displayAccount{
+			email:       email,
+			origIndex:   i + 1,
+			geminiReset: gReset,
+			claudeReset: cReset,
+			hasGemini:   hasG,
+			hasClaude:   hasC,
+		}
+	}
+	sort.SliceStable(displayList, func(i, j int) bool {
+		aItem, bItem := displayList[i], displayList[j]
+		// Priority 1: Gemini weekly reset (earliest first)
+		if aItem.hasGemini && bItem.hasGemini {
+			if !aItem.geminiReset.Equal(bItem.geminiReset) {
+				return aItem.geminiReset.Before(bItem.geminiReset)
+			}
+		} else if aItem.hasGemini != bItem.hasGemini {
+			return aItem.hasGemini // Account with Gemini weekly reset comes first
+		}
+
+		// Priority 2: Claude/GPT weekly reset (earliest first)
+		if aItem.hasClaude && bItem.hasClaude {
+			if !aItem.claudeReset.Equal(bItem.claudeReset) {
+				return aItem.claudeReset.Before(bItem.claudeReset)
+			}
+		} else if aItem.hasClaude != bItem.hasClaude {
+			return aItem.hasClaude
+		}
+
+		// Fallback to original order
+		return aItem.origIndex < bItem.origIndex
+	})
+
+	for i, item := range displayList {
+		email := item.email
+		if i > 0 {
+			fmt.Fprintln(a.Out)
+		}
 		account := accounts.ByEmail[email]
 		isActive := strings.EqualFold(active, email)
 		marker := a.p.Gray + "○" + a.p.Reset
 		activeLabel := ""
+		nameColor := a.p.Bold
 		if isActive {
-			marker = a.p.Green + "●" + a.p.Reset
-			activeLabel = " " + a.p.Green + "(Active)" + a.p.Reset
+			marker = a.p.Green + a.p.Bold + "●" + a.p.Reset
+			activeLabel = " " + a.p.Green + a.p.Bold + "(Active)" + a.p.Reset
+			nameColor = a.p.Green + a.p.Bold
 		}
-		fmt.Fprintf(a.Out, " %s [%d] %s %s%s%s %s<%s>%s%s\n", marker, i+1, avatar(getString(account, "name"), email, a.color), a.p.Bold, getString(account, "name"), a.p.Reset, a.p.Gray, email, a.p.Reset, activeLabel)
+		fmt.Fprintf(a.Out, " %s [%d] %s %s%s%s %s<%s>%s%s\n", marker, item.origIndex, avatar(getString(account, "name"), email, a.color), nameColor, getString(account, "name"), a.p.Reset, a.p.Gray, email, a.p.Reset, activeLabel)
 		fmt.Fprintf(a.Out, "       ↳ Status: %s\n", accountStatus(account, a.p, now))
 		if len(quotaGroups(account)) > 0 {
-			for _, rg := range quotaGroups(account) {
+			groups := quotaGroups(account)
+			for gIdx, rg := range groups {
 				group := getMap(rg)
-				fmt.Fprintf(a.Out, "       ↳ %s\n", getString(group, "name"))
-				for _, rb := range getSlice(group["buckets"]) {
+				isLastGroup := gIdx == len(groups)-1
+				treeBranch := "├─"
+				treeIndent := "│ "
+				if isLastGroup {
+					treeBranch = "└─"
+					treeIndent = "  "
+				}
+				gName := cleanText(getString(group, "name"))
+				gID := strings.ToLower(cleanText(getString(group, "id")))
+				icon := "🔷"
+				groupColor := a.p.Cyan
+				if gID == "third_party" || strings.Contains(strings.ToLower(gName), "claude") {
+					icon = "🟣"
+					groupColor = a.p.Magenta
+					if groupColor == "" {
+						groupColor = a.p.Orange
+					}
+				}
+				fmt.Fprintf(a.Out, "       %s%s %s %s%s%s\n", a.p.Gray, treeBranch, icon, groupColor+a.p.Bold, gName, a.p.Reset)
+				buckets := getSlice(group["buckets"])
+				for bIdx, rb := range buckets {
 					bucket := getMap(rb)
-					fmt.Fprintf(a.Out, "          %s: %s\n", getString(bucket, "name"), formatQuotaBar(bucket, a.p, now, 12))
+					bName := cleanBucketName(getString(bucket, "name"), getString(bucket, "window"))
+					bBranch := "├─"
+					if bIdx == len(buckets)-1 {
+						bBranch = "└─"
+					}
+					fmt.Fprintf(a.Out, "       %s  %s%s %-7s %s\n", a.p.Gray+treeIndent+a.p.Reset, a.p.Gray, bBranch+a.p.Reset, a.p.Bold+bName+":"+a.p.Reset, formatQuotaBar(bucket, a.p, now, 12))
 				}
 			}
 		} else {
 			for _, limit := range activeLimits(account, now) {
 				if bar := formatCooldownBar(limit.Limit, a.p, now, 12); bar != "" {
-					fmt.Fprintf(a.Out, "       ↳ %s: %s · resets in %s\n", getString(limit.Limit, "model"), bar, formatDuration(limit.Remaining.Seconds()))
+					resetAt := ""
+					if exp, err := parseUTC(getString(limit.Limit, "expires_at")); err == nil {
+						resetAt = fmt.Sprintf(" (%s)", exp.Local().Format("Mon, Jan 02 15:04"))
+					}
+					fmt.Fprintf(a.Out, "       ↳ %s: %s · resets in %s%s\n", getString(limit.Limit, "model"), bar, formatDuration(limit.Remaining.Seconds()), resetAt)
 				}
 			}
 		}
