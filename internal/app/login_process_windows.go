@@ -21,6 +21,9 @@ func prepareLoginCommand(command *exec.Cmd) {
 
 func stopLoginProcessGroup(*exec.Cmd) bool { return false }
 
+// reclaimLoginTerminal is a no-op: Windows consoles have no foreground process group.
+func reclaimLoginTerminal(*exec.Cmd) {}
+
 func killLoginCommandTree(command *exec.Cmd) {
 	if command == nil || command.Process == nil {
 		return
