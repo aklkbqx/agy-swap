@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.11.10
+
+### Fixes
+
+- List: quota pools use compact `Weekly` and `5-Hour` labels with aligned percentages. Reset countdowns now include the local day, date, time and UTC offset; expired snapshots retain their timestamp beside `refresh due`. Saved account order, switch indices, quota colors and the TUI are unchanged. Refs #45.
+- Version: CLI and TUI show the stable version without a parenthesized build label; local development builds use the existing `-dev` suffix.
+
+### Development
+
+- Release checks run the Site's configured test script, matching its Node test runner and file isolation.
+
 ## 2.11.9
 
 ### Fixes

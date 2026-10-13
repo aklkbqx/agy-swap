@@ -374,6 +374,17 @@ func renderFractionalBar(fraction float64, width int, filledColor, emptyColor, r
 	return sb.String()
 }
 
+func quotaBucketLabel(bucket map[string]any) string {
+	switch getString(bucket, "window") {
+	case "weekly":
+		return "Weekly"
+	case "5h":
+		return "5-Hour"
+	default:
+		return getString(bucket, "name")
+	}
+}
+
 func formatQuotaBar(bucket map[string]any, p palette, now time.Time, width int) string {
 	fraction, _ := getFloat(bucket["remaining_fraction"])
 	fraction = max(0, min(1, fraction))
@@ -392,8 +403,9 @@ func formatQuotaBar(bucket map[string]any, p palette, now time.Time, width int) 
 		} else {
 			reset = " · refresh due"
 		}
+		reset += " (" + at.In(now.Location()).Format("Mon 02 Jan 15:04 -0700") + ")"
 	}
-	return fmt.Sprintf("[%s] %.2f%% remaining%s", bar, fraction*100, reset)
+	return fmt.Sprintf("[%s] %6.2f%% remaining%s", bar, fraction*100, reset)
 }
 
 // formatQuotaBarResponsive keeps the value and reset window visible when a
