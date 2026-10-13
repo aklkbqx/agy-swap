@@ -88,7 +88,7 @@ func verifyLive(releaseVersion, dist, baseURL string, client *http.Client) error
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if rel == "sitemap.xml" { // carries its build date
+		if rel == "sitemap.xml" || rel == "404.html" { // build date; 404 is checked below
 			return nil
 		}
 		local, err := os.ReadFile(path)
@@ -112,6 +112,24 @@ func verifyLive(releaseVersion, dist, baseURL string, client *http.Client) error
 	if err != nil {
 		return err
 	}
+	// Routes that have no file of their own: /install and any unknown path.
+	compareRoute := func(path, file string, want int, label string) {
+		built, readErr := os.ReadFile(filepath.Join(dist, file))
+		if readErr != nil {
+			return
+		}
+		status, live, _, fetchErr := fetch(client, baseURL+path)
+		switch {
+		case fetchErr != nil:
+			fault("%s: %v", label, fetchErr)
+		case status != want:
+			fault("%s returned %d, want %d", label, status, want)
+		case !bytes.Equal(edgeAnalyticsBeacon.ReplaceAll(live, nil), built):
+			fault("%s differs from the built %s", label, file)
+		}
+	}
+	compareRoute("/install", "install.html", http.StatusOK, "/install")
+	compareRoute("/agy-swap-verify-missing-page", "404.html", http.StatusNotFound, "unknown path (404 page)")
 	if len(faults) > 0 {
 		return errors.New("live site does not match release v" + releaseVersion + ":\n  " + strings.Join(faults, "\n  "))
 	}
