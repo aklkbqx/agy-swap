@@ -224,6 +224,61 @@ func TestCLILogoutClearsEveryActiveCredential(t *testing.T) {
 	}
 }
 
+func TestCLIListCompactQuotaPools(t *testing.T) {
+	// Reset ordering opposes saved ordering; list must retain switch slots.
+	f := newCLIFixture(t, "zeta@example.com", "alpha@example.com")
+	now := time.Date(2026, time.October, 13, 19, 0, 0, 0, time.FixedZone("ICT", 7*60*60))
+	f.a.renderClock = func() time.Time { return now }
+	accounts, err := f.a.store.Load(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, email := range accounts.Order {
+		accounts.ByEmail[email]["quota_snapshot"] = map[string]any{
+			"observed_at": "2026-10-13T12:00:00Z",
+			"tier":        map[string]any{"id": "pro-tier", "name": "Pro"},
+			"groups": []any{
+				map[string]any{"id": "gemini", "name": "Gemini Models", "buckets": []any{
+					map[string]any{"id": "gemini-weekly", "name": "Weekly Limit Remaining", "window": "weekly", "remaining_fraction": .1315, "reset_at": "2026-10-16T07:06:00Z"},
+					map[string]any{"id": "gemini-5h", "name": "Five Hour Limit Remaining", "window": "5h", "remaining_fraction": .9119, "reset_at": "2026-10-13T11:13:00Z"},
+				}},
+				map[string]any{"id": "third_party", "name": "Claude and GPT models", "buckets": []any{
+					map[string]any{"id": "3p-weekly", "name": "Weekly Limit Remaining", "window": "weekly", "remaining_fraction": 0.0, "reset_at": "2026-10-14T11:52:00Z"},
+					map[string]any{"id": "3p-5h", "name": "Five Hour Limit Remaining", "window": "5h", "remaining_fraction": 1.0, "reset_at": "2026-10-13T16:44:00Z"},
+				}},
+			},
+		}
+	}
+	getMap(getSlice(getMap(getSlice(getMap(accounts.ByEmail["alpha@example.com"]["quota_snapshot"])["groups"])[0])["buckets"])[0])["reset_at"] = "2026-10-13T13:00:00Z"
+	if err := f.a.store.Save(accounts); err != nil {
+		t.Fatal(err)
+	}
+	if code := f.run("", "switch", "2"); code != 0 {
+		t.Fatal(f.errOut)
+	}
+	if code := f.run("", "list"); code != 0 {
+		t.Fatal(f.errOut)
+	}
+	out := f.out.String()
+	for _, want := range []string{
+		"       ↳ Gemini Models\n          Weekly: [█▋░░░░░░░░░░]  13.15% remaining · resets in 2d 19h 6m (Fri 16 Oct 14:06 +0700)",
+		"          5-Hour: [███████████░]  91.19% remaining · refresh due (Tue 13 Oct 18:13 +0700)",
+		"       ↳ Claude and GPT models\n          Weekly: [░░░░░░░░░░░░]   0.00% remaining · resets in 23h 52m (Wed 14 Oct 18:52 +0700)",
+		"          5-Hour: [████████████] 100.00% remaining · resets in 4h 44m (Tue 13 Oct 23:44 +0700)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("list missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Limit Remaining:") || strings.Contains(out, "\x1b") {
+		t.Errorf("plain list retained verbose labels or ANSI escapes:\n%s", out)
+	}
+	zeta, alpha := strings.Index(out, "[1] [ZE] zeta"), strings.Index(out, "[2] [AL] alpha")
+	if zeta < 0 || alpha <= zeta || !strings.Contains(out, "<alpha@example.com> (Active)") {
+		t.Errorf("list changed saved slots or active marker:\n%s", out)
+	}
+}
+
 func TestCLIAddFromStdinVerifiesAndSavesTheAccount(t *testing.T) {
 	f := newCLIFixture(t)
 	f.userInfo = "delta@example.com"

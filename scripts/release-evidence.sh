@@ -63,8 +63,8 @@ installed_path=$(command -v agy-swap 2>/dev/null)
 installed=$(agy-swap --version 2>/dev/null)
 host_sha=$(awk -v name="agy-swap_${tag}_$host" '$2 == name {print $1}' "$tmp/checksums.txt" 2>/dev/null)
 actual_sha=$(shasum -a 256 "$installed_path" 2>/dev/null | cut -d' ' -f1)
-if [ "$installed" = "agy-swap $tag (release-$tag)" ] && [ -n "$host_sha" ] && [ "$actual_sha" = "$host_sha" ]; then
-  ok "Installed \`$installed_path\` reports \`$tag (release-$tag)\`; SHA-256 equals the ${host} asset."
+if [ "$installed" = "agy-swap $tag" ] && [ -n "$host_sha" ] && [ "$actual_sha" = "$host_sha" ]; then
+  ok "Installed \`$installed_path\` reports \`$tag\`; SHA-256 equals the ${host} asset."
 else
   fail "installed binary \`${installed_path:-none}\` reports \`${installed:-nothing}\`; SHA-256 ${actual_sha:-?} vs ${host} asset ${host_sha:-?}"
 fi
@@ -75,7 +75,7 @@ latest=$(cd "$tmp" && GOPATH="$tmp/gopath" GOFLAGS= GOTOOLCHAIN=auto go list -m 
 (cd "$tmp" && GOPATH="$tmp/gopath" GOBIN="$tmp/bin" GOFLAGS= GOTOOLCHAIN=auto go install "$module/cmd/agy-swap@latest" >/dev/null 2>&1)
 built=$("$tmp/bin/agy-swap" --version 2>/dev/null)
 built_go=$(go version -m "$tmp/bin/agy-swap" 2>/dev/null | head -1 | awk '{print $2}')
-if [ "$latest" = "$tag" ] && [ "$built" = "agy-swap $tag (dev)" ] && [ -n "$built_go" ] && at_least "$built_go" "$floor"; then
+if [ "$latest" = "$tag" ] && [ "$built" = "agy-swap $tag-dev" ] && [ -n "$built_go" ] && at_least "$built_go" "$floor"; then
   ok "Public proxy: \`$module@latest\` resolves to $tag; \`go install\` built \`$built\` with $built_go."
 else
   fail "go install: \`@latest\` resolves to ${latest:-nothing}, built \`${built:-nothing}\` with ${built_go:-unknown} (want $tag and at least $floor; the proxy can lag a few minutes after tagging)"
