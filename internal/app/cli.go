@@ -92,6 +92,14 @@ func (a *Application) loginPollDelay() time.Duration {
 	return defaultLoginPollInterval
 }
 
+// waitLoginCommand waits for agy to exit and gives the terminal back to
+// agy-swap before anything else can use it.
+func waitLoginCommand(command *exec.Cmd) error {
+	err := command.Wait()
+	reclaimLoginTerminal(command)
+	return err
+}
+
 func stopLoginCommand(command *exec.Cmd, done <-chan error) {
 	if command == nil || command.Process == nil {
 		return
@@ -549,7 +557,7 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 		return 1
 	}
 	commandDone := make(chan error, 1)
-	go func() { commandDone <- command.Wait() }()
+	go func() { commandDone <- waitLoginCommand(command) }()
 	timeout := time.NewTimer(a.loginWaitTimeout())
 	defer timeout.Stop()
 	poll := time.NewTicker(a.loginPollDelay())
