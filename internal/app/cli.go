@@ -875,6 +875,21 @@ func selectNext(accounts *Accounts, active, family string) (Account, int) {
 	return best.account, 1
 }
 
+// nextEligible picks the best-ranked ready account other than the active one.
+// Balanced ranking can put the active account first, and next must move away
+// from it; it is kept only when no other account is ready.
+func nextEligible(ranked []recommendation, active string) (recommendation, bool) {
+	for _, item := range ranked {
+		if item.Ready && !strings.EqualFold(item.Email, active) {
+			return item, true
+		}
+	}
+	if len(ranked) > 0 && ranked[0].Ready {
+		return ranked[0], true
+	}
+	return recommendation{}, false
+}
+
 func (a *Application) cmdNext(ctx context.Context, args cliArgs) int {
 	accounts, err := a.store.Load(true)
 	if err != nil {
@@ -899,12 +914,13 @@ func (a *Application) cmdNext(ctx context.Context, args cliArgs) int {
 	if settings.Policy.Name == "sticky" {
 		settings.Policy.Name = "round-robin"
 	}
-	recommendations := a.buildRecommendations(ctx, accounts, settings, "", args.family, "")
-	if len(recommendations) == 0 || !recommendations[0].Ready {
+	active := a.activeEmail(ctx, accounts, a.credentials.Current(ctx))
+	choice, ok := nextEligible(rankAccounts(accounts, settings, active, "", args.family, ""), active)
+	if !ok {
 		fmt.Fprintln(a.Err, "No eligible account with fresh quota; use switch ACCOUNT for an explicit override.")
 		return 1
 	}
-	next := accounts.ByEmail[recommendations[0].Email]
+	next := accounts.ByEmail[choice.Email]
 	lock, err := acquireFileLock(a.paths.SessionLock)
 	if err != nil {
 		return a.storeError(err)

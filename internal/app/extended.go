@@ -1000,6 +1000,12 @@ func (a *Application) buildRecommendations(ctx context.Context, accounts *Accoun
 	if a.credentials != nil {
 		active = a.activeEmail(ctx, accounts, a.credentials.Current(ctx))
 	}
+	return rankAccounts(accounts, settings, active, profileName, family, tag)
+}
+
+// rankAccounts orders accounts for a policy relative to the active account:
+// ready accounts first, then profile primaries before reserves, then score.
+func rankAccounts(accounts *Accounts, settings AppSettings, active, profileName, family, tag string) []recommendation {
 	policy := settings.Policy.Name
 	profile, hasProfile := settings.Profiles[profileName]
 	if hasProfile {
