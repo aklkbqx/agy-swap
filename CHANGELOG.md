@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.11.8
+
+### Fixes
+
+- Next: `agy-swap next` (and `n` in the TUI) no longer "rotates" to the account that is already active under the `balanced` policy. It now leaves the active account whenever another account is eligible, and `balanced` picks the eligible account with the most quota. With a single eligible account the behavior is unchanged.
+
 ## 2.11.7
 
 ### Fixes
