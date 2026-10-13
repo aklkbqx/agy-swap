@@ -479,7 +479,7 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 	defer func() { _ = lock.Close() }()
 	current := a.credentials.Current(ctx)
 	backupSecure := a.credentials.Secure(ctx)
-	snapshot, err := snapshotFiles(a.paths.OAuthToken, a.paths.OAuthCredentials, a.paths.GoogleAccounts)
+	snapshot, err := snapshotFiles(a.credentials.sessionFilePaths(true)...)
 	if err != nil {
 		return a.storeError(err)
 	}

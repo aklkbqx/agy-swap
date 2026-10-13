@@ -98,6 +98,7 @@ func demoPaths(home string) Paths {
 		OAuthToken:       filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"),
 		OAuthCredentials: filepath.Join(home, ".gemini", "oauth_creds.json"),
 		GoogleAccounts:   filepath.Join(home, ".gemini", "google_accounts.json"),
+		JetskiToken:      filepath.Join(home, ".gemini", "jetski-standalone-oauth-token"),
 	}
 }
 

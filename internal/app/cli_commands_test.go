@@ -214,7 +214,7 @@ func TestCLILogoutClearsEveryActiveCredential(t *testing.T) {
 	if f.backend.token != "" {
 		t.Fatal("secure credential survived logout")
 	}
-	for _, path := range []string{f.paths.OAuthToken, f.paths.OAuthCredentials} {
+	for _, path := range []string{f.paths.OAuthToken, f.paths.JetskiToken, f.paths.OAuthCredentials} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("%s survived logout: %v", path, err)
 		}
