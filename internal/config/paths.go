@@ -54,6 +54,7 @@ type Paths struct {
 	OAuthToken       string
 	OAuthCredentials string
 	GoogleAccounts   string
+	JetskiToken      string
 }
 
 // DefaultPaths resolves user home and configuration file paths across platforms.
@@ -78,6 +79,7 @@ func DefaultPaths() (Paths, error) {
 		OAuthToken:       filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"),
 		OAuthCredentials: filepath.Join(home, ".gemini", "oauth_creds.json"),
 		GoogleAccounts:   filepath.Join(home, ".gemini", "google_accounts.json"),
+		JetskiToken:      filepath.Join(home, ".gemini", "jetski-standalone-oauth-token"),
 	}, nil
 }
 
