@@ -12,14 +12,15 @@ import (
 // fakeSite serves a built dist plus the production-only endpoints; fields let a
 // test break one behavior at a time.
 type fakeSite struct {
-	dist          string
-	health        int
-	demoStatus    int
-	shellVersion  string
-	psVersion     string
-	overrides     map[string]string
-	missing       map[string]bool
-	installerHost string
+	dist           string
+	health         int
+	demoStatus     int
+	shellVersion   string
+	psVersion      string
+	overrides      map[string]string
+	missing        map[string]bool
+	notFoundStatus int
+	installerHost  string
 }
 
 func (f *fakeSite) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -45,6 +46,21 @@ func (f *fakeSite) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "index.html"
 	}
+	if name == "install" {
+		name = "install.html"
+	}
+	notFound := func() {
+		w.WriteHeader(f.notFoundStatus)
+		body, _ := os.ReadFile(filepath.Join(f.dist, "404.html"))
+		if override, ok := f.overrides["404.html"]; ok {
+			body = []byte(override)
+		}
+		_, _ = w.Write(body)
+	}
+	if name == "404.html" {
+		notFound()
+		return
+	}
 	if f.missing[name] {
 		http.NotFound(w, r)
 		return
@@ -55,7 +71,7 @@ func (f *fakeSite) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	data, err := os.ReadFile(filepath.Join(f.dist, filepath.FromSlash(name)))
 	if err != nil {
-		http.NotFound(w, r)
+		notFound()
 		return
 	}
 	_, _ = w.Write(data)
@@ -70,6 +86,7 @@ func newFakeSite(t *testing.T) (*fakeSite, *httptest.Server) {
 		"robots.txt":          "User-agent: *\n",
 		"sitemap.xml":         "<lastmod>2026-10-12</lastmod>",
 		"llms.txt":            "go install github.com/aklkbqx/agy-swap/v2/cmd/agy-swap@latest\n",
+		"404.html":            "<title>Page not found</title>",
 		"assets/main-abc.js":  "console.log(1)",
 		"assets/styles-x.css": "body{}",
 	}
@@ -80,7 +97,7 @@ func newFakeSite(t *testing.T) (*fakeSite, *httptest.Server) {
 		}
 		writeTestFile(t, path, body)
 	}
-	site := &fakeSite{dist: dist, health: 200, demoStatus: 404, shellVersion: "2.0.0", psVersion: "2.0.0", missing: map[string]bool{}, overrides: map[string]string{
+	site := &fakeSite{dist: dist, health: 200, demoStatus: 404, shellVersion: "2.0.0", psVersion: "2.0.0", missing: map[string]bool{}, notFoundStatus: 404, overrides: map[string]string{
 		// Production sitemaps carry their own build date; never byte-compared.
 		"sitemap.xml": "<lastmod>2026-10-13</lastmod>",
 	}}
@@ -109,6 +126,9 @@ func TestVerifyLiveReportsEveryDeploymentFault(t *testing.T) {
 		"old ps installer":     {func(f *fakeSite) { f.psVersion = "1.9.0" }, "install.ps1"},
 		"demo gateway exposed": {func(f *fakeSite) { f.demoStatus = 200 }, "/demo/ws"},
 		"unhealthy":            {func(f *fakeSite) { f.health = 503 }, "/healthz"},
+		"soft 404":             {func(f *fakeSite) { f.notFoundStatus = 200 }, "unknown path"},
+		"stale 404 page":       {func(f *fakeSite) { f.overrides["404.html"] = "<title>Old</title>" }, "404 page"},
+		"install route":        {func(f *fakeSite) { f.missing["install.html"] = true }, "/install"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			site, server := newFakeSite(t)
