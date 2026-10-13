@@ -72,6 +72,13 @@ func TestAddLoginFlowAttachesIOAndStopsWhenAgyExits(t *testing.T) {
 	backend := &fakeCredentialBackend{token: previousToken}
 	credentials := NewCredentials(paths)
 	credentials.backend = backend
+	if !credentials.writeOAuthFiles(previousToken, "previous@example.com") {
+		t.Fatal("could not seed previous OAuth files")
+	}
+	previousJetski, readErr := os.ReadFile(paths.JetskiToken)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
 	store := NewStore(paths)
 	accounts := NewAccounts()
 	accounts.Set("previous@example.com", newAccount("previous@example.com", "Previous User", previousToken))
@@ -91,6 +98,9 @@ func TestAddLoginFlowAttachesIOAndStopsWhenAgyExits(t *testing.T) {
 		loginTimeout:      10 * time.Second,
 		loginPollInterval: 10 * time.Millisecond,
 		loginCommand: func(ctx context.Context) *exec.Cmd {
+			if _, statErr := os.Stat(paths.JetskiToken); !os.IsNotExist(statErr) {
+				t.Errorf("JetskiToken was not cleared before launching login command: %v", statErr)
+			}
 			command = exec.CommandContext(ctx, os.Args[0], "-test.run=^TestLoginCommandHelper$")
 			command.Env = append(os.Environ(), "AGY_SWAP_LOGIN_HELPER=exit")
 			return command
@@ -124,6 +134,10 @@ func TestAddLoginFlowAttachesIOAndStopsWhenAgyExits(t *testing.T) {
 	}
 	if backend.token != previousToken {
 		t.Fatalf("previous credential was not restored: %q", backend.token)
+	}
+	restoredJetski, err := os.ReadFile(paths.JetskiToken)
+	if err != nil || !bytes.Equal(restoredJetski, previousJetski) {
+		t.Fatalf("previous JetskiToken was not restored: err=%v, got=%q", err, restoredJetski)
 	}
 }
 

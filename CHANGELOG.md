@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.11.11
+
+### Fixes
+
+- Credentials: synchronize `~/.gemini/jetski-standalone-oauth-token` alongside `~/.gemini/antigravity-cli/antigravity-oauth-token`, `~/.gemini/oauth_creds.json` and `~/.gemini/google_accounts.json`. Session detection falls back to the standalone token when the primary CLI token is absent or unreadable, and account switches, logouts and login rollbacks update or restore both token files atomically. Refs #48 (reported in #41).
+
+### Development
+
+- `make release-check` now runs `make install` so the local `-dev` binary is installed to `~/.local/bin/agy-swap` before the review gate, and `releasetool bump` updates the release `BuildID` test fixture alongside `Version`.
+
 ## 2.11.10
 
 ### Fixes

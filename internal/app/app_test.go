@@ -25,7 +25,7 @@ func testPaths(t *testing.T) Paths {
 	t.Helper()
 	home := t.TempDir()
 	config := filepath.Join(home, ".gemini", "agy-swap")
-	return Paths{Home: home, ConfigDir: config, Accounts: filepath.Join(config, "accounts.json"), AccountsBackup: filepath.Join(config, "accounts.json.bak"), AccountsLock: filepath.Join(config, ".accounts.lock"), SessionLock: filepath.Join(config, ".session.lock"), LogCache: filepath.Join(config, "log-cache-v1.json"), Settings: filepath.Join(config, "config.json"), History: filepath.Join(config, "history-v1.jsonl"), RuntimeState: filepath.Join(config, "runtime-state.json"), JournalDir: filepath.Join(config, "journals"), OAuthToken: filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"), OAuthCredentials: filepath.Join(home, ".gemini", "oauth_creds.json"), GoogleAccounts: filepath.Join(home, ".gemini", "google_accounts.json")}
+	return Paths{Home: home, ConfigDir: config, Accounts: filepath.Join(config, "accounts.json"), AccountsBackup: filepath.Join(config, "accounts.json.bak"), AccountsLock: filepath.Join(config, ".accounts.lock"), SessionLock: filepath.Join(config, ".session.lock"), LogCache: filepath.Join(config, "log-cache-v1.json"), Settings: filepath.Join(config, "config.json"), History: filepath.Join(config, "history-v1.jsonl"), RuntimeState: filepath.Join(config, "runtime-state.json"), JournalDir: filepath.Join(config, "journals"), OAuthToken: filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"), OAuthCredentials: filepath.Join(home, ".gemini", "oauth_creds.json"), GoogleAccounts: filepath.Join(home, ".gemini", "google_accounts.json"), JetskiToken: filepath.Join(home, ".gemini", "jetski-standalone-oauth-token")}
 }
 
 func tokenBlob(t *testing.T, email string, verified bool, refresh string, expiry time.Time) string {
@@ -94,7 +94,7 @@ func TestTokenIdentityMatchesTargetAccount(t *testing.T) {
 }
 
 func TestNormalizedReleaseTag(t *testing.T) {
-	for input, want := range map[string]string{"2.11.10": "v2.11.10", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} { //nolint:gocritic // the padded key tests trimming
+	for input, want := range map[string]string{"2.11.11": "v2.11.11", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} { //nolint:gocritic // the padded key tests trimming
 		if got := normalizedReleaseTag(input); got != want {
 			t.Fatalf("%q normalized to %q, want %q", input, got, want)
 		}
@@ -633,7 +633,7 @@ func TestTUIOverlayKeepsFrameGeometry(t *testing.T) {
 func TestTUISuccessToastKeepsFrameGeometryAndExpires(t *testing.T) {
 	accounts := NewAccounts()
 	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
-	a := &Application{Version: "2.11.10", p: makePalette(false), color: false}
+	a := &Application{Version: "2.11.11", p: makePalette(false), color: false}
 	state := newTUIState(accounts, "user@example.com")
 	state.showToast("Switched to user@example.com", "success")
 
@@ -1055,7 +1055,7 @@ func TestCredentialFilesAndTransactionalRollback(t *testing.T) {
 	if backend.sets != setCount {
 		t.Fatal("reapplying the active credential rewrote the keychain")
 	}
-	for _, path := range []string{paths.OAuthToken, paths.OAuthCredentials, paths.GoogleAccounts} {
+	for _, path := range []string{paths.OAuthToken, paths.JetskiToken, paths.OAuthCredentials, paths.GoogleAccounts} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("missing %s", path)
 		}
@@ -1079,6 +1079,80 @@ func TestCredentialFilesAndTransactionalRollback(t *testing.T) {
 	}
 	if backend.token != previous {
 		t.Fatal("secure credential was not rolled back")
+	}
+}
+
+func TestJetskiTokenFallbackRollbackAndLoginRestore(t *testing.T) {
+	paths := testPaths(t)
+	backend := &fakeCredentialBackend{}
+	credentials := NewCredentials(paths)
+	credentials.backend = backend
+	token := tokenBlob(t, "user@example.com", true, "r", time.Now().Add(time.Hour))
+	if !credentials.Apply(context.Background(), token, "user@example.com") {
+		t.Fatal("apply failed")
+	}
+	oauthBytes, err := os.ReadFile(paths.OAuthToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jetskiBytes, err := os.ReadFile(paths.JetskiToken)
+	if err != nil || !bytes.Equal(oauthBytes, jetskiBytes) {
+		t.Fatalf("JetskiToken not synchronized with OAuthToken: err=%v", err)
+	}
+	// If a later write (OAuthCredentials) fails after OAuthToken and JetskiToken are written,
+	// both OAuthToken and JetskiToken must roll back to the previous account's bytes.
+	other := tokenBlob(t, "other@example.com", true, "r2", time.Now().Add(time.Hour))
+	badCredsPaths := paths
+	badCredsPaths.OAuthCredentials = filepath.Join(paths.OAuthToken, "invalid-child.json")
+	badCreds := NewCredentials(badCredsPaths)
+	badCreds.backend = backend
+	if badCreds.Apply(context.Background(), other, "other@example.com") {
+		t.Fatal("apply with invalid OAuthCredentials parent succeeded")
+	}
+	afterOAuth, err := os.ReadFile(paths.OAuthToken)
+	if err != nil || !bytes.Equal(afterOAuth, oauthBytes) {
+		t.Fatalf("OAuthToken was not rolled back after OAuthCredentials failure: err=%v", err)
+	}
+	afterJetski, err := os.ReadFile(paths.JetskiToken)
+	if err != nil || !bytes.Equal(afterJetski, jetskiBytes) {
+		t.Fatalf("JetskiToken was not rolled back after OAuthCredentials failure: err=%v", err)
+	}
+	if backend.token != token {
+		t.Fatal("secure credential was not rolled back after OAuthCredentials failure")
+	}
+	// If JetskiToken write itself fails after OAuthToken is written, OAuthToken and secure store roll back.
+	badJetskiPaths := paths
+	badJetskiPaths.JetskiToken = filepath.Join(paths.OAuthToken, "invalid-jetski.json")
+	badJetski := NewCredentials(badJetskiPaths)
+	badJetski.backend = backend
+	if badJetski.Apply(context.Background(), other, "other@example.com") {
+		t.Fatal("apply with invalid JetskiToken parent succeeded")
+	}
+	afterOAuth, err = os.ReadFile(paths.OAuthToken)
+	if err != nil || !bytes.Equal(afterOAuth, oauthBytes) {
+		t.Fatalf("OAuthToken was not rolled back after JetskiToken failure: err=%v", err)
+	}
+	if backend.token != token {
+		t.Fatal("secure credential was not rolled back after JetskiToken failure")
+	}
+	if err := os.Remove(paths.OAuthToken); err != nil {
+		t.Fatal(err)
+	}
+	backend.token = ""
+	if got := credentials.Current(context.Background()); got == "" || getString(tokenObject(decodeToken(got)), "refresh_token") != "r" {
+		t.Fatalf("Current did not fall back to JetskiToken when OAuthToken was missing: %q", got)
+	}
+	if err := os.WriteFile(paths.OAuthToken, []byte("{corrupt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := credentials.Current(context.Background()); got == "" || getString(tokenObject(decodeToken(got)), "refresh_token") != "r" {
+		t.Fatalf("Current did not fall back to JetskiToken when OAuthToken was corrupt: %q", got)
+	}
+	if !credentials.Clear(context.Background()) {
+		t.Fatal("Clear failed")
+	}
+	if _, err := os.Stat(paths.JetskiToken); !os.IsNotExist(err) {
+		t.Fatalf("JetskiToken survived Clear: %v", err)
 	}
 }
 
@@ -1128,7 +1202,7 @@ func TestExtendedSettingsAliasesAndEncryptedBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	a := &Application{Version: "2.11.10", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
+	a := &Application{Version: "2.11.11", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
 	if code := a.Run(context.Background(), []string{"config", "set", "policy.min_remaining_pct", "25"}); code != 0 {
 		t.Fatalf("config set code=%d err=%s", code, errOut.String())
 	}
@@ -1672,13 +1746,13 @@ func TestAccountRowSelection(t *testing.T) {
 }
 
 func TestTUIDisplayVersionDev(t *testing.T) {
-	appDev := &Application{Version: "2.11.10", BuildID: "dev", p: makePalette(false)}
+	appDev := &Application{Version: "2.11.11", BuildID: "dev", p: makePalette(false)}
 	linesDev := appDev.tuiTopLines(newTUIState(NewAccounts(), ""), 80)
 	if !strings.Contains(strings.Join(linesDev, "\n"), "v"+appDev.Version+"-dev") {
 		t.Fatalf("TUI header missing dev tag: %q", linesDev)
 	}
 
-	appRel := &Application{Version: "2.11.10", BuildID: "release-v2.11.10", p: makePalette(false)}
+	appRel := &Application{Version: "2.11.11", BuildID: "release-v2.11.11", p: makePalette(false)}
 	linesRel := appRel.tuiTopLines(newTUIState(NewAccounts(), ""), 80)
 	if !strings.Contains(strings.Join(linesRel, "\n"), "v"+appRel.Version) || strings.Contains(strings.Join(linesRel, "\n"), "v"+appRel.Version+"-") {
 		t.Fatalf("TUI header should not have dev tag for release: %q", linesRel)
