@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.11.9
+
+### Fixes
+
+- Login: `agy-swap add` and `a` in the TUI no longer freeze while `agy` asks for input or changes terminal settings. On macOS and Linux, `agy` now owns the terminal while it runs, and agy-swap takes the terminal back as soon as it exits, so the TUI resumes normally after a login. Without a controlling terminal, and on Windows, nothing changes. Reported in #41.
+
 ## 2.11.8
 
 ### Fixes
