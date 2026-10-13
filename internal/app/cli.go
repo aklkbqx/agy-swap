@@ -160,12 +160,7 @@ func (a *Application) Run(ctx context.Context, argv []string) int {
 		args.version = true
 	}
 	if args.version {
-		build := strings.TrimSpace(a.BuildID)
-		if build == "" || build == "unknown" {
-			fmt.Fprintf(a.Out, "agy-swap v%s\n", a.Version)
-		} else {
-			fmt.Fprintf(a.Out, "agy-swap v%s (%s)\n", a.Version, build)
-		}
+		fmt.Fprintf(a.Out, "agy-swap v%s\n", a.displayVersion())
 		return 0
 	}
 	if args.help {
@@ -681,7 +676,7 @@ func (a *Application) cmdList(ctx context.Context, args cliArgs) int {
 	}
 	current := a.credentials.Current(ctx)
 	active := a.activeEmail(ctx, accounts, current)
-	now := time.Now().UTC()
+	now := a.renderTime()
 	fmt.Fprintf(a.Out, "\n%sMANAGED ACCOUNTS%s\n%s%s%s\n", a.p.Bold, a.p.Reset, a.p.Gray, strings.Repeat("─", 65), a.p.Reset)
 	hasQuota, hasLimits := false, false
 	for _, email := range accounts.Order {
@@ -711,7 +706,7 @@ func (a *Application) cmdList(ctx context.Context, args cliArgs) int {
 				fmt.Fprintf(a.Out, "       ↳ %s\n", getString(group, "name"))
 				for _, rb := range getSlice(group["buckets"]) {
 					bucket := getMap(rb)
-					fmt.Fprintf(a.Out, "          %s: %s\n", getString(bucket, "name"), formatQuotaBar(bucket, a.p, now, 12))
+					fmt.Fprintf(a.Out, "          %-6s: %s\n", quotaBucketLabel(bucket), formatQuotaBar(bucket, a.p, now, 12))
 				}
 			}
 		} else {
