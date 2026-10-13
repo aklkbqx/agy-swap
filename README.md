@@ -47,7 +47,7 @@ Requirements: Go 1.27.2 or later. macOS source builds require Xcode Command Line
 ```bash
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-go build -trimpath -ldflags "-s -w -X main.version=2.11.9 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.11.10 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ./agy-swap version
 ```
 
@@ -151,6 +151,13 @@ agy-swap status
 # Log out current active session
 agy-swap logout
 ```
+
+`list` keeps accounts in their saved order, so numeric slots match `switch`.
+Quota pools use compact `Weekly` and `5-Hour` rows with aligned percentages.
+Each valid reset time shows both the countdown and a local date/time with its
+UTC offset, for example `resets in 2d 19h 6m (Fri 16 Oct 14:06 +0700)`.
+When a saved reset time has passed, the row says `refresh due` and retains that
+timestamp; refresh quota before relying on the old data.
 
 ### Quota and cooldowns
 

@@ -510,7 +510,7 @@ go)
   case "$1" in
   env) case "$2" in GOHOSTOS) echo darwin;; GOHOSTARCH) echo arm64;; esac;;
   list) echo "github.com/aklkbqx/agy-swap/v2 v$STUB_PROXY_VERSION";;
-  install) printf '#!/bin/sh\necho "agy-swap v%s (dev)"\n' "$STUB_PROXY_VERSION" > "$GOBIN/agy-swap"; chmod +x "$GOBIN/agy-swap";;
+  install) printf '#!/bin/sh\necho "agy-swap v%s-dev"\n' "$STUB_PROXY_VERSION" > "$GOBIN/agy-swap"; chmod +x "$GOBIN/agy-swap";;
   version) echo "$3: $STUB_PROXY_GO";;
   run) [ "$STUB_BUILDS_OK" = 1 ];;
   esac;;
@@ -552,7 +552,7 @@ func runReleaseEvidence(t *testing.T, extra ...string) (string, error) {
 	cmd.Env = append(append([]string{}, os.Environ()...), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"AGY_EVIDENCE_ROOT="+root, "STUB_HOST_SHA="+hostSHA, "STUB_LINUX_SHA="+strings.Repeat("b", 64), "STUB_LINUX_DIGEST="+strings.Repeat("b", 64),
 		"STUB_CHECKSUMS_SHA="+strings.Repeat("c", 64), "STUB_PROXY_VERSION=2.0.0", "STUB_PROXY_GO=go1.27.2", "STUB_BUILDS_OK=1",
-		"STUB_LIVE=2.0.0", "STUB_FORMULA=2.0.0", "STUB_LATEST_DIGEST=aaaa", "STUB_INSTALLED_TEXT=v2.0.0 (release-v2.0.0)")
+		"STUB_LIVE=2.0.0", "STUB_FORMULA=2.0.0", "STUB_LATEST_DIGEST=aaaa", "STUB_INSTALLED_TEXT=v2.0.0")
 	cmd.Env = append(cmd.Env, extra...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -563,7 +563,7 @@ func TestReleaseEvidenceReportsAVerifiedRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evidence failed: %v\n%s", err, out)
 	}
-	for _, want := range []string{"## Evidence for v2.0.0", "digests match `checksums.txt`", "go1.27.2", "v2.0.0 (release-v2.0.0)", "@latest` resolves to v2.0.0", "softwareVersion v2.0.0", "sha256:aaaa"} {
+	for _, want := range []string{"## Evidence for v2.0.0", "digests match `checksums.txt`", "go1.27.2", "reports `v2.0.0`", "agy-swap v2.0.0-dev", "@latest` resolves to v2.0.0", "softwareVersion v2.0.0", "sha256:aaaa"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("evidence missing %q:\n%s", want, out)
 		}

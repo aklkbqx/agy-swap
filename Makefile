@@ -1,4 +1,4 @@
-VERSION ?= 2.11.9
+VERSION ?= 2.11.10
 BUILD_ID ?= dev
 GOCACHE ?= /tmp/agy-swap-go-cache
 TARGET_DIR ?= $(HOME)/.local/bin
@@ -63,7 +63,7 @@ status:
 	@./scripts/project-status.sh
 
 release-check: qa vuln
-	cd site && bun install --frozen-lockfile && bun run build && bun test
+	cd site && bun install --frozen-lockfile && bun run build && bun run test
 	./scripts/site-image.sh preview
 
 release-notes:
