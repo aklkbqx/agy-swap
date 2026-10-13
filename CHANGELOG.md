@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.11.7
+
+### Fixes
+
+- Limits: `limit set` and cooldown parsing reject durations above the 7-day ceiling in every syntax. Oversized values previously overflowed and were accepted as short or negative cooldowns (for example `9223372036854775807` became -1 minute and `213503982336d` became 33 hours).
+- Update: for Homebrew installations, `agy-swap update` now confirms that the linked binary reports the new version. When the tap has not refreshed yet, it runs `brew update` once and retries; it no longer reports a successful update that did not happen.
+
+### Site
+
+- The saved or system theme is applied before first paint, so light-theme visitors no longer see a dark flash; without a saved choice the page follows OS theme changes.
+- Unknown addresses return a real 404 page instead of the homepage, and `/install` opens the install page.
+
 ## 2.11.6
 
 ### Fixes
