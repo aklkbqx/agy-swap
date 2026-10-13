@@ -395,6 +395,7 @@ func bumpVersion(target, root string) error {
 		{"site/package.json", `"version": "` + current + `"`, `"version": "` + next + `"`},
 		{"internal/app/app_test.go", `"` + current + `": "v` + current + `"`, `"` + next + `": "v` + next + `"`},
 		{"internal/app/app_test.go", `Version: "` + current + `"`, `Version: "` + next + `"`},
+		{"internal/app/app_test.go", `BuildID: "release-v` + current + `"`, `BuildID: "release-v` + next + `"`},
 	}
 
 	for _, r := range replacements {

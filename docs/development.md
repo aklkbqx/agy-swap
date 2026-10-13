@@ -121,10 +121,10 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /tmp/agy-swap-win.exe ./cmd/
 Release flow, in order:
 
 1. `make bump VERSION=X.Y.Z`, write the CHANGELOG section, regenerate story fixtures if needed.
-2. `make release-check` — every pre-gate check (`make qa`, `make vuln`, Site install/build/tests, production-equivalent preview). Then the owner review gate.
+2. `make release-check` — every pre-gate check (`make qa`, `make vuln`, `make install` to `~/.local/bin/agy-swap`, Site install/build/tests, production-equivalent preview). Then the owner review gate.
 3. Commit, annotated tag, `make release-assets` (below), push branch and tag.
 4. `make release-notes VERSION=X.Y.Z > notes.md` and `gh release create vX.Y.Z --verify-tag --notes-file notes.md dist/release/*` before merging, so the promoted installers find published assets.
-5. Merge, `make publish-homebrew-tap`, Site tag and `make site-release VERSION=X.Y.Z PUSH=1`, then `make site-verify-live VERSION=X.Y.Z`.
+5. Merge, `make publish-homebrew-tap`, upgrade Homebrew (`brew update && brew upgrade aklkbqx/agy-swap/agy-swap`) and remove any `~/.local/bin/agy-swap` dev override so the Homebrew binary is active on `PATH`, then Site tag, `make site-release VERSION=X.Y.Z PUSH=1`, and `make site-verify-live VERSION=X.Y.Z`.
 6. `make release-evidence VERSION=X.Y.Z` — read-only checks of Release digests against `checksums.txt`, asset build information, the Homebrew formula and installed binary, `go install …@latest` through the public proxy, the live version and the Site image digests. It prints the delivery-record Markdown (the Site image lines belong only in the private Site record) and exits non-zero on any mismatch.
 
 Release assets are built from the release tag, not from a working tree. After the local review gate and owner approval: commit the release, create the annotated tag (`git tag -a vX.Y.Z -m vX.Y.Z`), then run `make release-assets VERSION=X.Y.Z BUILD_ID=release-vX.Y.Z`. In order, it:
