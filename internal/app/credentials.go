@@ -67,16 +67,35 @@ func (c *Credentials) Set(ctx context.Context, token string) bool {
 }
 func (c *Credentials) Delete(ctx context.Context) bool { return c.backend.Delete(ctx) }
 
+func (c *Credentials) sessionFilePaths(includeGoogleAccounts bool) []string {
+	paths := make([]string, 0, 4)
+	for _, path := range []string{c.paths.OAuthToken, c.paths.JetskiToken, c.paths.OAuthCredentials} {
+		if path != "" {
+			paths = append(paths, path)
+		}
+	}
+	if includeGoogleAccounts && c.paths.GoogleAccounts != "" {
+		paths = append(paths, c.paths.GoogleAccounts)
+	}
+	return paths
+}
+
 func (c *Credentials) readOAuthToken() string {
-	data, err := os.ReadFile(c.paths.OAuthToken)
-	if err != nil {
-		return ""
+	for _, path := range []string{c.paths.OAuthToken, c.paths.JetskiToken} {
+		if path == "" {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var parsed any
+		if json.Unmarshal(data, &parsed) != nil {
+			continue
+		}
+		return "go-keyring-base64:" + base64.StdEncoding.EncodeToString(data)
 	}
-	var parsed any
-	if json.Unmarshal(data, &parsed) != nil {
-		return ""
-	}
-	return "go-keyring-base64:" + base64.StdEncoding.EncodeToString(data)
+	return ""
 }
 
 func (c *Credentials) writeOAuthFiles(tokenData, email string) bool {
@@ -85,11 +104,7 @@ func (c *Credentials) writeOAuthFiles(tokenData, email string) bool {
 	if inner == nil || getString(inner, "access_token") == "" {
 		return false
 	}
-	paths := []string{c.paths.OAuthToken, c.paths.OAuthCredentials}
-	if email != "" {
-		paths = append(paths, c.paths.GoogleAccounts)
-	}
-	snapshot, err := snapshotFiles(paths...)
+	snapshot, err := snapshotFiles(c.sessionFilePaths(email != "")...)
 	if err != nil {
 		return false
 	}
@@ -102,6 +117,12 @@ func (c *Credentials) writeOAuthFiles(tokenData, email string) bool {
 	if err := atomicWriteJSON(c.paths.OAuthToken, decoded); err != nil {
 		_ = restoreFiles(snapshot)
 		return false
+	}
+	if c.paths.JetskiToken != "" {
+		if err := atomicWriteJSON(c.paths.JetskiToken, decoded); err != nil {
+			_ = restoreFiles(snapshot)
+			return false
+		}
 	}
 	if err := atomicWriteJSON(c.paths.OAuthCredentials, creds); err != nil {
 		_ = restoreFiles(snapshot)
@@ -217,7 +238,7 @@ func (c *Credentials) Apply(ctx context.Context, tokenData, email string) bool {
 
 func (c *Credentials) deleteOAuthFiles() bool {
 	ok := true
-	for _, path := range []string{c.paths.OAuthToken, c.paths.OAuthCredentials, c.paths.GoogleAccounts} {
+	for _, path := range c.sessionFilePaths(true) {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			ok = false
 		}

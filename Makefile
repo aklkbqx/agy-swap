@@ -1,4 +1,4 @@
-VERSION ?= 2.11.10
+VERSION ?= 2.11.11
 BUILD_ID ?= dev
 GOCACHE ?= /tmp/agy-swap-go-cache
 TARGET_DIR ?= $(HOME)/.local/bin
@@ -10,7 +10,7 @@ GOVULNCHECK_VERSION ?= v1.9.0
 help:
 	@echo "Available make targets:"
 	@echo "  status          Read-only overview: repo sync, versions, live site, installed binary, open work"
-	@echo "  release-check   Every pre-gate check: qa, vuln, Site build and tests, production preview"
+	@echo "  release-check   Every pre-gate check: qa, vuln, install, Site build and tests, production preview"
 	@echo "  release-notes   Print the CHANGELOG section for VERSION (use as gh release --notes-file)"
 	@echo "  release-evidence  Post-publication checks for VERSION, printed as delivery-record Markdown"
 	@echo "  build           Build local agy-swap binary"
@@ -22,7 +22,7 @@ help:
 	@echo "  vuln            Run govulncheck against reachable code (needs network)"
 	@echo "  benchmark       Run memory allocation benchmarks"
 	@echo "  tui-smoke       Run terminal UI smoke tests"
-	@echo "  qa              Run complete QA pipeline (gofmt, test, race, vet, lint, tui-smoke)"
+	@echo "  qa              Run complete QA pipeline (formatting, test, race, vet, lint, tui-smoke)"
 	@echo "  release-assets  Cross-compile release assets for all platforms"
 	@echo "  publish-homebrew-tap  Explicitly commit/push the tap after release approval"
 	@echo "  live            Run AGY Live locally (demo gateway + Vite, first free ports)"
@@ -62,7 +62,7 @@ site-verify-live:
 status:
 	@./scripts/project-status.sh
 
-release-check: qa vuln
+release-check: qa vuln install
 	cd site && bun install --frozen-lockfile && bun run build && bun run test
 	./scripts/site-image.sh preview
 
