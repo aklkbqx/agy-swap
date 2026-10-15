@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.12.0
+
+### Site
+
+- The website is redesigned as a flat operator deck. The headline now says what agy-swap does (switch Google Antigravity accounts from the terminal), a pinned terminal follows three scroll steps (accounts, quota, switch), and the page adds a before/after comparison, a legend for the terminal marks, every command grouped by job, direct answers on where tokens are stored, and an install section with all three install paths. English, Thai, Japanese and Chinese stay in step, and `install.html` shares the same components.
+- Removed the WebGL scene, smooth-scroll library and decorative layers (gradient text, orbs, dot grid, tilted cards). The main script is about 76 kB.
+- The command-line tool is unchanged in this release; the version moves in step with the site.
+
 ## 2.11.11
 
 ### Fixes
