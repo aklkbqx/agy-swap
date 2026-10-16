@@ -128,6 +128,7 @@ const (
 	statusClaudeGPTOnly
 	statusLimited
 	statusNoToken
+	statusAttention
 )
 
 func (s tuiAccountStatus) String() string {
@@ -144,6 +145,8 @@ func (s tuiAccountStatus) String() string {
 		return "LIMITED"
 	case statusNoToken:
 		return "NO TOKEN"
+	case statusAttention:
+		return "ATTENTION"
 	}
 	return "…"
 }
