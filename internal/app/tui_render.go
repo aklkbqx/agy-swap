@@ -99,6 +99,9 @@ func (a *Application) renderTUI(state *tuiState, out *os.File) {
 	frameWidth := maxInt(28, width)
 	state.width, state.height = frameWidth, height
 	lines := a.tuiLines(state, frameWidth-2, height)
+	if tuiUseASCII(os.Getenv) {
+		lines = asciiLines(lines)
+	}
 	var output strings.Builder
 	output.Grow((frameWidth + 8) * height)
 	output.WriteString("\x1b[H")
@@ -678,15 +681,6 @@ func (a *Application) fitKeycaps(hints []keyHint, width int) string {
 		list = append(list[:lowest], list[lowest+1:]...)
 	}
 	return render()
-}
-
-func hasLabels(list []keyHint) bool {
-	for _, hint := range list {
-		if hint.label != "" {
-			return true
-		}
-	}
-	return false
 }
 
 func (a *Application) tuiHelpLines(width int) []string {
