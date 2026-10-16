@@ -98,6 +98,13 @@ func (a *Application) tuiGaugeDetail(state *tuiState, width, maxRows int, plan t
 }
 
 func (a *Application) tuiPoolPanels(pools []poolView, now time.Time, width int, plan tuiLayoutPlan) []string {
+	if plan.digits == digitsInline {
+		var rows []string
+		for _, pool := range pools {
+			rows = append(rows, tuiBox(a.p, tuiPoolInlineLines(a.p, pool, now, maxInt(8, width-4)), width, poolBorderColor(a.p, pool))...)
+		}
+		return rows
+	}
 	if plan.digits == digitsNone {
 		compact := func(pool poolView, boxWidth int) []string { return tuiPoolCompactLines(a.p, pool, now, boxWidth) }
 		framed := func(pool poolView, boxWidth int) []string {
