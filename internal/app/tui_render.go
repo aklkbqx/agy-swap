@@ -687,35 +687,27 @@ func (a *Application) fitKeycaps(hints []keyHint, width int) string {
 
 func (a *Application) tuiHelpLines(width int) []string {
 	lines := []string{
-		"KEYBOARD GUIDE",
+		tuiWordmark(a.p) + a.p.Gray + "  v" + tuiText(stateVersion(a.Version)) + "  ·  by " + strings.TrimPrefix(tuiCredit, "credit: ") + "  ·  MIT" + a.p.Reset,
+		a.p.Gray + "github.com/aklkbqx/agy-swap · independent, not affiliated with Google" + a.p.Reset,
 		"",
+		a.p.Bold + "KEYBOARD GUIDE" + a.p.Reset,
 		"↑ ↓ / j k   Move through accounts",
-		"[ ] / + -   Resize accounts split (drag or = resets)",
+		"1 – 9       Select an account by number",
 		"Enter       Switch selected account",
 		"/           Search by name or email",
 		"Ctrl-K / :  Open action palette",
 		"p h s o b   Profiles, history, settings, doctor, backup",
 		"r           Refresh quota",
-		"a           Add account",
-		"d           Delete selected account",
-		"n           Choose next available account",
-		"t           Toggle manual tier",
+		"n           Refresh, then pick the next account",
+		"a           Add account        d  Delete account",
+		"t           Toggle manual tier  l  Log out",
 		"m           Move tokens into the vault",
-		"l           Log out",
 		"e           Edit tags / selected item",
-		"x / i / v   Export, import, or verify in managers",
-		"c / x       Create/clear or export in managers",
+		"x i v c     In managers: export, import, verify, create/clear",
+		"[ ] / + -   Resize the accounts split (= resets)",
 		"u           Download and install the latest release",
 		"b           Return to dashboard",
 		"Esc / any   Close help",
-		"",
-		a.p.Gray + "Actions keep the active session safe." + a.p.Reset,
-		"",
-		a.p.Bold + "ABOUT" + a.p.Reset,
-		tuiWordmark(a.p) + a.p.Gray + "  v" + tuiText(stateVersion(a.Version)) + a.p.Reset,
-		a.p.Gray + "by " + strings.TrimPrefix(tuiCredit, "credit: ") + " · MIT license" + a.p.Reset,
-		a.p.Gray + "github.com/aklkbqx/agy-swap" + a.p.Reset,
-		a.p.Gray + "Independent open-source CLI, not affiliated with Google." + a.p.Reset,
 	}
 	for i := range lines {
 		lines[i] = truncateVisible(lines[i], maxInt(18, width-8), a.p)
@@ -745,7 +737,7 @@ func (a *Application) tuiOverlay(base, overlay []string, width, height int) []st
 	maxContent := maxInt(1, g.frameHeight-4)
 	if len(overlay) > maxContent {
 		overlay = append([]string(nil), overlay[:maxContent]...)
-		overlay[len(overlay)-1] = a.p.Gray + "… more in ? help" + a.p.Reset
+		overlay[len(overlay)-1] = a.p.Gray + "… the window is too short for every key" + a.p.Reset
 	}
 	dialog := make([]string, 0, len(overlay)+2)
 	dialog = append(dialog, a.p.Blue+"╭"+strings.Repeat("─", contentWidth)+"╮"+a.p.Reset)
