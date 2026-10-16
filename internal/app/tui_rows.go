@@ -38,7 +38,7 @@ func (a *Application) tuiPoolMeters(pools []poolView, short bool, barWidth int) 
 			continue
 		}
 		color := poolColor(a.p, found.state)
-		bar := renderFractionalBar(found.limiting.fraction, barWidth, color, a.p.Track, a.p.Reset)
+		bar := renderMeter(tuiMeterStyle, found.limiting.fraction, barWidth, color, a.p.Track, a.p.Reset)
 		parts = append(parts, a.p.Gray+label+a.p.Reset+" "+bar+" "+color+fmt.Sprintf("%4s", poolPercent(found.limiting.fraction))+a.p.Reset)
 	}
 	return strings.Join(parts, "  ")
@@ -50,7 +50,12 @@ func (a *Application) tuiAccountBlock(view tuiAccountView, state *tuiState, widt
 	width = maxInt(1, width)
 	tag := ""
 	if width >= 40 {
-		tag = " " + view.avatar
+		// Tags are user labels, so they stay quiet unless the row is selected.
+		label := avatar(view.name, view.email, false)
+		tag = " " + a.p.Gray + label + a.p.Reset
+		if view.selected {
+			tag = " " + view.avatar
+		}
 	}
 	name := a.tuiIdentity(view.name)
 	if view.selected {
@@ -113,6 +118,12 @@ func (a *Application) tuiAccountRows(state *tuiState, width, maxRows int) []stri
 // under READY and ATTENTION REQUIRED dividers when some account needs
 // attention, windowed around the selection when they do not all fit.
 func (a *Application) tuiAccountRowsFor(state *tuiState, width, maxRows, listLines int) []string {
+	return a.tuiAccountRowsSpaced(state, width, maxRows, listLines, true)
+}
+
+// tuiAccountRowsSpaced is tuiAccountRowsFor with the blank lines between
+// accounts optional, so a caller can first measure the plain list.
+func (a *Application) tuiAccountRowsSpaced(state *tuiState, width, maxRows, listLines int, allowSpacing bool) []string {
 	width = maxInt(1, width)
 	listLines = pick2(listLines == 1, 1, 2)
 	if maxRows <= 0 {
@@ -145,6 +156,26 @@ func (a *Application) tuiAccountRowsFor(state *tuiState, width, maxRows, listLin
 		}
 		blocks = append(blocks, block{isHeader: true, lines: []string{a.tuiSectionDividerRow("ATTENTION REQUIRED", len(attention), true, width)}})
 		add(attention)
+	}
+	if listLines == 2 && allowSpacing {
+		// With rows to spare, a blank line between accounts lets each read as one.
+		total, accountsShown := 0, 0
+		for _, b := range blocks {
+			total += len(b.lines)
+			if !b.isHeader {
+				accountsShown++
+			}
+		}
+		if total+accountsShown-1 <= maxRows {
+			spaced := make([]block, 0, len(blocks)*2)
+			for i, b := range blocks {
+				spaced = append(spaced, b)
+				if !b.isHeader && i+1 < len(blocks) && !blocks[i+1].isHeader {
+					spaced = append(spaced, block{isHeader: true, lines: []string{strings.Repeat(" ", width)}})
+				}
+			}
+			blocks = spaced
+		}
 	}
 	selected := 0
 	for index, b := range blocks {
