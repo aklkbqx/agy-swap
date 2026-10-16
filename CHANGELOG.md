@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.12.2
+
+### Fixes
+
+- Quota: Gemini quota shows again. Google's quota summary can leave the Gemini group out while the model list still carries the Gemini quota, so agy-swap now reads it from the model list when the summary has none. Gemini limits there do not say whether they are weekly or 5-hour, so a reset within five hours is shown as the 5-hour limit and a later reset as weekly. Refs #50.
+- Quota: a limit that Google marks disabled (for example the 5-hour limit while the weekly limit is used up) is no longer drawn as 100% remaining. Refs #55.
+
+### Development
+
+- `AGY_SWAP_QUOTA_DEBUG=1` prints, per account, which quota buckets were kept or skipped and why, the field names of Google's quota summary, and the quota of each model in the model list (percentages and reset times only). It is off by default.
+
 ## 2.12.1
 
 ### Site
