@@ -52,17 +52,14 @@ func tuiResetText(limit poolLimit, now time.Time) string {
 	return "refresh due"
 }
 
-// tuiLimitCaption names which limit the big figure comes from, only when that
-// says something: a used-up pool, or two limits that differ.
+// tuiLimitCaption sits under the big figure and names what the percentage is
+// of: the limit that is tighter, or the one that is used up.
 func tuiLimitCaption(pool poolView) string {
 	window := map[string]string{"weekly": "weekly", "5h": "5-hour"}[pool.limitingWindow]
-	switch {
-	case pool.state == poolUsedUp:
-		return window + " limit used up"
-	case pool.weekly.present && pool.fiveHour.present && pool.weekly.fraction != pool.fiveHour.fraction:
-		return window + " is the tighter limit"
+	if pool.state == poolUsedUp {
+		return "% left · " + window + " limit used up"
 	}
-	return ""
+	return "% of the " + window + " limit left"
 }
 
 // tuiPoolPanelLines is the body of one pool's gauge panel, every row exactly
@@ -74,23 +71,19 @@ func tuiPoolPanelLines(p palette, pool poolView, now time.Time, width int, digit
 	title := p.Bold + p.White + strings.ToUpper(pool.label) + p.Reset
 	lines = append(lines, pad(rowSpread(title, tuiChip(p, color, pool.state.word()), width, p)))
 	if digits != tuiDigits(0) {
+		// Big digits are for what needs attention: a pool with plenty left
+		// gets the smaller figure.
 		rows := 5
-		if digits == digitsThree {
+		if digits == digitsThree || pool.state == poolPlenty {
 			rows = 3
 		}
 		lines = append(lines, pad(""))
-		// The big figure is the digits alone; a small % sits on its baseline,
-		// because the 3x5 percent sign is unreadable at this size.
+		// The % is not drawn big (the 3x5 sign is unreadable); the caption says it.
 		digitsOnly := strings.TrimSuffix(poolPercent(pool.limiting.fraction), "%")
-		for i, row := range bigNumber(digitsOnly, rows) {
-			if i == rows-1 {
-				row += " %"
-			}
+		for _, row := range bigNumber(digitsOnly, rows) {
 			lines = append(lines, pad(color+row+p.Reset))
 		}
-		if caption := tuiLimitCaption(pool); caption != "" {
-			lines = append(lines, pad(p.Gray+caption+p.Reset))
-		}
+		lines = append(lines, pad(p.Gray+tuiLimitCaption(pool)+p.Reset))
 	}
 	lines = append(lines, pad(""))
 	limit := func(name string, l poolLimit, other poolLimit) {
@@ -113,14 +106,65 @@ func tuiPoolPanelLines(p palette, pool poolView, now time.Time, width int, digit
 		lines = append(lines, pad(""))
 	}
 	limit("5-hour", pool.fiveHour, pool.weekly)
-	lines = append(lines, pad(""))
 	switch {
 	case pool.state == poolUsedUp && pool.backIn > 0:
-		lines = append(lines, pad(p.Bold+p.Red+"back in "+formatDuration(pool.backIn.Seconds())+p.Reset))
+		lines = append(lines, pad(""), pad(p.Bold+p.Red+"back in "+formatDuration(pool.backIn.Seconds())+p.Reset))
 	case pool.state == poolUsedUp:
-		lines = append(lines, pad(p.Bold+p.Red+"used up"+p.Reset))
-	default:
-		lines = append(lines, pad(p.Bold+color+"usable right now"+p.Reset))
+		lines = append(lines, pad(""), pad(p.Bold+p.Red+"used up"+p.Reset))
+	case pool.state != poolPlenty:
+		// The chip already says PLENTY; only a pool in trouble needs the reassurance.
+		lines = append(lines, pad(""), pad(p.Bold+color+"still usable"+p.Reset))
+	}
+	return lines
+}
+
+// tuiPoolInlineLines is a pool with the 3-row digits beside its bars: a header
+// and four rows, every row exactly width columns. It fits where the stacked
+// digit panel does not.
+func tuiPoolInlineLines(p palette, pool poolView, now time.Time, width int) []string {
+	const digitWidth = 14
+	color := poolColor(p, pool.state)
+	pad := func(value string) string { return fitVisible(value, width, p) }
+	title := p.Bold + p.White + strings.ToUpper(pool.label) + p.Reset
+	lines := []string{pad(rowSpread(title, tuiChip(p, color, pool.state.word()), width, p))}
+	right := width - digitWidth - 1
+	digits := bigNumber(strings.TrimSuffix(poolPercent(pool.limiting.fraction), "%"), 3)
+	rowsRight := make([]string, 0, 4)
+	limit := func(name string, l poolLimit, isLimiting bool) {
+		tone := poolColor(p, poolStateFor(l.fraction))
+		percent := fmt.Sprintf("%4s", poolPercent(l.fraction))
+		label := fmt.Sprintf("%-8s", name)
+		bar := renderMeter(tuiMeterStyle, l.fraction, maxInt(4, right-8-1-len(percent)), tone, p.Track, p.Reset)
+		rowsRight = append(rowsRight, label+bar+" "+tone+percent+p.Reset)
+		reset, resetColor := tuiResetText(l, now), p.Gray
+		if isLimiting && pool.state == poolUsedUp && pool.backIn > 0 {
+			reset, resetColor = "back in "+formatDuration(pool.backIn.Seconds()), p.Bold+p.Red
+		}
+		rowsRight = append(rowsRight, strings.Repeat(" ", 8)+resetColor+reset+p.Reset)
+	}
+	if pool.weekly.present {
+		limit("Weekly", pool.weekly, pool.limitingWindow == "weekly")
+	}
+	switch {
+	case pool.fiveHour.present:
+		limit("5-hour", pool.fiveHour, pool.limitingWindow == "5h")
+	case pool.paused:
+		rowsRight = append(rowsRight, fmt.Sprintf("%-8s", "5-hour")+p.Gray+"paused"+p.Reset, strings.Repeat(" ", 8)+p.Gray+"until weekly resets"+p.Reset)
+	}
+	for i := 0; i < 4; i++ {
+		left := strings.Repeat(" ", digitWidth)
+		switch {
+		case i < 3:
+			left = fitVisible(color+digits[i]+p.Reset, digitWidth, p)
+			if i == 2 {
+				left = fitVisible(color+digits[i]+" %"+p.Reset, digitWidth, p)
+			}
+		}
+		rest := ""
+		if i < len(rowsRight) {
+			rest = rowsRight[i]
+		}
+		lines = append(lines, pad(left+" "+rest))
 	}
 	return lines
 }

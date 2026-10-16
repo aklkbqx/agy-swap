@@ -16,29 +16,30 @@ func panelPool(t *testing.T, group map[string]any) poolView {
 }
 
 func TestPoolPanelWithFiveRowDigitsMatchesTheDesign(t *testing.T) {
+	// Five-row digits are for a pool that needs attention: 9% left.
 	pool := panelPool(t, poolGroup("gemini", "Gemini models",
-		poolBucket("weekly", 0.36, 125*time.Hour+45*time.Minute), poolBucket("5h", 0.93, 4*time.Hour+41*time.Minute)))
+		poolBucket("weekly", 0.09, 54*time.Hour), poolBucket("5h", 0.4, 2*time.Hour+5*time.Minute)))
 	got := tuiPoolPanelLines(palette{}, pool, poolNow, 34, digitsFive)
 	spread := func(left, right string) string { return left + strings.Repeat(" ", 34-len(left)-len(right)) + right }
 	want := []string{
-		spread("GEMINI", "[ PLENTY ]"),
+		spread("GEMINI", "[ NEARLY OUT ]"),
 		"",
-		"██████  ██████",
-		"    ██  ██",
-		"██████  ██████",
-		"    ██  ██  ██",
-		"██████  ██████ %",
-		"weekly is the tighter limit",
+		"██████",
+		"██  ██",
+		"██████",
+		"    ██",
+		"██████",
+		"% of the weekly limit left",
 		"",
-		spread("Weekly", "36%"),
-		renderMeter(meterHalf, 0.36, 34, "", "", ""),
-		"resets in 5d 5h 45m",
+		spread("Weekly", "9%"),
+		renderMeter(meterHalf, 0.09, 34, "", "", ""),
+		"resets in 2d 6h 0m",
 		"",
-		spread("5-hour", "93%"),
-		renderMeter(meterHalf, 0.93, 34, "", "", ""),
-		"resets in 4h 41m",
+		spread("5-hour", "40%"),
+		renderMeter(meterHalf, 0.4, 34, "", "", ""),
+		"resets in 2h 5m",
 		"",
-		"usable right now",
+		"still usable",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("rows = %d, want %d:\n%s", len(got), len(want), strings.Join(got, "\n"))
@@ -49,6 +50,66 @@ func TestPoolPanelWithFiveRowDigitsMatchesTheDesign(t *testing.T) {
 		}
 		if visibleWidth(got[i]) != 34 {
 			t.Fatalf("row %d is %d columns wide, want 34: %q", i, visibleWidth(got[i]), got[i])
+		}
+	}
+}
+
+func TestAPoolWithPlentyGetsTheSmallFigureAndNoReassurance(t *testing.T) {
+	pool := panelPool(t, poolGroup("gemini", "Gemini models", poolBucket("weekly", 0.86, 100*time.Hour)))
+	text := strings.Join(tuiPoolPanelLines(palette{}, pool, poolNow, 34, digitsFive), "\n")
+	if strings.Contains(text, "██████") && strings.Count(text, "\n") > 14 {
+		t.Fatalf("a plenty pool drew the big figure:\n%s", text)
+	}
+	if !strings.Contains(text, "█▀█") && !strings.Contains(text, "▀▀█") && !strings.Contains(text, "▄") {
+		t.Fatalf("a plenty pool lost its figure:\n%s", text)
+	}
+	if strings.Contains(text, "usable right now") || strings.Contains(text, "still usable") {
+		t.Fatalf("PLENTY already says it:\n%s", text)
+	}
+	if !strings.Contains(text, "% of the weekly limit left") {
+		t.Fatalf("missing caption:\n%s", text)
+	}
+}
+
+func TestInlinePoolLinesPutTheDigitsBesideTheBars(t *testing.T) {
+	pool := panelPool(t, poolGroup("gemini", "Gemini models",
+		poolBucket("weekly", 0.43, 16*time.Hour), poolBucket("5h", 0.93, 4*time.Hour+41*time.Minute)))
+	lines := tuiPoolInlineLines(palette{}, pool, poolNow, 48)
+	if len(lines) != 5 {
+		t.Fatalf("lines = %q", lines)
+	}
+	for _, line := range lines {
+		if visibleWidth(line) != 48 {
+			t.Fatalf("line is %d wide: %q", visibleWidth(line), line)
+		}
+	}
+	digits := bigNumber("43", 3)
+	for i := 0; i < 3; i++ {
+		if !strings.HasPrefix(lines[1+i], digits[i]) {
+			t.Fatalf("row %d does not start with the digits %q: %q", i, digits[i], lines[1+i])
+		}
+	}
+	for _, want := range []string{"Weekly", " 43%", "resets in 16h 0m", "5-hour", " 93%", "resets in 4h 41m"} {
+		if !strings.Contains(strings.Join(lines, "\n"), want) {
+			t.Fatalf("inline panel is missing %q:\n%s", want, strings.Join(lines, "\n"))
+		}
+	}
+	used := panelPool(t, poolGroup("third_party", "Claude and GPT models", poolBucket("weekly", 0, 22*time.Hour+43*time.Minute)))
+	text := strings.Join(tuiPoolInlineLines(palette{}, used, poolNow, 48), "\n")
+	for _, want := range []string{"back in 22h 43m", "paused", "until weekly resets"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("used-up inline panel is missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestTheInlineDigitsShowAtTheCommonWindowSizes(t *testing.T) {
+	a, state := overviewState()
+	digits := bigNumber("43", 3)[0]
+	for _, size := range [][2]int{{100, 30}, {100, 28}, {120, 30}} {
+		text := strings.Join(a.tuiLines(state, size[0]-2, size[1]), "\n")
+		if !strings.Contains(text, digits) {
+			t.Fatalf("%dx%d: no digits beside the bars:\n%s", size[0], size[1], text)
 		}
 	}
 }
