@@ -639,9 +639,9 @@ type keyHint struct {
 	keep       int
 }
 
-// fitKeycaps draws the hints in order. When the row is too wide the
-// lowest-priority hint first loses its label, then (once every label is gone)
-// the lowest-priority key is dropped.
+// fitKeycaps draws the hints in order. When the row is too wide it gives up
+// the least useful things first: the labels and then the keys of the
+// lowest-priority hints, then the labels of the more important ones.
 func (a *Application) fitKeycaps(hints []keyHint, width int) string {
 	list := append([]keyHint(nil), hints...)
 	render := func() string {
@@ -651,28 +651,31 @@ func (a *Application) fitKeycaps(hints []keyHint, width int) string {
 		}
 		return strings.TrimRight(formatKeycaps(a.p, pairs...), " ")
 	}
-	lowest := func(labeledOnly bool) int {
-		index := -1
-		for i, hint := range list {
-			if labeledOnly && hint.label == "" {
-				continue
-			}
-			if index < 0 || hint.keep < list[index].keep {
-				index = i
+	fits := func() bool { return visibleWidth(render()) <= width }
+	for level := 1; level <= 5 && !fits(); level++ {
+		for i := range list {
+			if list[i].keep == level {
+				list[i].label = ""
 			}
 		}
-		return index
+		if level <= 2 && !fits() {
+			kept := list[:0]
+			for _, hint := range list {
+				if hint.keep > level {
+					kept = append(kept, hint)
+				}
+			}
+			list = kept
+		}
 	}
-	for visibleWidth(render()) > width {
-		if i := lowest(true); i >= 0 && len(list) > 1 && hasLabels(list) {
-			list[i].label = ""
-			continue
+	for !fits() && len(list) > 1 {
+		lowest := 0
+		for i, hint := range list {
+			if hint.keep < list[lowest].keep {
+				lowest = i
+			}
 		}
-		if len(list) <= 1 {
-			break
-		}
-		i := lowest(false)
-		list = append(list[:i], list[i+1:]...)
+		list = append(list[:lowest], list[lowest+1:]...)
 	}
 	return render()
 }
