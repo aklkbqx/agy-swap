@@ -377,37 +377,25 @@ func tuiViewSubtitle(view tuiView) string {
 }
 
 func (a *Application) tuiQuotaViewRows(state *tuiState, width, height int) []string {
-	rows := []string{}
 	if state.accounts == nil || state.accounts.Len() == 0 {
 		return []string{a.p.Yellow + "No accounts yet." + a.p.Reset + "  Press a to add one."}
 	}
-	for _, email := range state.visibleEmails() {
-		if len(rows) >= height {
-			break
-		}
-		account := state.accounts.ByEmail[email]
-		name := firstString(tuiText(getString(account, "name")), "Google User")
-		health := accountHealthCompact(account, a.renderTime())
-		color := a.tuiHealthColor(tuiHealthToneForGroups(quotaGroupHealths(account), account, a.renderTime()))
-		row := color + "● " + tuiText(name) + a.p.Reset + "  " + a.p.Gray + tuiText(email) + a.p.Reset + "  " + color + tuiText(health) + a.p.Reset
-		if visibleWidth(row) > width {
-			// The detail block below names the email; keep health visible.
-			row = color + "● " + tuiText(name) + a.p.Reset + "  " + color + tuiText(health) + a.p.Reset
-		}
-		rows = append(rows, row)
+	table := a.tuiOverviewRows(state, width, height)
+	if len(table) == 0 {
+		return []string{a.p.Gray + "No matching accounts" + a.p.Reset + " · press / to clear search"}
 	}
-	if _, _, ok := state.selectedAccount(); ok && len(rows) < height {
-		// The detail block names the account and email, so this label only
-		// introduces it instead of repeating the email.
-		rows = append(rows, "", a.p.Bold+"Selected account"+a.p.Reset)
-		for _, detail := range a.tuiDetailLines(state, width, maxInt(1, height-len(rows))+1) {
-			if len(rows) >= height {
-				break
-			}
-			if strings.TrimSpace(ansiPattern.ReplaceAllString(detail, "")) == "SELECTED ACCOUNT" {
-				continue
-			}
-			rows = append(rows, detail)
+	rows := table
+	// With rows to spare the selected account's gauges follow the table.
+	if _, _, ok := state.selectedAccount(); ok && height-len(rows) >= 8 {
+		plan := tuiLayoutPlan{arrangement: arrStacked, listLines: 1, panels: panelsStack, digits: digitsNone}
+		if width >= 90 {
+			plan.panels = panelsSide
+		}
+		budget := height - len(rows) - 1
+		plan = a.tuiFitPlan(state, width, budget, plan)
+		rows = append(rows, "")
+		for _, row := range a.tuiGaugeDetail(state, width, budget, plan) {
+			rows = append(rows, row)
 		}
 	}
 	return rows
