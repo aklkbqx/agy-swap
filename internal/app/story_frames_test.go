@@ -84,6 +84,7 @@ func TestSiteStoryFrames(t *testing.T) {
 		for layout, size := range map[string]struct{ width, height int }{
 			"desktop": {120, 24},
 			"tablet":  {80, 22},
+			"stage":   {63, 22},
 			"mobile":  {48, 22},
 			"narrow":  {40, 22},
 		} {
@@ -94,11 +95,11 @@ func TestSiteStoryFrames(t *testing.T) {
 				}
 				size.height = 20
 			case "accounts":
-				if layout == "mobile" || layout == "narrow" {
+				if layout == "stage" || layout == "mobile" || layout == "narrow" {
 					size.height = 16
 				}
 			case "switch":
-				if layout == "mobile" || layout == "narrow" {
+				if layout == "stage" || layout == "mobile" || layout == "narrow" {
 					size.height = 18
 				}
 			}

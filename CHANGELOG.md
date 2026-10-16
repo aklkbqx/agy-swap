@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.12.1
+
+### Site
+
+- The pinned terminal on the home page now uses a 63-column frame on wide screens, so it fills its stage instead of leaving empty bands on both sides. It still lists every account. Phones keep the narrower frames.
+- The command-line tool is unchanged; the version moves in step with the site.
+
 ## 2.12.0
 
 ### Site
