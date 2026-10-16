@@ -85,6 +85,10 @@ func (a *Application) tuiAccountBlock(view tuiAccountView, state *tuiState, widt
 			right = word + "  " + a.tuiPoolMeters(view.pools, true, barWidth)
 		}
 		room := maxInt(1, width-visibleWidth(right)-1)
+		if visibleWidth(left) > room && tag != "" {
+			// The tag is the first thing to give way to a full name.
+			left = a.tuiSelectionMarker(view, state) + " " + a.tuiActiveMarker(view) + " " + name
+		}
 		return highlight([]string{fitVisible(fitVisible(left, room, a.p)+" "+right, width, a.p)})
 	}
 	first := rowSpread(left, word, width, a.p)
@@ -184,27 +188,59 @@ func (a *Application) tuiAccountRowsSpaced(state *tuiState, width, maxRows, list
 			break
 		}
 	}
-	start, end := selected, selected+1
-	used := len(blocks[selected].lines)
-	for {
-		grown := false
-		if start > 0 && used+len(blocks[start-1].lines) <= maxRows {
-			start--
-			used += len(blocks[start].lines)
-			grown = true
-		}
-		if end < len(blocks) && used+len(blocks[end].lines) <= maxRows {
-			used += len(blocks[end].lines)
-			end++
-			grown = true
-		}
-		if !grown {
-			break
+	// Grow a window of whole blocks around the selection into capacity rows.
+	window := func(capacity int) (int, int) {
+		start, end := selected, selected+1
+		used := len(blocks[selected].lines)
+		for {
+			grown := false
+			if start > 0 && used+len(blocks[start-1].lines) <= capacity {
+				start--
+				used += len(blocks[start].lines)
+				grown = true
+			}
+			if end < len(blocks) && used+len(blocks[end].lines) <= capacity {
+				used += len(blocks[end].lines)
+				end++
+				grown = true
+			}
+			if !grown {
+				return start, end
+			}
 		}
 	}
+	countAccounts := func(list []block) int {
+		n := 0
+		for _, b := range list {
+			if !b.isHeader {
+				n++
+			}
+		}
+		return n
+	}
+	start, end := window(maxRows)
+	// A marker row on each side that hides accounts takes room from the window.
+	for pass := 0; pass < 3; pass++ {
+		reserve := pick2(countAccounts(blocks[:start]) > 0, 1, 0) + pick2(countAccounts(blocks[end:]) > 0, 1, 0)
+		if reserve == 0 {
+			break
+		}
+		nextStart, nextEnd := window(maxRows - reserve)
+		if nextStart == start && nextEnd == end {
+			break
+		}
+		start, end = nextStart, nextEnd
+	}
+	hiddenAbove, hiddenBelow := countAccounts(blocks[:start]), countAccounts(blocks[end:])
 	var rows []string
+	if hiddenAbove > 0 {
+		rows = append(rows, a.tuiMoreMarker("▲", hiddenAbove, width))
+	}
 	for _, b := range blocks[start:end] {
 		rows = append(rows, b.lines...)
+	}
+	if hiddenBelow > 0 {
+		rows = append(rows, a.tuiMoreMarker("▼", hiddenBelow, width))
 	}
 	if len(rows) > maxRows {
 		rows = rows[:maxRows]

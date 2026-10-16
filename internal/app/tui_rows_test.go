@@ -135,3 +135,35 @@ func TestAccountBlockUsesShortLabelsAndBarsOnNarrowLists(t *testing.T) {
 		t.Fatalf("line is %d wide: %q", visibleWidth(lines[1]), lines[1])
 	}
 }
+
+func TestAccountRowsMarkHiddenAccountsAboveAndBelow(t *testing.T) {
+	a := rowsApp()
+	state := newTUIState(sizesAccounts(30), "")
+	for _, listLines := range []int{1, 2} {
+		state.selectedEmail = "user15@example.invalid"
+		rows := a.tuiAccountRowsFor(state, 50, 12, listLines)
+		if len(rows) > 12 {
+			t.Fatalf("lines=%d: %d rows, want at most 12", listLines, len(rows))
+		}
+		text := strings.Join(rows, "\n")
+		if !strings.Contains(text, "User 15") || !strings.Contains(text, "▲") || !strings.Contains(text, "▼") {
+			t.Fatalf("lines=%d: window lost the selection or a marker:\n%s", listLines, text)
+		}
+		var above, below, shown int
+		fmt.Sscanf(strings.TrimSpace(rows[0]), "▲ %d more", &above)
+		fmt.Sscanf(strings.TrimSpace(rows[len(rows)-1]), "▼ %d more", &below)
+		for _, row := range rows {
+			if strings.Contains(row, "User ") {
+				shown++
+			}
+		}
+		if above+shown+below != 30 {
+			t.Fatalf("lines=%d: %d above + %d shown + %d below != 30:\n%s", listLines, above, shown, below, text)
+		}
+	}
+	state.selectedEmail = "user00@example.invalid"
+	top := strings.Join(a.tuiAccountRowsFor(state, 50, 12, 2), "\n")
+	if strings.Contains(top, "▲") || !strings.Contains(top, "▼") {
+		t.Fatalf("at the top only the lower marker belongs:\n%s", top)
+	}
+}
