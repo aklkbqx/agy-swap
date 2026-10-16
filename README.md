@@ -47,7 +47,7 @@ Requirements: Go 1.27.2 or later. macOS source builds require Xcode Command Line
 ```bash
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-go build -trimpath -ldflags "-s -w -X main.version=2.11.11 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.12.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ./agy-swap version
 ```
 
