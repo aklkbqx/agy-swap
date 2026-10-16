@@ -5,6 +5,14 @@ import (
 	"strings"
 )
 
+type meterLabels uint8
+
+const (
+	labelsAbbrev meterLabels = iota // Gem, C/G
+	labelsShort                     // G, C
+	labelsFull                      // Gemini, Claude/GPT
+)
+
 func (a *Application) tuiStatusColor(status tuiAccountStatus) string {
 	switch status {
 	case statusReady:
@@ -19,14 +27,20 @@ func (a *Application) tuiStatusColor(status tuiAccountStatus) string {
 
 // tuiPoolMeters draws one meter per pool, Gemini first: a label, a fractional
 // bar and the percentage. A pool the account does not have shows an empty track.
-func (a *Application) tuiPoolMeters(pools []poolView, short bool, barWidth int) string {
-	slots := []struct{ id, long, short string }{
-		{"gemini", "Gem", "G"},
-		{"third_party", "C/G", "C"},
+func (a *Application) tuiPoolMeters(pools []poolView, labels meterLabels, barWidth int) string {
+	slots := []struct{ id, long, short, full string }{
+		{"gemini", "Gem", "G", "Gemini"},
+		{"third_party", "C/G", "C", "Claude/GPT"},
 	}
 	parts := make([]string, 0, len(slots))
 	for _, slot := range slots {
-		label := pick(short, slot.short, slot.long)
+		label := slot.long
+		switch labels {
+		case labelsShort:
+			label = slot.short
+		case labelsFull:
+			label = slot.full
+		}
 		var found *poolView
 		for i := range pools {
 			if pools[i].id == slot.id {
@@ -82,7 +96,7 @@ func (a *Application) tuiAccountBlock(view tuiAccountView, state *tuiState, widt
 		right := word
 		if len(view.pools) > 0 && width >= 46 {
 			barWidth := 4
-			right = word + "  " + a.tuiPoolMeters(view.pools, true, barWidth)
+			right = word + "  " + a.tuiPoolMeters(view.pools, labelsShort, barWidth)
 		}
 		room := maxInt(1, width-visibleWidth(right)-1)
 		if visibleWidth(left) > room && tag != "" {
@@ -95,10 +109,13 @@ func (a *Application) tuiAccountBlock(view tuiAccountView, state *tuiState, widt
 	second := "    "
 	switch {
 	case len(view.pools) > 0 && view.status != statusNoToken && view.status != statusAttention:
-		if width < 40 {
-			second += a.tuiPoolMeters(view.pools, true, 6)
-		} else {
-			second += a.tuiPoolMeters(view.pools, false, 8)
+		switch {
+		case width < 40:
+			second += a.tuiPoolMeters(view.pools, labelsShort, 6)
+		case width >= 60:
+			second += a.tuiPoolMeters(view.pools, labelsFull, 8)
+		default:
+			second += a.tuiPoolMeters(view.pools, labelsAbbrev, 8)
 		}
 		for _, pool := range view.pools {
 			if pool.stale {
@@ -108,6 +125,9 @@ func (a *Application) tuiAccountBlock(view tuiAccountView, state *tuiState, widt
 		}
 	case view.needsAttention:
 		second += a.p.Yellow + strings.TrimPrefix(tuiText(view.health), "⚠ ") + a.p.Reset
+		if view.status == statusNoToken {
+			second += a.p.Gray + " · agy-swap add" + a.p.Reset
+		}
 	default:
 		second += a.p.Gray + tuiText(view.health) + a.p.Reset
 	}
@@ -174,7 +194,7 @@ func (a *Application) tuiAccountRowsSpaced(state *tuiState, width, maxRows, list
 			spaced := make([]block, 0, len(blocks)*2)
 			for i, b := range blocks {
 				spaced = append(spaced, b)
-				if !b.isHeader && i+1 < len(blocks) && !blocks[i+1].isHeader {
+				if !b.isHeader && i+1 < len(blocks) {
 					spaced = append(spaced, block{isHeader: true, lines: []string{strings.Repeat(" ", width)}})
 				}
 			}
