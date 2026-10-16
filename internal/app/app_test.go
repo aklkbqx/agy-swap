@@ -473,7 +473,7 @@ func TestTUINarrowQuotaValueWithoutResetOrDue(t *testing.T) {
 	}
 }
 
-func TestTUIQuotaListDropsEmailBeforeHealthAtNarrowWidth(t *testing.T) {
+func TestTUIQuotaOverviewNamesAccountsWithoutTheEmailAndKeepsStatusAtNarrowWidth(t *testing.T) {
 	accounts := NewAccounts()
 	account := quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(50*time.Hour))
 	account["name"] = "Alpha Tester"
@@ -483,12 +483,12 @@ func TestTUIQuotaListDropsEmailBeforeHealthAtNarrowWidth(t *testing.T) {
 	state.view = tuiViewQuota
 
 	narrow := a.tuiQuotaViewRows(state, 36, 12)
-	if want := "● Alpha Tester  Gemini 85% ready"; narrow[0] != want {
-		t.Fatalf("narrow row = %q, want %q", narrow[0], want)
+	if !strings.Contains(narrow[0], "Alpha Tester") || !strings.Contains(narrow[0], "READY") || strings.Contains(narrow[0], "user@example.com") {
+		t.Fatalf("narrow overview row = %q", narrow[0])
 	}
-	wide := a.tuiQuotaViewRows(state, 80, 12)
-	if !strings.Contains(wide[0], "user@example.com") || !strings.Contains(wide[0], "Gemini 85% ready") {
-		t.Fatalf("wide row lost email or health: %q", wide[0])
+	wide := a.tuiQuotaViewRows(state, 100, 12)
+	if !strings.Contains(wide[0], "ACCOUNT") || !strings.Contains(wide[1], "Alpha Tester") || !strings.Contains(wide[1], "READY") {
+		t.Fatalf("wide overview = %q", wide[:2])
 	}
 }
 

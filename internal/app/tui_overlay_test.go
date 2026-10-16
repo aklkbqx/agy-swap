@@ -79,13 +79,12 @@ func TestTUIQuotaViewShowsSelectedEmailOnce(t *testing.T) {
 	state.selectedEmail = "user@example.com"
 	for _, width := range []int{118, 78} {
 		joined := strings.Join(a.tuiLines(state, width, 24), "\n")
-		if got := strings.Count(joined, "user@example.com"); got != 2 {
-			// The overview row and the selected detail each name the account
-			// once; no session is active in this fixture.
+		if got := strings.Count(joined, "user@example.com"); got != 1 {
+			// The overview rows name accounts only; the detail names the email once.
 			t.Fatalf("width=%d: email appears %d times:\n%s", width, got, joined)
 		}
-		if !strings.Contains(joined, "Selected account") || strings.Contains(joined, "SELECTED ACCOUNT") {
-			t.Fatalf("width=%d: want one selected-account label:\n%s", width, joined)
+		if strings.Contains(joined, "Selected account") || strings.Contains(joined, "SELECTED ACCOUNT") {
+			t.Fatalf("width=%d: the old selected-account label is back:\n%s", width, joined)
 		}
 	}
 }
