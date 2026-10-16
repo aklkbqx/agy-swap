@@ -77,7 +77,11 @@ func (a *Application) tuiAccountBlock(view tuiAccountView, state *tuiState, widt
 	second := "    "
 	switch {
 	case len(view.pools) > 0 && view.status != statusNoToken && view.status != statusAttention:
-		second += a.tuiPoolMeters(view.pools, false, 8)
+		if width < 46 {
+			second += a.tuiPoolMeters(view.pools, true, 6)
+		} else {
+			second += a.tuiPoolMeters(view.pools, false, 8)
+		}
 		for _, pool := range view.pools {
 			if pool.stale {
 				second += "  " + a.p.Gray + "refresh due" + a.p.Reset
