@@ -52,6 +52,19 @@ func tuiResetText(limit poolLimit, now time.Time) string {
 	return "refresh due"
 }
 
+// tuiLimitCaption names which limit the big figure comes from, only when that
+// says something: a used-up pool, or two limits that differ.
+func tuiLimitCaption(pool poolView) string {
+	window := map[string]string{"weekly": "weekly", "5h": "5-hour"}[pool.limitingWindow]
+	switch {
+	case pool.state == poolUsedUp:
+		return window + " limit used up"
+	case pool.weekly.present && pool.fiveHour.present && pool.weekly.fraction != pool.fiveHour.fraction:
+		return window + " is the tighter limit"
+	}
+	return ""
+}
+
 // tuiPoolPanelLines is the body of one pool's gauge panel, every row exactly
 // width columns wide. The border is added by tuiBox.
 func tuiPoolPanelLines(p palette, pool poolView, now time.Time, width int, digits tuiDigits) []string {
@@ -66,20 +79,18 @@ func tuiPoolPanelLines(p palette, pool poolView, now time.Time, width int, digit
 			rows = 3
 		}
 		lines = append(lines, pad(""))
-		for _, row := range bigNumber(poolPercent(pool.limiting.fraction), rows) {
+		// The big figure is the digits alone; a small % sits on its baseline,
+		// because the 3x5 percent sign is unreadable at this size.
+		digitsOnly := strings.TrimSuffix(poolPercent(pool.limiting.fraction), "%")
+		for i, row := range bigNumber(digitsOnly, rows) {
+			if i == rows-1 {
+				row += " %"
+			}
 			lines = append(lines, pad(color+row+p.Reset))
 		}
-		caption := "weekly is the tighter limit"
-		switch {
-		case pool.state == poolUsedUp:
-			caption = "weekly limit used up"
-		case pool.limitingWindow == "5h":
-			caption = "5-hour is the tighter limit"
+		if caption := tuiLimitCaption(pool); caption != "" {
+			lines = append(lines, pad(p.Gray+caption+p.Reset))
 		}
-		if pool.state == poolUsedUp && pool.limitingWindow == "5h" {
-			caption = "5-hour limit used up"
-		}
-		lines = append(lines, pad(p.Gray+caption+p.Reset))
 	}
 	lines = append(lines, pad(""))
 	limit := func(name string, l poolLimit, other poolLimit) {
@@ -92,7 +103,7 @@ func tuiPoolPanelLines(p palette, pool poolView, now time.Time, width int, digit
 		}
 		tone := poolColor(p, poolStateFor(l.fraction))
 		lines = append(lines, pad(rowSpread(name, p.Bold+tone+poolPercent(l.fraction)+p.Reset, width, p)))
-		lines = append(lines, pad(renderFractionalBar(l.fraction, width, tone, p.Track, p.Reset)))
+		lines = append(lines, pad(renderMeter(tuiMeterStyle, l.fraction, width, tone, p.Track, p.Reset)))
 		if reset := tuiResetText(l, now); reset != "" {
 			lines = append(lines, pad(p.Gray+reset+p.Reset))
 		}
@@ -151,14 +162,14 @@ func tuiPoolCompactLines(p palette, pool poolView, now time.Time, width int) []s
 		label := fmt.Sprintf("%-*s", labelWidth, name)
 		oneLine := width - labelWidth - 1 - len(percent) - 2 - len(reset)
 		if reset == "" || oneLine < 10 {
-			bar := renderFractionalBar(l.fraction, maxInt(6, width-labelWidth-1-len(percent)), tone, p.Track, p.Reset)
+			bar := renderMeter(tuiMeterStyle, l.fraction, maxInt(6, width-labelWidth-1-len(percent)), tone, p.Track, p.Reset)
 			lines = append(lines, pad(label+bar+" "+tone+percent+p.Reset))
 			if reset != "" {
 				lines = append(lines, pad(strings.Repeat(" ", labelWidth)+resetColor+reset+p.Reset))
 			}
 			return
 		}
-		bar := renderFractionalBar(l.fraction, oneLine, tone, p.Track, p.Reset)
+		bar := renderMeter(tuiMeterStyle, l.fraction, oneLine, tone, p.Track, p.Reset)
 		lines = append(lines, pad(label+bar+" "+tone+percent+p.Reset+"  "+resetColor+reset+p.Reset))
 	}
 	if pool.weekly.present {

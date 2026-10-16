@@ -100,7 +100,7 @@ func (a *Application) tuiPoolColumnBody(state *tuiState, g tuiGeometry, plan tui
 	if avail <= 0 {
 		return fitBodyLines(lines, g, a.p)
 	}
-	list := a.tuiAccountRowsFor(state, g.contentWidth, 1000, plan.listLines)
+	list := a.tuiAccountRowsSpaced(state, g.contentWidth, 1000, plan.listLines, false)
 	if len(list) == 0 {
 		list = a.tuiEmptyListRows(state, g.contentWidth, avail)
 	}
@@ -121,6 +121,9 @@ func (a *Application) tuiPoolColumnBody(state *tuiState, g tuiGeometry, plan tui
 		if detailBudget == 0 {
 			listBudget = avail
 		}
+	}
+	if shown := a.tuiAccountRowsFor(state, g.contentWidth, listBudget, plan.listLines); len(shown) > 0 {
+		list = shown
 	}
 	for i, row := range list {
 		if i >= listBudget || len(lines) >= g.bodyRows {

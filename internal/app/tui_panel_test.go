@@ -23,19 +23,19 @@ func TestPoolPanelWithFiveRowDigitsMatchesTheDesign(t *testing.T) {
 	want := []string{
 		spread("GEMINI", "[ PLENTY ]"),
 		"",
-		"██████  ██████  ██  ██",
-		"    ██  ██          ██",
-		"██████  ██████    ██  ",
-		"    ██  ██  ██  ██    ",
-		"██████  ██████  ██  ██",
+		"██████  ██████",
+		"    ██  ██",
+		"██████  ██████",
+		"    ██  ██  ██",
+		"██████  ██████ %",
 		"weekly is the tighter limit",
 		"",
 		spread("Weekly", "36%"),
-		"████████████▎░░░░░░░░░░░░░░░░░░░░░",
+		renderMeter(meterHalf, 0.36, 34, "", "", ""),
 		"resets in 5d 5h 45m",
 		"",
 		spread("5-hour", "93%"),
-		"███████████████████████████████▋░░",
+		renderMeter(meterHalf, 0.93, 34, "", "", ""),
 		"resets in 4h 41m",
 		"",
 		"usable right now",
@@ -56,7 +56,7 @@ func TestPoolPanelWithFiveRowDigitsMatchesTheDesign(t *testing.T) {
 func TestPoolPanelOfAUsedUpPoolShowsPausedAndBackIn(t *testing.T) {
 	pool := panelPool(t, poolGroup("third_party", "Claude and GPT models", poolBucket("weekly", 0, 22*time.Hour+43*time.Minute)))
 	got := strings.Join(tuiPoolPanelLines(palette{}, pool, poolNow, 34, digitsThree), "\n")
-	for _, want := range []string{"CLAUDE/GPT", "[ USED UP ]", "█▀█ ▀ █", "weekly limit used up", "resets in 22h 43m", "paused until weekly resets", "back in 22h 43m"} {
+	for _, want := range []string{"CLAUDE/GPT", "[ USED UP ]", "█▀█", "weekly limit used up", "resets in 22h 43m", "paused until weekly resets", "back in 22h 43m"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("panel is missing %q:\n%s", want, got)
 		}
