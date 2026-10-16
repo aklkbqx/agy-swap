@@ -722,7 +722,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 				state.setAccounts(value.accounts)
 				state.quotaErrors = value.quotaErrors
 				if len(value.quotaErrors) > 0 {
-					state.message, state.messageType = fmt.Sprintf("Usage refresh completed with %d warning(s)", len(value.quotaErrors)), "error"
+					state.message, state.messageType = fmt.Sprintf("Usage refresh completed with %d warning(s)", len(value.quotaErrors)), "warning"
 					state.beginAnimation("error", 360*time.Millisecond)
 				} else {
 					state.message, state.messageType = "Usage refreshed", "success"

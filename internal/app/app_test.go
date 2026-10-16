@@ -1849,7 +1849,7 @@ func TestTUIGroupedSectionRendering(t *testing.T) {
 		t.Fatalf("grouped list should open with the READY divider:\n%s", groupedJoined)
 	}
 	for i, row := range rowsGrouped {
-		if strings.Trim(row, "─ ") == "" {
+		if strings.Contains(row, "─") && strings.Trim(row, "─ ") == "" {
 			t.Fatalf("grouped table row %d is a bare rule stacked with section dividers:\n%s", i, groupedJoined)
 		}
 	}

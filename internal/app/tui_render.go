@@ -565,6 +565,8 @@ func (a *Application) tuiStatusLines(state *tuiState, width int) []string {
 			prefix, color = "✓ ", a.p.Green
 		case "error":
 			prefix, color = "✕ ", a.p.Red
+		case "warning":
+			prefix, color = "⚠ ", a.p.Yellow
 		}
 		content = color + prefix + cleanText(state.message) + a.p.Reset
 	case state.accounts == nil || state.accounts.Len() == 0:
