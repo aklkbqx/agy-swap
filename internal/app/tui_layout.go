@@ -33,6 +33,9 @@ type tuiLayoutPlan struct {
 	listLines   int // lines each account takes in the list: 1 or 2
 	panels      tuiPanels
 	digits      tuiDigits
+	// tight drops the freshness line and the blank rows between pools, for
+	// terminals that are too short to show both pools any other way.
+	tight bool
 }
 
 // tuiBodyRowsFor is the rows left for the body once the header, status line,

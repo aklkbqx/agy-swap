@@ -33,7 +33,7 @@ func TestAccountBlockTwoLinesShowsStatusWordAndBothPoolMeters(t *testing.T) {
 			poolGroup("third_party", "Claude and GPT models", poolBucket("weekly", 0, 22*time.Hour))),
 	}, "beta@example.invalid")
 	view := a.tuiAccountView(state, "beta@example.invalid", poolNow)
-	lines := a.tuiAccountBlock(view, state, 42, 2)
+	lines := a.tuiAccountBlock(view, state, 50, 2)
 	if len(lines) != 2 {
 		t.Fatalf("lines = %q", lines)
 	}
@@ -46,7 +46,7 @@ func TestAccountBlockTwoLinesShowsStatusWordAndBothPoolMeters(t *testing.T) {
 		t.Fatalf("meter line = %q, want %q and %q", lines[1], gem, cg)
 	}
 	for _, line := range lines {
-		if visibleWidth(line) != 42 {
+		if visibleWidth(line) != 50 {
 			t.Fatalf("line is %d wide: %q", visibleWidth(line), line)
 		}
 	}
@@ -77,7 +77,7 @@ func TestAccountBlockShowsADashForAPoolTheAccountDoesNotHave(t *testing.T) {
 		"c@example.invalid": namedPoolAccount("C User", poolGroup("third_party", "Claude and GPT models", poolBucket("weekly", 0.5, 90*time.Hour))),
 	}, "c@example.invalid")
 	view := a.tuiAccountView(state, "c@example.invalid", poolNow)
-	lines := a.tuiAccountBlock(view, state, 42, 2)
+	lines := a.tuiAccountBlock(view, state, 50, 2)
 	if !strings.Contains(lines[1], "Gem ░░░░░░░░    —") {
 		t.Fatalf("meter line = %q", lines[1])
 	}
@@ -116,5 +116,22 @@ func TestAccountRowsWindowAroundTheSelectionAndKeepWholeBlocks(t *testing.T) {
 	one := a.tuiAccountRowsFor(state, 42, 6, 1)
 	if len(one) != 6 {
 		t.Fatalf("one-line rows = %d, want 6", len(one))
+	}
+}
+
+func TestAccountBlockUsesShortLabelsAndBarsOnNarrowLists(t *testing.T) {
+	a := rowsApp()
+	state := rowsState(map[string]Account{
+		"beta@example.invalid": namedPoolAccount("Beta User",
+			poolGroup("gemini", "Gemini models", poolBucket("weekly", 0.36, 100*time.Hour)),
+			poolGroup("third_party", "Claude and GPT models", poolBucket("weekly", 0, 22*time.Hour))),
+	}, "beta@example.invalid")
+	view := a.tuiAccountView(state, "beta@example.invalid", poolNow)
+	lines := a.tuiAccountBlock(view, state, 38, 2)
+	if !strings.Contains(lines[1], "G "+renderFractionalBar(0.36, 6, "", "", "")+"  36%") || !strings.Contains(lines[1], "C ") || strings.Contains(lines[1], "…") {
+		t.Fatalf("narrow meter line = %q", lines[1])
+	}
+	if visibleWidth(lines[1]) != 38 {
+		t.Fatalf("line is %d wide: %q", visibleWidth(lines[1]), lines[1])
 	}
 }
