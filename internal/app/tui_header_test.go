@@ -46,15 +46,31 @@ func TestHeaderDropsTheCreditBeforeTheSyncStateOnNarrowScreens(t *testing.T) {
 	}
 }
 
-func TestHelpEndsWithAnAboutBlockWithTheLogoAndCredit(t *testing.T) {
+func TestHelpOpensWithTheLogoAndCreditThenTheKeys(t *testing.T) {
 	a, _ := headerApp()
-	text := strings.Join(a.tuiHelpLines(70), "\n")
-	for _, want := range []string{"ABOUT", "agy▔▔╲▁▁swap", "aklkbqx", "MIT", "github.com/aklkbqx/agy-swap", "not affiliated with Google"} {
+	text := strings.Join(a.tuiHelpLines(80), "\n")
+	for _, want := range []string{"agy▔▔╲▁▁swap", "aklkbqx", "MIT", "github.com/aklkbqx/agy-swap", "not affiliated with Google", "KEYBOARD GUIDE"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("help is missing %q:\n%s", want, text)
 		}
 	}
-	if strings.Index(text, "KEYBOARD GUIDE") > strings.Index(text, "ABOUT") {
-		t.Fatalf("the key guide must come before the about block:\n%s", text)
+	if strings.Index(text, "agy▔▔╲▁▁swap") > strings.Index(text, "KEYBOARD GUIDE") {
+		t.Fatalf("the logo and credit must come before the key guide:\n%s", text)
+	}
+}
+
+func TestHelpOverlayShowsTheLogoAndCreditAtCommonWindowSizes(t *testing.T) {
+	a, state := headerApp()
+	for _, size := range [][2]int{{100, 30}, {80, 24}, {63, 24}, {120, 40}} {
+		state.mode = tuiHelp
+		text := strings.Join(a.tuiLines(state, size[0]-2, size[1]), "\n")
+		for _, want := range []string{"agy▔▔╲▁▁swap", "aklkbqx", "KEYBOARD GUIDE", "Enter"} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("%dx%d: help is missing %q:\n%s", size[0], size[1], want, text)
+			}
+		}
+		if strings.Contains(text, "more in ? help") {
+			t.Fatalf("%dx%d: the circular hint is back:\n%s", size[0], size[1], text)
+		}
 	}
 }
