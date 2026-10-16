@@ -74,3 +74,31 @@ func TestHelpOverlayShowsTheLogoAndCreditAtCommonWindowSizes(t *testing.T) {
 		}
 	}
 }
+
+func TestEmptyStateUsesTheWholeWidthAndNeverAsksToSelectAnAccount(t *testing.T) {
+	a := &Application{Version: "2.13.0", p: palette{}}
+	state := newTUIState(NewAccounts(), "")
+	for _, size := range [][2]int{{120, 30}, {80, 24}, {63, 24}, {40, 24}, {28, 12}} {
+		text := strings.Join(a.tuiLines(state, size[0]-2, size[1]), "\n")
+		if strings.Contains(text, "Select an account") || strings.Contains(text, "inspect") {
+			t.Fatalf("%dx%d: the empty state asks to select an account:\n%s", size[0], size[1], text)
+		}
+		if size[0] >= 63 && (!strings.Contains(text, "Welcome to agy-swap") || !strings.Contains(text, "Your tokens go to a private local vault after sign-in.")) {
+			t.Fatalf("%dx%d: the welcome text is cut:\n%s", size[0], size[1], text)
+		}
+		if size[0] == 40 && (!strings.Contains(text, "vault after sign-in.") || !strings.Contains(text, "every action.")) {
+			t.Fatalf("%dx%d: the welcome text is cut:\n%s", size[0], size[1], text)
+		}
+	}
+}
+
+func TestEveryScreenHasItsOwnHintInsteadOfTheDashboardOne(t *testing.T) {
+	a, state := overviewState()
+	for _, view := range []tuiView{tuiViewQuota, tuiViewProfiles, tuiViewHistory, tuiViewSettings, tuiViewDoctor, tuiViewBackup} {
+		state.view = view
+		text := strings.Join(a.tuiStatusLines(state, 100), "\n")
+		if strings.Contains(text, "inspect health") {
+			t.Fatalf("view %v shows the dashboard hint: %q", view, text)
+		}
+	}
+}
