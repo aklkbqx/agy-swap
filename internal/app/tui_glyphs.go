@@ -31,11 +31,13 @@ func bigNumber(text string, rows int) []string {
 		}
 		for row := 0; row < rows; row++ {
 			if index > 0 {
-				lines[row].WriteByte(' ')
+				// Terminal cells are about twice as tall as wide, so a 5-row
+				// pixel is two cells wide to stay square.
+				lines[row].WriteString(pick(rows == 5, "  ", " "))
 			}
 			for col := 0; col < 3; col++ {
 				if rows == 5 {
-					lines[row].WriteString(pick(bitmap[row][col] == '1', "█", " "))
+					lines[row].WriteString(pick(bitmap[row][col] == '1', "██", "  "))
 					continue
 				}
 				top := bitmap[row*2][col] == '1'
