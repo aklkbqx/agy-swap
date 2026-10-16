@@ -361,11 +361,14 @@ func (a *Application) tuiSectionDividerRow(title string, count int, isAttention 
 }
 
 func (a *Application) tuiWelcomeRows(width, maxRows int) []string {
-	rows := []string{
-		a.p.Bold + a.p.White + "Welcome to AGY SWAP" + a.p.Reset,
-		"No saved accounts yet.",
-		"Press " + a.p.Orange + "a" + a.p.Reset + " to sign in, or " + a.p.Cyan + "Ctrl-K" + a.p.Reset + " for every action.",
-		"Your tokens go to a private local vault after sign-in.",
+	rows := []string{a.p.Bold + a.p.White + "Welcome to agy-swap" + a.p.Reset, "No saved accounts yet."}
+	if width >= 50 {
+		rows = append(rows, "Press "+a.p.Orange+"a"+a.p.Reset+" to sign in, or "+a.p.Cyan+"Ctrl-K"+a.p.Reset+" for every action.")
+	} else {
+		rows = append(rows, "Press "+a.p.Orange+"a"+a.p.Reset+" to sign in,", "or "+a.p.Cyan+"Ctrl-K"+a.p.Reset+" for every action.")
+	}
+	for _, line := range wrapWords("Your tokens go to a private local vault after sign-in.", width) {
+		rows = append(rows, line)
 	}
 	if maxRows < len(rows) {
 		rows = rows[:maxRows]
@@ -374,6 +377,27 @@ func (a *Application) tuiWelcomeRows(width, maxRows int) []string {
 		rows[i] = fitVisible(rows[i], width, a.p)
 	}
 	return rows
+}
+
+// wrapWords breaks plain text into lines of at most width columns.
+func wrapWords(text string, width int) []string {
+	var lines []string
+	line := ""
+	for _, word := range strings.Fields(text) {
+		switch {
+		case line == "":
+			line = word
+		case len(line)+1+len(word) <= width:
+			line += " " + word
+		default:
+			lines = append(lines, line)
+			line = word
+		}
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 func sessionTokenReset(account Account) (string, bool) {
@@ -545,6 +569,8 @@ func (a *Application) tuiStatusLines(state *tuiState, width int) []string {
 		content = color + prefix + cleanText(state.message) + a.p.Reset
 	case state.accounts == nil || state.accounts.Len() == 0:
 		content = a.p.Yellow + "No accounts yet · press a to add your first account" + a.p.Reset
+	case state.view != tuiViewDashboard:
+		content = a.p.Gray + tuiViewHint(state.view) + a.p.Reset
 	default:
 		content = a.p.Gray + "Ready · select an account to inspect health" + a.p.Reset
 	}
@@ -552,6 +578,25 @@ func (a *Application) tuiStatusLines(state *tuiState, width int) []string {
 		a.p.Gray + "├" + strings.Repeat("─", g.frameWidth-2) + "┤" + a.p.Reset,
 		frameRow(content, g, a.p),
 	}
+}
+
+// tuiViewHint is the status line of a screen other than the dashboard.
+func tuiViewHint(view tuiView) string {
+	switch view {
+	case tuiViewQuota:
+		return "Limits for every saved account · r refreshes · b returns"
+	case tuiViewProfiles:
+		return "A profile picks the account for a job · c creates one"
+	case tuiViewHistory:
+		return "Switches and refreshes stay on this machine"
+	case tuiViewSettings:
+		return "Policy, notifications and integrations · Enter edits"
+	case tuiViewDoctor:
+		return "A read-only check of this installation · Enter runs it again"
+	case tuiViewBackup:
+		return "Export or import your accounts · x, i and v"
+	}
+	return "Ready"
 }
 
 func (a *Application) tuiToastOverlay(base []string, state *tuiState, width, height int) []string {
