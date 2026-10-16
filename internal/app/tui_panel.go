@@ -130,3 +130,45 @@ func tuiBox(p palette, lines []string, width int, borderColor string) []string {
 	}
 	return append(box, edge("╰", "╯"))
 }
+
+// tuiPoolCompactLines is a pool without a box or big digits, for small screens:
+// a header, then one line per limit (the reset wraps to its own line when the
+// bar would get too short). A used-up pool says when it is back.
+func tuiPoolCompactLines(p palette, pool poolView, now time.Time, width int) []string {
+	const labelWidth = 8
+	color := poolColor(p, pool.state)
+	pad := func(value string) string { return fitVisible(value, width, p) }
+	title := p.Bold + p.White + strings.ToUpper(pool.label) + p.Reset
+	lines := []string{pad(rowSpread(title, tuiChip(p, color, pool.state.word()), width, p))}
+	limit := func(name string, l poolLimit, isLimiting bool) {
+		tone := poolColor(p, poolStateFor(l.fraction))
+		reset := tuiResetText(l, now)
+		resetColor := p.Gray
+		if isLimiting && pool.state == poolUsedUp && pool.backIn > 0 {
+			reset, resetColor = "back in "+formatDuration(pool.backIn.Seconds()), p.Bold+p.Red
+		}
+		percent := fmt.Sprintf("%4s", poolPercent(l.fraction))
+		label := fmt.Sprintf("%-*s", labelWidth, name)
+		oneLine := width - labelWidth - 1 - len(percent) - 2 - len(reset)
+		if reset == "" || oneLine < 10 {
+			bar := renderFractionalBar(l.fraction, maxInt(6, width-labelWidth-1-len(percent)), tone, p.DarkGray, p.Reset)
+			lines = append(lines, pad(label+bar+" "+tone+percent+p.Reset))
+			if reset != "" {
+				lines = append(lines, pad(strings.Repeat(" ", labelWidth)+resetColor+reset+p.Reset))
+			}
+			return
+		}
+		bar := renderFractionalBar(l.fraction, oneLine, tone, p.DarkGray, p.Reset)
+		lines = append(lines, pad(label+bar+" "+tone+percent+p.Reset+"  "+resetColor+reset+p.Reset))
+	}
+	if pool.weekly.present {
+		limit("Weekly", pool.weekly, pool.limitingWindow == "weekly")
+	}
+	switch {
+	case pool.fiveHour.present:
+		limit("5-hour", pool.fiveHour, pool.limitingWindow == "5h")
+	case pool.paused:
+		lines = append(lines, pad(fmt.Sprintf("%-*s", labelWidth, "5-hour")+p.Gray+"paused until weekly resets"+p.Reset))
+	}
+	return lines
+}

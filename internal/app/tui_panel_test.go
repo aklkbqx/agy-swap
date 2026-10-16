@@ -98,3 +98,49 @@ func TestPoolPanelBoxKeepsEveryRowTheSameWidth(t *testing.T) {
 		t.Fatalf("box corners: %q ... %q", box[0], box[len(box)-1])
 	}
 }
+
+func TestCompactPoolLinesFitOneLinePerLimitWhenThereIsRoom(t *testing.T) {
+	pool := panelPool(t, poolGroup("gemini", "Gemini models",
+		poolBucket("weekly", 0.36, 100*time.Hour), poolBucket("5h", 0.93, 4*time.Hour+41*time.Minute)))
+	lines := tuiPoolCompactLines(palette{}, pool, poolNow, 70)
+	if len(lines) != 3 {
+		t.Fatalf("lines = %q", lines)
+	}
+	for _, line := range lines {
+		if visibleWidth(line) != 70 {
+			t.Fatalf("line is %d wide: %q", visibleWidth(line), line)
+		}
+	}
+	if !strings.HasPrefix(lines[0], "GEMINI") || !strings.HasSuffix(strings.TrimRight(lines[0], " "), "[ PLENTY ]") {
+		t.Fatalf("header = %q", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "Weekly") || !strings.Contains(lines[1], "36%") || !strings.Contains(lines[1], "resets in 4d 4h 0m") {
+		t.Fatalf("weekly line = %q", lines[1])
+	}
+	if !strings.HasPrefix(lines[2], "5-hour") || !strings.Contains(lines[2], "93%") || !strings.Contains(lines[2], "resets in 4h 41m") {
+		t.Fatalf("5-hour line = %q", lines[2])
+	}
+}
+
+func TestCompactPoolLinesWrapTheResetWhenTheBarWouldGetTooShort(t *testing.T) {
+	pool := panelPool(t, poolGroup("gemini", "Gemini models", poolBucket("weekly", 0.36, 100*time.Hour)))
+	lines := tuiPoolCompactLines(palette{}, pool, poolNow, 34)
+	if len(lines) != 3 || !strings.Contains(lines[2], "resets in 4d 4h 0m") || strings.Contains(lines[1], "resets") {
+		t.Fatalf("lines = %q", lines)
+	}
+	for _, line := range lines {
+		if visibleWidth(line) != 34 {
+			t.Fatalf("line is %d wide: %q", visibleWidth(line), line)
+		}
+	}
+}
+
+func TestCompactPoolLinesForAUsedUpPoolSayBackInAndPaused(t *testing.T) {
+	pool := panelPool(t, poolGroup("third_party", "Claude and GPT models", poolBucket("weekly", 0, 22*time.Hour+43*time.Minute)))
+	text := strings.Join(tuiPoolCompactLines(palette{}, pool, poolNow, 70), "\n")
+	for _, want := range []string{"CLAUDE/GPT", "[ USED UP ]", "back in 22h 43m", "5-hour  paused until weekly resets"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q:\n%s", want, text)
+		}
+	}
+}
