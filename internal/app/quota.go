@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +16,9 @@ type QuotaService struct {
 	http  *HTTPService
 	store *Store
 	vault AccountVault
+	// diagnostics, when set, receives one line per quota bucket explaining
+	// whether it was kept. It never receives tokens or account identifiers.
+	diagnostics io.Writer
 }
 
 func NewQuotaService(httpService *HTTPService, store *Store) *QuotaService {
@@ -21,6 +26,8 @@ func NewQuotaService(httpService *HTTPService, store *Store) *QuotaService {
 }
 
 func (q *QuotaService) SetVault(vault AccountVault) { q.vault = vault }
+
+func (q *QuotaService) SetDiagnostics(out io.Writer) { q.diagnostics = out }
 
 func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]any, error) {
 	tokenData, err := accountToken(ctx, account, q.vault)
@@ -55,6 +62,9 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 	if err != nil {
 		return nil, err
 	}
+	if q.diagnostics != nil {
+		q.describeModelList(ctx, access, project)
+	}
 	tier := getMap(info["paidTier"])
 	if tier == nil {
 		tier = getMap(info["currentTier"])
@@ -67,11 +77,31 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 	if tierName == "" {
 		tierName = cleanText(firstString(tier["name"], tierID))
 	}
+	groups, notes := quotaGroupsFromSummary(summary)
+	if q.diagnostics != nil && len(notes) > 0 {
+		// One write per account, so concurrent refreshes do not interleave lines.
+		fmt.Fprint(q.diagnostics, "quota: summary\n  "+strings.Join(notes, "\n  ")+"\n")
+	}
+	if len(groups) == 0 {
+		return nil, fmt.Errorf("Google returned no quota groups") //nolint:staticcheck // "Google" is a proper noun
+	}
+	return normalizeQuotaSnapshot(map[string]any{"observed_at": isoTime(time.Now()), "tier": map[string]any{"id": tierID, "name": tierName}, "groups": groups}, getString(account, "email"))
+}
+
+// quotaGroupsFromSummary turns Google's quota summary into saved groups. Each
+// bucket is classified by its id prefix, and buckets without a known window,
+// a remaining fraction or a reset time are skipped. The notes say what happened
+// to every bucket so a missing model group can be explained.
+func quotaGroupsFromSummary(summary map[string]any) ([]any, []string) {
 	groups := make([]any, 0)
+	notes := []string{"response fields: " + sortedKeys(summary)}
 	for _, rawGroup := range getSlice(summary["groups"]) {
 		group := getMap(rawGroup)
+		notes = append(notes, describeQuotaGroup(group))
 		groupID := ""
 		buckets := make([]any, 0)
+		type verdict struct{ id, window, reason string }
+		var verdicts []verdict
 		for _, rawBucket := range getSlice(group["buckets"]) {
 			bucket := getMap(rawBucket)
 			id := cleanText(getString(bucket, "bucketId"))
@@ -83,20 +113,157 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 			window := getString(bucket, "window")
 			fraction, ok := getFloat(bucket["remainingFraction"])
 			reset := getString(bucket, "resetTime")
-			if !oneOf(window, "weekly", "5h") || !ok || reset == "" {
+			switch {
+			case !oneOf(window, "weekly", "5h"):
+				verdicts = append(verdicts, verdict{id, window, "skipped, window is not weekly or 5h"})
+				continue
+			case !ok:
+				verdicts = append(verdicts, verdict{id, window, "skipped, no remaining fraction"})
+				continue
+			case reset == "":
+				verdicts = append(verdicts, verdict{id, window, "skipped, no reset time"})
 				continue
 			}
 			fraction = max(0, min(1, fraction))
 			buckets = append(buckets, map[string]any{"id": id, "name": cleanText(firstString(bucket["displayName"], window)), "window": window, "remaining_fraction": fraction, "reset_at": reset})
+			verdicts = append(verdicts, verdict{id, window, ""})
 		}
-		if groupID != "" && len(buckets) > 0 {
+		keep := groupID != "" && len(buckets) > 0
+		if keep {
 			groups = append(groups, map[string]any{"id": groupID, "name": cleanText(firstString(group["displayName"], "Model group")), "buckets": buckets})
 		}
+		for _, v := range verdicts {
+			reason := v.reason
+			switch {
+			case reason != "":
+			case keep:
+				reason = "kept as " + groupID
+			case groupID == "":
+				reason = "group dropped, bucket id has no gemini- or 3p- prefix"
+			default:
+				reason = "group dropped, no usable buckets"
+			}
+			notes = append(notes, fmt.Sprintf("bucket %q window %q: %s", v.id, v.window, reason))
+		}
 	}
-	if len(groups) == 0 {
-		return nil, fmt.Errorf("Google returned no quota groups") //nolint:staticcheck // "Google" is a proper noun
+	return groups, notes
+}
+
+// describeQuotaGroup names a group's fields and bucket fields, never values, so
+// a missing model group can be traced to the shape of Google's answer.
+func describeQuotaGroup(group map[string]any) string {
+	buckets := getSlice(group["buckets"])
+	line := fmt.Sprintf("group %q: %d buckets, fields: %s", cleanText(getString(group, "displayName")), len(buckets), sortedKeys(group))
+	fields := map[string]any{}
+	for _, raw := range buckets {
+		for key := range getMap(raw) {
+			fields[key] = true
+		}
 	}
-	return normalizeQuotaSnapshot(map[string]any{"observed_at": isoTime(time.Now()), "tier": map[string]any{"id": tierID, "name": tierName}, "groups": groups}, getString(account, "email"))
+	if len(fields) > 0 {
+		line += "; bucket fields: " + sortedKeys(fields)
+	}
+	return line
+}
+
+// shapeOf names the fields of a JSON value, never its values, to the given depth.
+func shapeOf(value any, depth int) string {
+	switch typed := value.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys))
+		for _, key := range keys {
+			child := ""
+			if depth > 0 {
+				child = shapeOf(typed[key], depth-1)
+			}
+			if child != "" {
+				parts = append(parts, key+":"+child)
+			} else {
+				parts = append(parts, key)
+			}
+		}
+		return "{" + strings.Join(parts, ", ") + "}"
+	case []any:
+		if len(typed) == 0 || depth <= 0 {
+			return fmt.Sprintf("[%d]", len(typed))
+		}
+		return fmt.Sprintf("[%d]", len(typed)) + shapeOf(typed[0], depth-1)
+	}
+	return ""
+}
+
+func sortedKeys(values map[string]any) string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ", ")
+}
+
+// describeModelList asks for the model list and writes only its field names,
+// to see where Google reports quota that the summary does not carry.
+func (q *QuotaService) describeModelList(ctx context.Context, access, project string) {
+	models, err := q.http.cloudPost(ctx, access, "fetchAvailableModels", map[string]any{"project": project})
+	if err != nil {
+		fmt.Fprintf(q.diagnostics, "quota: fetchAvailableModels failed: %v\n", err)
+		return
+	}
+	shape := shapeOf(models, 1)
+	fmt.Fprintf(q.diagnostics, "quota: fetchAvailableModels fields: %s\n", shape)
+	if lines := modelQuotaLines(models); len(lines) > 0 {
+		fmt.Fprint(q.diagnostics, "quota: models\n  "+strings.Join(lines, "\n  ")+"\n")
+	}
+}
+
+func quotaInfoSummary(info map[string]any) string {
+	parts := make([]string, 0, len(info))
+	for _, key := range strings.Split(sortedKeys(info), ", ") {
+		if number, ok := getFloat(info[key]); ok {
+			parts = append(parts, fmt.Sprintf("%s=%.4g", key, number))
+		} else if text, ok := info[key].(string); ok {
+			parts = append(parts, key+"="+cleanText(text))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s=(%T)", key, info[key]))
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+// modelQuotaLines lists each model that carries quotaInfo (field names only)
+// and how the model groups are made up.
+func modelQuotaLines(models map[string]any) []string {
+	lines := make([]string, 0)
+	byID := getMap(models["models"])
+	ids := make([]string, 0, len(byID))
+	for id := range byID {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		if info := getMap(getMap(byID[id])["quotaInfo"]); info != nil {
+			// Quota percentages and reset times are what `list` prints; no identity here.
+			lines = append(lines, fmt.Sprintf("model %s: quotaInfo %s", cleanText(id), quotaInfoSummary(info)))
+		}
+	}
+	for _, rawSort := range getSlice(models["agentModelSorts"]) {
+		sorted := getMap(rawSort)
+		for index, rawGroup := range getSlice(sorted["groups"]) {
+			members := make([]string, 0)
+			for _, id := range getSlice(getMap(rawGroup)["modelIds"]) {
+				if text, ok := id.(string); ok {
+					members = append(members, cleanText(text))
+				}
+			}
+			lines = append(lines, fmt.Sprintf("model group %q %d: %s", cleanText(getString(sorted, "displayName")), index+1, strings.Join(members, ", ")))
+		}
+	}
+	return lines
 }
 
 func quotaAge(account Account, now time.Time) (time.Duration, bool) {
