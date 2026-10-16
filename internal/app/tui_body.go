@@ -24,6 +24,9 @@ func (a *Application) tuiEmptyListRows(state *tuiState, width, height int) []str
 func (a *Application) tuiPoolBody(state *tuiState, width, height int) []string {
 	g := newTUIGeometry(width, height+8)
 	g.bodyRows = maxInt(1, height)
+	if state.accounts == nil || state.accounts.Len() == 0 {
+		return a.tuiEmptyBody(g)
+	}
 	plan := tuiLayoutPlanFor(g.frameWidth, g.frameHeight)
 	if plan.arrangement == arrWide {
 		return a.tuiPoolWideBody(state, g, plan)
@@ -51,6 +54,16 @@ func (a *Application) tuiFitPlan(state *tuiState, width, budget int, plan tuiLay
 	plan.digits = digitsNone
 	plan.tight = true
 	return plan
+}
+
+// tuiEmptyBody is the first screen: no accounts, so one column of welcome text
+// across the whole width instead of an empty list beside an empty detail.
+func (a *Application) tuiEmptyBody(g tuiGeometry) []string {
+	lines := []string{a.p.Gray + "├" + strings.Repeat("─", g.frameWidth-2) + "┤" + a.p.Reset}
+	for _, row := range a.tuiWelcomeRows(g.contentWidth, maxInt(1, g.bodyRows-2)) {
+		lines = append(lines, frameRow(row, g, a.p))
+	}
+	return fitBodyLines(lines, g, a.p)
 }
 
 func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLayoutPlan) []string {
