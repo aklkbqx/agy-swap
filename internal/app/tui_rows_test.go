@@ -40,8 +40,8 @@ func TestAccountBlockTwoLinesShowsStatusWordAndBothPoolMeters(t *testing.T) {
 	if !strings.Contains(lines[0], "❯") || !strings.Contains(lines[0], "Beta User") || !strings.HasSuffix(strings.TrimRight(lines[0], " "), "GEMINI ONLY") {
 		t.Fatalf("identity line = %q", lines[0])
 	}
-	gem := "Gem " + renderFractionalBar(0.36, 8, "", "", "") + "  36%"
-	cg := "C/G " + renderFractionalBar(0, 8, "", "", "") + "   0%"
+	gem := "Gem " + renderMeter(meterHalf, 0.36, 8, "", "", "") + "  36%"
+	cg := "C/G " + renderMeter(meterHalf, 0, 8, "", "", "") + "   0%"
 	if !strings.Contains(lines[1], gem) || !strings.Contains(lines[1], cg) {
 		t.Fatalf("meter line = %q, want %q and %q", lines[1], gem, cg)
 	}
@@ -128,7 +128,7 @@ func TestAccountBlockUsesShortLabelsAndBarsOnNarrowLists(t *testing.T) {
 	}, "beta@example.invalid")
 	view := a.tuiAccountView(state, "beta@example.invalid", poolNow)
 	lines := a.tuiAccountBlock(view, state, 38, 2)
-	if !strings.Contains(lines[1], "G "+renderFractionalBar(0.36, 6, "", "", "")+"  36%") || !strings.Contains(lines[1], "C ") || strings.Contains(lines[1], "…") {
+	if !strings.Contains(lines[1], "G "+renderMeter(meterHalf, 0.36, 6, "", "", "")+"  36%") || !strings.Contains(lines[1], "C ") || strings.Contains(lines[1], "…") {
 		t.Fatalf("narrow meter line = %q", lines[1])
 	}
 	if visibleWidth(lines[1]) != 38 {

@@ -515,7 +515,7 @@ func TestTUIWideAccountTableUsesStableColumns(t *testing.T) {
 	a := &Application{Version: "2.1.1", p: makePalette(false), color: false}
 	state := newTUIState(accounts, "")
 	rows := a.tuiAccountRowsFor(state, 56, 8, 2)
-	if len(rows) != 4 { // two lines for each of two accounts
+	if len(rows) != 5 { // two lines for each of two accounts, and a blank line between them
 		t.Fatalf("rows = %d, want 4: %q", len(rows), rows)
 	}
 	if !strings.Contains(rows[0], "❯ · [AL]") || !strings.Contains(rows[0], "Alpha") {
