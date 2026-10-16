@@ -162,30 +162,31 @@ func (a *Application) tuiLines(state *tuiState, width, height int) []string {
 
 func (a *Application) tuiHeaderLinesWithVersion(version string, state *tuiState, width int) []string {
 	g := newTUIGeometry(width, 12)
-	left := a.p.Orange + "▎" + a.p.Bold + a.p.Orange + "AGY " + a.p.White + "SWAP" + a.p.Reset + " " + a.p.Gray + "· v" + tuiText(stateVersion(version)) + a.p.Reset
-	right := a.p.Gray + tuiCredit + "  ·  LOCAL" + a.p.Reset
+	left := tuiWordmark(a.p) + "  " + a.p.Gray + "v" + tuiText(stateVersion(version)) + a.p.Reset
+	sync := a.p.Gray + "LOCAL" + a.p.Reset
 	if state != nil {
 		switch {
 		case state.refreshing:
 			frames := []string{"◐", "◓", "◑", "◒"}
-			right = a.p.Gray + tuiCredit + "  ·  " + a.p.Cyan + frames[state.animationPhase()] + " SYNCING" + a.p.Reset
+			sync = a.p.Cyan + frames[state.animationPhase()] + " SYNCING" + a.p.Reset
 		case state.animation.kind == "success" && state.animation.active:
-			right = a.p.Gray + tuiCredit + "  ·  " + a.p.Green + "✓ SYNCED" + a.p.Reset
+			sync = a.p.Green + "✓ SYNCED" + a.p.Reset
 		case state.animation.kind == "error" && state.animation.active:
-			right = a.p.Gray + tuiCredit + "  ·  " + a.p.Yellow + "⚠ SYNC WARNINGS" + a.p.Reset
+			sync = a.p.Yellow + "⚠ SYNC WARNINGS" + a.p.Reset
 		}
+	}
+	// The sync state always stays; the credit goes first when the row is short.
+	right := sync
+	if full := a.p.Gray + tuiCredit + "  ·  " + a.p.Reset + sync; visibleWidth(left)+2+visibleWidth(full) <= g.contentWidth {
+		right = full
 	}
 	if visibleWidth(left) > g.contentWidth {
 		left = truncateVisible(left, g.contentWidth, a.p)
 	}
-	if visibleWidth(right) > g.contentWidth {
-		right = truncateVisible(right, g.contentWidth, a.p)
+	if visibleWidth(left)+1+visibleWidth(right) > g.contentWidth {
+		right = truncateVisible(right, maxInt(1, g.contentWidth-visibleWidth(left)-1), a.p)
 	}
 	gap := maxInt(1, g.contentWidth-visibleWidth(left)-visibleWidth(right))
-	if visibleWidth(left)+visibleWidth(right)+gap > g.contentWidth {
-		right = truncateVisible(right, maxInt(1, g.contentWidth-visibleWidth(left)-1), a.p)
-		gap = maxInt(1, g.contentWidth-visibleWidth(left)-visibleWidth(right))
-	}
 	content := left + strings.Repeat(" ", gap) + right
 	return []string{
 		a.p.Gray + "╭" + strings.Repeat("─", g.frameWidth-2) + "╮" + a.p.Reset,
@@ -593,10 +594,11 @@ func formatKeycaps(p palette, pairs ...string) string {
 
 func (a *Application) tuiFooterLines(state *tuiState, width int) []string {
 	g := newTUIGeometry(width, 12)
-	footer := formatKeycaps(a.p, "[↑↓]", "Move", "[Enter]", "Switch", "[^K]", "Actions", "[?]", "Help", "[q]", "Quit")
+	hints := []keyHint{{"[↑↓]", "Move", 4}, {"[Enter]", "Switch", 5}, {"[^K]", "Actions", 2}, {"[?]", "Help", 3}, {"[q]", "Quit", 4}}
 	if state.view == tuiViewDashboard && g.layout == tuiLayoutWide {
-		footer = formatKeycaps(a.p, "[↑↓]", "Move", "[Enter]", "Switch", "[[]/[]]", "Resize", "[^K]", "Actions", "[?]", "Help", "[q]", "Quit")
+		hints = []keyHint{{"[↑↓]", "Move", 4}, {"[Enter]", "Switch", 5}, {"[[]/[]]", "Resize", 1}, {"[^K]", "Actions", 2}, {"[?]", "Help", 3}, {"[q]", "Quit", 4}}
 	}
+	footer := a.fitKeycaps(hints, g.contentWidth)
 	if state.view != tuiViewDashboard {
 		footer = formatKeycaps(a.p, "[↑↓]", "Navigate", "[Enter]", "Edit", "[b]", "Dashboard", "[^K]", "Actions", "[?]", "Help")
 		switch state.view {
@@ -631,6 +633,59 @@ func (a *Application) tuiFooterLines(state *tuiState, width int) []string {
 	}
 }
 
+// keyHint is one footer key. A higher keep value survives narrower screens.
+type keyHint struct {
+	key, label string
+	keep       int
+}
+
+// fitKeycaps draws the hints in order. When the row is too wide the
+// lowest-priority hint first loses its label, then (once every label is gone)
+// the lowest-priority key is dropped.
+func (a *Application) fitKeycaps(hints []keyHint, width int) string {
+	list := append([]keyHint(nil), hints...)
+	render := func() string {
+		pairs := make([]string, 0, len(list)*2)
+		for _, hint := range list {
+			pairs = append(pairs, hint.key, hint.label)
+		}
+		return strings.TrimRight(formatKeycaps(a.p, pairs...), " ")
+	}
+	lowest := func(labeledOnly bool) int {
+		index := -1
+		for i, hint := range list {
+			if labeledOnly && hint.label == "" {
+				continue
+			}
+			if index < 0 || hint.keep < list[index].keep {
+				index = i
+			}
+		}
+		return index
+	}
+	for visibleWidth(render()) > width {
+		if i := lowest(true); i >= 0 && len(list) > 1 && hasLabels(list) {
+			list[i].label = ""
+			continue
+		}
+		if len(list) <= 1 {
+			break
+		}
+		i := lowest(false)
+		list = append(list[:i], list[i+1:]...)
+	}
+	return render()
+}
+
+func hasLabels(list []keyHint) bool {
+	for _, hint := range list {
+		if hint.label != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *Application) tuiHelpLines(width int) []string {
 	lines := []string{
 		"KEYBOARD GUIDE",
@@ -656,6 +711,12 @@ func (a *Application) tuiHelpLines(width int) []string {
 		"Esc / any   Close help",
 		"",
 		a.p.Gray + "Actions keep the active session safe." + a.p.Reset,
+		"",
+		a.p.Bold + "ABOUT" + a.p.Reset,
+		tuiWordmark(a.p) + a.p.Gray + "  v" + tuiText(stateVersion(a.Version)) + a.p.Reset,
+		a.p.Gray + "by " + strings.TrimPrefix(tuiCredit, "credit: ") + " · MIT license" + a.p.Reset,
+		a.p.Gray + "github.com/aklkbqx/agy-swap" + a.p.Reset,
+		a.p.Gray + "Independent open-source CLI, not affiliated with Google." + a.p.Reset,
 	}
 	for i := range lines {
 		lines[i] = truncateVisible(lines[i], maxInt(18, width-8), a.p)

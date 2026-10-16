@@ -28,6 +28,27 @@ func (a *Application) tuiPoolBody(state *tuiState, width, height int) []string {
 	return a.tuiPoolColumnBody(state, g, plan)
 }
 
+// tuiFitPlan keeps the richest digit mode whose detail fits the rows on offer,
+// so a short terminal shows plain limit lines instead of a cut-off panel.
+func (a *Application) tuiFitPlan(state *tuiState, width, budget int, plan tuiLayoutPlan) tuiLayoutPlan {
+	modes := []tuiDigits{digitsNone}
+	switch plan.digits {
+	case digitsFive:
+		modes = []tuiDigits{digitsFive, digitsThree, digitsNone}
+	case digitsThree:
+		modes = []tuiDigits{digitsThree, digitsNone}
+	}
+	for _, digits := range modes {
+		candidate := plan
+		candidate.digits = digits
+		if len(a.tuiGaugeDetail(state, width, 0, candidate)) <= budget {
+			return candidate
+		}
+	}
+	plan.digits = digitsNone
+	return plan
+}
+
 func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLayoutPlan) []string {
 	totalAvail := maxInt(2, g.frameWidth-7)
 	offset := 0
@@ -46,6 +67,7 @@ func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLa
 		rows = a.tuiEmptyListRows(state, g.leftWidth, available-len(list))
 	}
 	list = append(list, rows...)
+	plan = a.tuiFitPlan(state, g.rightWidth, available, plan)
 	details := a.tuiGaugeDetail(state, g.rightWidth, available, plan)
 	count := maxInt(len(list), len(details))
 	for i := 0; i < count && len(lines) < g.bodyRows; i++ {
@@ -78,6 +100,8 @@ func (a *Application) tuiPoolColumnBody(state *tuiState, g tuiGeometry, plan tui
 	_, _, hasSelected := state.selectedAccount()
 	var detail []string
 	if hasSelected {
+		minList := minInt(len(list), plan.listLines*2)
+		plan = a.tuiFitPlan(state, g.contentWidth, maxInt(1, avail-1-minList), plan)
 		detail = a.tuiGaugeDetail(state, g.contentWidth, 0, plan)
 	}
 	listBudget, detailBudget := len(list), 0
