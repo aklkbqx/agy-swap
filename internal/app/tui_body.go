@@ -37,23 +37,30 @@ func (a *Application) tuiPoolBody(state *tuiState, width, height int) []string {
 // tuiFitPlan keeps the richest digit mode whose detail fits the rows on offer,
 // so a short terminal shows plain limit lines instead of a cut-off panel.
 func (a *Application) tuiFitPlan(state *tuiState, width, budget int, plan tuiLayoutPlan) tuiLayoutPlan {
-	modes := []tuiDigits{digitsNone}
+	var candidates []tuiLayoutPlan
+	with := func(digits tuiDigits, panels tuiPanels, tight bool) {
+		candidate := plan
+		candidate.digits, candidate.panels, candidate.tight = digits, panels, tight
+		candidates = append(candidates, candidate)
+	}
 	switch plan.digits {
 	case digitsFive:
-		modes = []tuiDigits{digitsFive, digitsThree, digitsNone}
+		with(digitsFive, plan.panels, false)
+		with(digitsThree, plan.panels, false)
 	case digitsThree:
-		modes = []tuiDigits{digitsThree, digitsNone}
+		with(digitsThree, plan.panels, false)
 	}
-	for _, digits := range modes {
-		candidate := plan
-		candidate.digits = digits
+	if width >= 44 {
+		with(digitsInline, panelsStack, false)
+	}
+	with(digitsNone, plan.panels, false)
+	with(digitsNone, plan.panels, true)
+	for _, candidate := range candidates {
 		if len(a.tuiGaugeDetail(state, width, 0, candidate)) <= budget {
 			return candidate
 		}
 	}
-	plan.digits = digitsNone
-	plan.tight = true
-	return plan
+	return candidates[len(candidates)-1]
 }
 
 // tuiEmptyBody is the first screen: no accounts, so one column of welcome text

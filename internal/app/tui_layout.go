@@ -23,9 +23,10 @@ const (
 type tuiDigits uint8
 
 const (
-	digitsNone  tuiDigits = iota // limits as plain lines
-	digitsThree                  // 3-row half-block digits
-	digitsFive                   // 5-row block digits
+	digitsNone   tuiDigits = iota // limits as plain lines
+	digitsThree                   // 3-row half-block digits
+	digitsInline                  // 3-row digits beside the bars, about 7 rows a pool
+	digitsFive                    // 5-row block digits
 )
 
 type tuiLayoutPlan struct {
