@@ -346,15 +346,6 @@ func (s *tuiState) animationPhase() int {
 	return s.animation.phase % 4
 }
 
-func (s *tuiState) selectedIndex() int {
-	for i, email := range s.visibleEmails() {
-		if strings.EqualFold(email, s.selectedEmail) {
-			return i
-		}
-	}
-	return 0
-}
-
 func (s *tuiState) moveProfile(delta int) {
 	if len(s.profileNames) == 0 {
 		return
