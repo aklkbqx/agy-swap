@@ -167,3 +167,59 @@ func TestAccountRowsMarkHiddenAccountsAboveAndBelow(t *testing.T) {
 		t.Fatalf("at the top only the lower marker belongs:\n%s", top)
 	}
 }
+
+func attentionState() (*Application, *tuiState) {
+	a := rowsApp()
+	state := rowsState(map[string]Account{
+		"ok@example.invalid": namedPoolAccount("Fine User",
+			poolGroup("gemini", "Gemini models", poolBucket("weekly", 0.9, 100*time.Hour)),
+			poolGroup("third_party", "Claude and GPT models", poolBucket("weekly", 0.8, 100*time.Hour))),
+		"bad@example.invalid": namedPoolAccount("Broken User"),
+	}, "ok@example.invalid", "bad@example.invalid")
+	state.quotaErrors["bad@example.invalid"] = "secret vault entry is unavailable"
+	return a, state
+}
+
+func TestAttentionDividerIsPreceededByABlankRow(t *testing.T) {
+	a, state := attentionState()
+	rows := a.tuiAccountRowsFor(state, 60, 12, 2)
+	for i, row := range rows {
+		if strings.Contains(row, "ATTENTION REQUIRED") {
+			if i == 0 || strings.TrimSpace(rows[i-1]) != "" {
+				t.Fatalf("no blank row before the divider:\n%s", strings.Join(rows, "\n"))
+			}
+			return
+		}
+	}
+	t.Fatalf("no ATTENTION REQUIRED divider:\n%s", strings.Join(rows, "\n"))
+}
+
+func TestNoTokenRowsSayHowToFixIt(t *testing.T) {
+	a, state := attentionState()
+	text := strings.Join(a.tuiAccountRowsFor(state, 60, 12, 2), "\n")
+	if !strings.Contains(text, "NO TOKEN") || !strings.Contains(text, "agy-swap add") {
+		t.Fatalf("a NO TOKEN row should name the fix:\n%s", text)
+	}
+}
+
+func TestWideListsNameThePoolsInFull(t *testing.T) {
+	a, state := overviewState()
+	view := a.tuiAccountView(state, "beta@example.invalid", poolNow)
+	wide := a.tuiAccountBlock(view, state, 62, 2)[1]
+	if !strings.Contains(wide, "Gemini ") || !strings.Contains(wide, "Claude/GPT ") {
+		t.Fatalf("a 62-column row should use full pool names: %q", wide)
+	}
+	mid := a.tuiAccountBlock(view, state, 50, 2)[1]
+	if !strings.Contains(mid, "Gem ") || !strings.Contains(mid, "C/G ") {
+		t.Fatalf("a 50-column row keeps the short names: %q", mid)
+	}
+}
+
+func TestWarningsAreYellowWarningsNotRedErrors(t *testing.T) {
+	a, state := overviewState()
+	state.message, state.messageType = "Usage refresh completed with 2 warning(s)", "warning"
+	text := strings.Join(a.tuiStatusLines(state, 100), "\n")
+	if !strings.Contains(text, "⚠ Usage refresh completed with 2 warning(s)") || strings.Contains(text, "✕") {
+		t.Fatalf("status line = %q", text)
+	}
+}
