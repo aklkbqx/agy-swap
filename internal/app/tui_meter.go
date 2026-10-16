@@ -28,7 +28,9 @@ func renderMeter(style meterStyle, fraction float64, width int, fill, track, res
 		return renderFractionalBar(fraction, width, fill, track, reset)
 	}
 	full, halves := "▄", "▖"
-	rail := "▄"
+	// The rail is thinner than the fill, so the two stay apart without color
+	// and map to different characters in ASCII mode.
+	rail := "▂"
 	if style == meterLine {
 		full, halves, rail = "━", "╸", "─"
 	}

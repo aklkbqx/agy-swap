@@ -394,9 +394,7 @@ func (a *Application) tuiQuotaViewRows(state *tuiState, width, height int) []str
 		budget := height - len(rows) - 1
 		plan = a.tuiFitPlan(state, width, budget, plan)
 		rows = append(rows, "")
-		for _, row := range a.tuiGaugeDetail(state, width, budget, plan) {
-			rows = append(rows, row)
-		}
+		rows = append(rows, a.tuiGaugeDetail(state, width, budget, plan)...)
 	}
 	return rows
 }

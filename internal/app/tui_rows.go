@@ -48,7 +48,7 @@ func (a *Application) tuiPoolMeters(pools []poolView, labels meterLabels, barWid
 			}
 		}
 		if found == nil {
-			parts = append(parts, a.p.Gray+label+" "+a.p.Track+strings.Repeat("░", barWidth)+a.p.Gray+fmt.Sprintf(" %4s", "—")+a.p.Reset)
+			parts = append(parts, a.p.Gray+label+" "+a.p.Track+strings.Repeat("▂", barWidth)+a.p.Gray+fmt.Sprintf(" %4s", "—")+a.p.Reset)
 			continue
 		}
 		color := poolColor(a.p, found.state)

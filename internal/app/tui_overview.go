@@ -55,7 +55,7 @@ func (a *Application) tuiOverviewCell(pools []poolView, id string, barWidth int,
 	reset := ""
 	var cell string
 	if pool == nil {
-		cell = a.p.Track + strings.Repeat("▄", barWidth) + a.p.Reset + a.p.Gray + fmt.Sprintf(" %4s", "—") + a.p.Reset
+		cell = a.p.Track + strings.Repeat("▂", barWidth) + a.p.Reset + a.p.Gray + fmt.Sprintf(" %4s", "—") + a.p.Reset
 	} else {
 		color := poolColor(a.p, pool.state)
 		cell = renderMeter(tuiMeterStyle, pool.limiting.fraction, barWidth, color, a.p.Track, a.p.Reset) + " " + color + fmt.Sprintf("%4s", poolPercent(pool.limiting.fraction)) + a.p.Reset

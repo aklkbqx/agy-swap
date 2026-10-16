@@ -89,7 +89,7 @@ func countAbove(text string) int {
 	var n int
 	for _, line := range strings.Split(text, "\n") {
 		if strings.Contains(line, "▲") {
-			fmt.Sscanf(strings.TrimSpace(strings.Trim(strings.TrimSpace(line), "│ ")), "▲ %d more", &n)
+			_, _ = fmt.Sscanf(strings.TrimSpace(strings.Trim(strings.TrimSpace(line), "│ ")), "▲ %d more", &n)
 		}
 	}
 	return n

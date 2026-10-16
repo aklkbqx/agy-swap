@@ -153,8 +153,7 @@ func tuiPoolInlineLines(p palette, pool poolView, now time.Time, width int) []st
 	}
 	for i := 0; i < 4; i++ {
 		left := strings.Repeat(" ", digitWidth)
-		switch {
-		case i < 3:
+		if i < 3 {
 			left = fitVisible(color+digits[i]+p.Reset, digitWidth, p)
 			if i == 2 {
 				left = fitVisible(color+digits[i]+" %"+p.Reset, digitWidth, p)

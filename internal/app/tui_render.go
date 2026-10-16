@@ -264,23 +264,6 @@ func tuiHealthToneForGroups(groups []quotaGroupHealth, account Account, now time
 	return tuiHealthPending
 }
 
-func (a *Application) tuiHealthColor(tone tuiHealthTone) string {
-	switch tone {
-	case tuiHealthReady:
-		return a.p.Green
-	case tuiHealthWarning:
-		return a.p.Yellow
-	case tuiHealthCritical:
-		return a.p.Red
-	case tuiHealthLimited:
-		return a.p.Red
-	case tuiHealthCooldown:
-		return a.p.Yellow
-	default:
-		return a.p.Gray
-	}
-}
-
 func (a *Application) tuiAccountView(state *tuiState, email string, now time.Time) tuiAccountView {
 	account := state.accounts.ByEmail[email]
 	name := firstString(tuiText(getString(account, "name")), "Google User")
@@ -367,9 +350,7 @@ func (a *Application) tuiWelcomeRows(width, maxRows int) []string {
 	} else {
 		rows = append(rows, "Press "+a.p.Orange+"a"+a.p.Reset+" to sign in,", "or "+a.p.Cyan+"Ctrl-K"+a.p.Reset+" for every action.")
 	}
-	for _, line := range wrapWords("Your tokens go to a private local vault after sign-in.", width) {
-		rows = append(rows, line)
-	}
+	rows = append(rows, wrapWords("Your tokens go to a private local vault after sign-in.", width)...)
 	if maxRows < len(rows) {
 		rows = rows[:maxRows]
 	}
@@ -735,7 +716,8 @@ func (a *Application) fitKeycaps(hints []keyHint, width int) string {
 func (a *Application) tuiHelpLines(width int) []string {
 	lines := []string{
 		tuiWordmark(a.p) + a.p.Gray + "  v" + tuiText(stateVersion(a.Version)) + "  ·  by " + strings.TrimPrefix(tuiCredit, "credit: ") + "  ·  MIT" + a.p.Reset,
-		a.p.Gray + "github.com/aklkbqx/agy-swap · independent, not affiliated with Google" + a.p.Reset,
+		a.p.Gray + "github.com/aklkbqx/agy-swap" + a.p.Reset,
+		a.p.Gray + "Independent, not affiliated with Google." + a.p.Reset,
 		"",
 		a.p.Bold + "KEYBOARD GUIDE" + a.p.Reset,
 		"↑ ↓ / j k   Move through accounts",
