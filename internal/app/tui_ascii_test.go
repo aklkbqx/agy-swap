@@ -70,3 +70,20 @@ func TestASCIILinesKeepAnsiColorSequences(t *testing.T) {
 		}
 	}
 }
+
+func TestASCIIMetersKeepTheFillAndTheRailApart(t *testing.T) {
+	for _, style := range []meterStyle{meterBlocks, meterHalf, meterLine} {
+		bar := asciiLine(renderMeter(style, 0.45, 20, "", "", ""))
+		if !strings.ContainsAny(bar, "#=-") && style != meterLine {
+			t.Fatalf("style %d: no fill in %q", style, bar)
+		}
+		fill := strings.IndexAny(bar, "#=")
+		rail := strings.IndexAny(bar, ".-_")
+		if style != meterLine && (fill < 0 || rail < 0 || fill > rail) {
+			t.Fatalf("style %d: fill and rail run together in %q", style, bar)
+		}
+		if strings.ContainsRune(bar, '?') {
+			t.Fatalf("style %d: unmapped glyph in %q", style, bar)
+		}
+	}
+}
