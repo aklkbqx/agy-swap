@@ -59,6 +59,9 @@ func New(version string, in io.Reader, out, errOut io.Writer) (*Application, err
 	}
 	app := &Application{Version: version, BuildID: "unknown", In: in, Out: out, Err: errOut, lineReader: lineReader, paths: paths, store: store, credentials: NewCredentials(paths), vault: NewAccountVault(paths), http: httpService, quota: NewQuotaService(httpService, store), stdinTTY: readerTerminal(in), stdoutTTY: stdoutTTY, color: stdoutTTY && os.Getenv("NO_COLOR") == ""}
 	app.quota.SetVault(app.vault)
+	if os.Getenv("AGY_SWAP_QUOTA_DEBUG") == "1" {
+		app.quota.SetDiagnostics(errOut)
+	}
 	app.p = makePalette(app.color)
 	return app, nil
 }
