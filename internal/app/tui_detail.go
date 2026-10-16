@@ -100,19 +100,49 @@ func (a *Application) tuiGaugeDetail(state *tuiState, width, maxRows int, plan t
 func (a *Application) tuiPoolPanels(pools []poolView, now time.Time, width int, plan tuiLayoutPlan) []string {
 	if plan.digits == digitsNone {
 		compact := func(pool poolView, boxWidth int) []string { return tuiPoolCompactLines(a.p, pool, now, boxWidth) }
+		framed := func(pool poolView, boxWidth int) []string {
+			return tuiBox(a.p, compact(pool, maxInt(8, boxWidth-4)), boxWidth, poolBorderColor(a.p, pool))
+		}
+		if !plan.tight {
+			// Without digits each pool still gets its frame, which keeps the two
+			// pools apart whether they sit side by side or one above the other.
+			if plan.panels == panelsSide {
+				half := (width - 1) / 2
+				left := framed(pools[0], half)
+				if len(pools) == 1 {
+					return left
+				}
+				return joinBoxes(left, framed(pools[1], width-1-half), half, width-1-half, a.p)
+			}
+			var rows []string
+			for _, pool := range pools {
+				rows = append(rows, framed(pool, width)...)
+			}
+			return rows
+		}
 		if plan.panels == panelsSide {
-			half := (width - 1) / 2
+			half := (width - 3) / 2
 			left := compact(pools[0], half)
 			if len(pools) == 1 {
 				return left
 			}
-			return joinBoxes(left, compact(pools[1], width-1-half), half, width-1-half, a.p)
+			right := compact(pools[1], width-3-half)
+			rows := maxInt(len(left), len(right))
+			joined := make([]string, 0, rows)
+			for i := 0; i < rows; i++ {
+				l, r := strings.Repeat(" ", half), strings.Repeat(" ", width-3-half)
+				if i < len(left) {
+					l = left[i]
+				}
+				if i < len(right) {
+					r = right[i]
+				}
+				joined = append(joined, l+" "+a.p.DarkGray+"│"+a.p.Reset+" "+r)
+			}
+			return joined
 		}
 		var rows []string
-		for i, pool := range pools {
-			if i > 0 && !plan.tight {
-				rows = append(rows, "")
-			}
+		for _, pool := range pools {
 			rows = append(rows, compact(pool, width)...)
 		}
 		return rows

@@ -92,7 +92,7 @@ func tuiPoolPanelLines(p palette, pool poolView, now time.Time, width int, digit
 		}
 		tone := poolColor(p, poolStateFor(l.fraction))
 		lines = append(lines, pad(rowSpread(name, p.Bold+tone+poolPercent(l.fraction)+p.Reset, width, p)))
-		lines = append(lines, pad(renderFractionalBar(l.fraction, width, tone, p.DarkGray, p.Reset)))
+		lines = append(lines, pad(renderFractionalBar(l.fraction, width, tone, p.Track, p.Reset)))
 		if reset := tuiResetText(l, now); reset != "" {
 			lines = append(lines, pad(p.Gray+reset+p.Reset))
 		}
@@ -151,14 +151,14 @@ func tuiPoolCompactLines(p palette, pool poolView, now time.Time, width int) []s
 		label := fmt.Sprintf("%-*s", labelWidth, name)
 		oneLine := width - labelWidth - 1 - len(percent) - 2 - len(reset)
 		if reset == "" || oneLine < 10 {
-			bar := renderFractionalBar(l.fraction, maxInt(6, width-labelWidth-1-len(percent)), tone, p.DarkGray, p.Reset)
+			bar := renderFractionalBar(l.fraction, maxInt(6, width-labelWidth-1-len(percent)), tone, p.Track, p.Reset)
 			lines = append(lines, pad(label+bar+" "+tone+percent+p.Reset))
 			if reset != "" {
 				lines = append(lines, pad(strings.Repeat(" ", labelWidth)+resetColor+reset+p.Reset))
 			}
 			return
 		}
-		bar := renderFractionalBar(l.fraction, oneLine, tone, p.DarkGray, p.Reset)
+		bar := renderFractionalBar(l.fraction, oneLine, tone, p.Track, p.Reset)
 		lines = append(lines, pad(label+bar+" "+tone+percent+p.Reset+"  "+resetColor+reset+p.Reset))
 	}
 	if pool.weekly.present {
@@ -168,7 +168,13 @@ func tuiPoolCompactLines(p palette, pool poolView, now time.Time, width int) []s
 	case pool.fiveHour.present:
 		limit("5-hour", pool.fiveHour, pool.limitingWindow == "5h")
 	case pool.paused:
-		lines = append(lines, pad(fmt.Sprintf("%-*s", labelWidth, "5-hour")+p.Gray+"paused until weekly resets"+p.Reset))
+		const reason = "paused until weekly resets"
+		if width-labelWidth >= len(reason) {
+			lines = append(lines, pad(fmt.Sprintf("%-*s", labelWidth, "5-hour")+p.Gray+reason+p.Reset))
+		} else {
+			lines = append(lines, pad(fmt.Sprintf("%-*s", labelWidth, "5-hour")+p.Gray+"paused"+p.Reset))
+			lines = append(lines, pad(strings.Repeat(" ", labelWidth)+p.Gray+"until weekly resets"+p.Reset))
+		}
 	}
 	return lines
 }

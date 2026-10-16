@@ -34,11 +34,11 @@ func (a *Application) tuiPoolMeters(pools []poolView, short bool, barWidth int) 
 			}
 		}
 		if found == nil {
-			parts = append(parts, a.p.Gray+label+" "+a.p.DarkGray+strings.Repeat("░", barWidth)+a.p.Gray+fmt.Sprintf(" %4s", "—")+a.p.Reset)
+			parts = append(parts, a.p.Gray+label+" "+a.p.Track+strings.Repeat("░", barWidth)+a.p.Gray+fmt.Sprintf(" %4s", "—")+a.p.Reset)
 			continue
 		}
 		color := poolColor(a.p, found.state)
-		bar := renderFractionalBar(found.limiting.fraction, barWidth, color, a.p.DarkGray, a.p.Reset)
+		bar := renderFractionalBar(found.limiting.fraction, barWidth, color, a.p.Track, a.p.Reset)
 		parts = append(parts, a.p.Gray+label+a.p.Reset+" "+bar+" "+color+fmt.Sprintf("%4s", poolPercent(found.limiting.fraction))+a.p.Reset)
 	}
 	return strings.Join(parts, "  ")
@@ -64,6 +64,15 @@ func (a *Application) tuiAccountBlock(view tuiAccountView, state *tuiState, widt
 	if view.status == statusNoToken {
 		word = a.p.Yellow + a.p.Bold + "⚠ NO TOKEN" + a.p.Reset
 	}
+	highlight := func(rows []string) []string {
+		if !view.selected || a.p.SelectBg == "" {
+			return rows
+		}
+		for i, row := range rows {
+			rows[i] = a.p.SelectBg + strings.ReplaceAll(row, "\x1b[0m", "\x1b[0m"+a.p.SelectBg) + a.p.Reset
+		}
+		return rows
+	}
 	if lines == 1 {
 		right := word
 		if len(view.pools) > 0 && width >= 46 {
@@ -71,13 +80,13 @@ func (a *Application) tuiAccountBlock(view tuiAccountView, state *tuiState, widt
 			right = word + "  " + a.tuiPoolMeters(view.pools, true, barWidth)
 		}
 		room := maxInt(1, width-visibleWidth(right)-1)
-		return []string{fitVisible(fitVisible(left, room, a.p)+" "+right, width, a.p)}
+		return highlight([]string{fitVisible(fitVisible(left, room, a.p)+" "+right, width, a.p)})
 	}
 	first := rowSpread(left, word, width, a.p)
 	second := "    "
 	switch {
 	case len(view.pools) > 0 && view.status != statusNoToken && view.status != statusAttention:
-		if width < 46 {
+		if width < 40 {
 			second += a.tuiPoolMeters(view.pools, true, 6)
 		} else {
 			second += a.tuiPoolMeters(view.pools, false, 8)
@@ -93,7 +102,7 @@ func (a *Application) tuiAccountBlock(view tuiAccountView, state *tuiState, widt
 	default:
 		second += a.p.Gray + tuiText(view.health) + a.p.Reset
 	}
-	return []string{fitVisible(first, width, a.p), fitVisible(second, width, a.p)}
+	return highlight([]string{fitVisible(first, width, a.p), fitVisible(second, width, a.p)})
 }
 
 func (a *Application) tuiAccountRows(state *tuiState, width, maxRows int) []string {

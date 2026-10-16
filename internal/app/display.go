@@ -16,6 +16,9 @@ type palette struct {
 	Orange, Green, Blue, Red, Yellow, Cyan, Gray, DarkGray, White, Bold, Reset string
 	SelectionBg                                                                string
 	TrackBg                                                                    string
+	// Track draws the empty part of a meter and SelectBg tints the selected
+	// row; both are visible on a dark terminal, unlike DarkGray and SelectionBg.
+	Track, SelectBg string
 }
 
 func isTrueColorSupported() bool {
@@ -52,6 +55,8 @@ func makePalette(color bool) palette {
 			Reset:       "\x1b[0m",
 			SelectionBg: "\x1b[48;2;22;27;34m",
 			TrackBg:     "\x1b[38;2;33;38;45m",
+			Track:       "\x1b[38;2;74;82;92m",
+			SelectBg:    "\x1b[48;2;44;32;21m",
 		}
 	}
 	return palette{
@@ -68,6 +73,8 @@ func makePalette(color bool) palette {
 		Reset:       "\x1b[0m",
 		SelectionBg: "\x1b[48;5;235m",
 		TrackBg:     "\x1b[38;5;236m",
+		Track:       "\x1b[38;5;240m",
+		SelectBg:    "\x1b[48;5;236m",
 	}
 }
 

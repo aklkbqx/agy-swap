@@ -6,12 +6,13 @@ import (
 )
 
 func TestBigNumberDrawsFiveRowDigitsFromOneBitmap(t *testing.T) {
+	// Each pixel is two cells wide, so the digits come out square on a terminal.
 	want := []string{
-		"███ ███ █ █",
-		"  █ █     █",
-		"███ ███  █ ",
-		"  █ █ █ █  ",
-		"███ ███ █ █",
+		"██████  ██████  ██  ██",
+		"    ██  ██          ██",
+		"██████  ██████    ██  ",
+		"    ██  ██  ██  ██    ",
+		"██████  ██████  ██  ██",
 	}
 	got := bigNumber("36%", 5)
 	if len(got) != 5 {

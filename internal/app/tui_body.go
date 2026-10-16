@@ -5,6 +5,9 @@ import (
 	"strings"
 )
 
+// tuiDetailMaxWidth caps the gauge area so two panels never stretch across a huge window.
+const tuiDetailMaxWidth = 108
+
 func (a *Application) tuiListTitle(state *tuiState) string {
 	return a.tuiSectionTitle("ACCOUNTS") + "  " + a.p.Gray + fmt.Sprintf("%d", len(state.visibleEmails())) + "  ❯ selected · ● active" + a.p.Reset
 }
@@ -58,7 +61,10 @@ func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLa
 	}
 	minLeft := minInt(34, totalAvail-1)
 	maxLeft := maxInt(minLeft, totalAvail-44)
-	g.leftWidth = maxInt(minLeft, minInt(maxLeft, 42+offset))
+	// The list grows a little on very wide screens; the gauges stop at a width
+	// where the bars and numbers still read as one panel.
+	baseLeft := maxInt(42, minInt(64, totalAvail*30/100))
+	g.leftWidth = maxInt(minLeft, minInt(maxLeft, baseLeft+offset))
 	g.rightWidth = maxInt(1, totalAvail-g.leftWidth)
 	lines := []string{panelDivider(g, a.p)}
 	available := maxInt(0, g.bodyRows-len(lines))
@@ -68,8 +74,8 @@ func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLa
 		rows = a.tuiEmptyListRows(state, g.leftWidth, available-len(list))
 	}
 	list = append(list, rows...)
-	plan = a.tuiFitPlan(state, g.rightWidth, available, plan)
-	details := a.tuiGaugeDetail(state, g.rightWidth, available, plan)
+	plan = a.tuiFitPlan(state, minInt(g.rightWidth, tuiDetailMaxWidth), available, plan)
+	details := a.tuiGaugeDetail(state, minInt(g.rightWidth, tuiDetailMaxWidth), available, plan)
 	count := maxInt(len(list), len(details))
 	for i := 0; i < count && len(lines) < g.bodyRows; i++ {
 		left, right := "", ""
