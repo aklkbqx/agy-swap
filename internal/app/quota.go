@@ -62,8 +62,18 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 	if err != nil {
 		return nil, err
 	}
+	var models map[string]any
+	var modelsErr error
+	modelsLoaded := false
+	loadModels := func() (map[string]any, error) {
+		if !modelsLoaded {
+			models, modelsErr = q.http.cloudPost(ctx, access, "fetchAvailableModels", map[string]any{"project": project})
+			modelsLoaded = true
+		}
+		return models, modelsErr
+	}
 	if q.diagnostics != nil {
-		q.describeModelList(ctx, access, project)
+		q.describeModelList(loadModels())
 	}
 	tier := getMap(info["paidTier"])
 	if tier == nil {
@@ -78,6 +88,16 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 		tierName = cleanText(firstString(tier["name"], tierID))
 	}
 	groups, notes := quotaGroupsFromSummary(summary)
+	if !hasQuotaGroup(groups, "gemini") {
+		// Google's summary can leave Gemini out. The model list still carries
+		// the Gemini quota, one value for every Gemini model of the account.
+		if list, err := loadModels(); err == nil {
+			if gemini := geminiGroupFromModels(list, time.Now()); gemini != nil {
+				groups = append([]any{gemini}, groups...)
+				notes = append(notes, "gemini: read from the model list, the summary has no Gemini group")
+			}
+		}
+	}
 	if q.diagnostics != nil && len(notes) > 0 {
 		// One write per account, so concurrent refreshes do not interleave lines.
 		fmt.Fprint(q.diagnostics, "quota: summary\n  "+strings.Join(notes, "\n  ")+"\n")
@@ -117,6 +137,11 @@ func quotaGroupsFromSummary(summary map[string]any) ([]any, []string) {
 			case !oneOf(window, "weekly", "5h"):
 				verdicts = append(verdicts, verdict{id, window, "skipped, window is not weekly or 5h"})
 				continue
+			case bucket["disabled"] == true:
+				// Google marks a limit that does not apply right now, for example
+				// the 5-hour limit while the weekly limit is used up.
+				verdicts = append(verdicts, verdict{id, window, "skipped, disabled"})
+				continue
 			case !ok:
 				verdicts = append(verdicts, verdict{id, window, "skipped, no remaining fraction"})
 				continue
@@ -147,6 +172,58 @@ func quotaGroupsFromSummary(summary map[string]any) ([]any, []string) {
 		}
 	}
 	return groups, notes
+}
+
+func hasQuotaGroup(groups []any, id string) bool {
+	for _, raw := range groups {
+		if getString(getMap(raw), "id") == id {
+			return true
+		}
+	}
+	return false
+}
+
+// geminiGroupFromModels builds the Gemini group from the model list. Every
+// Gemini model of an account reports the same quota, so the tightest model
+// stands for the group. A model with a reset time but no fraction is empty
+// (the protocol omits zero). The list does not name the window, so a reset
+// within five hours is read as the 5-hour limit and anything later as weekly.
+func geminiGroupFromModels(models map[string]any, now time.Time) map[string]any {
+	var (
+		found    bool
+		fraction float64
+		resetAt  time.Time
+		resetRaw string
+	)
+	for id, entry := range getMap(models["models"]) {
+		if !strings.HasPrefix(id, "gemini-") {
+			continue
+		}
+		info := getMap(getMap(entry)["quotaInfo"])
+		rawReset := getString(info, "resetTime")
+		at, err := parseUTC(rawReset)
+		if err != nil {
+			continue
+		}
+		value, ok := getFloat(info["remainingFraction"])
+		if !ok {
+			value = 0
+		}
+		value = max(0, min(1, value))
+		if !found || value < fraction || (value == fraction && at.Before(resetAt)) {
+			found, fraction, resetAt, resetRaw = true, value, at, rawReset
+		}
+	}
+	if !found {
+		return nil
+	}
+	window, name := "weekly", "Weekly"
+	if resetAt.Sub(now) <= 5*time.Hour+10*time.Minute {
+		window, name = "5h", "5-Hour"
+	}
+	return map[string]any{"id": "gemini", "name": "Gemini models", "buckets": []any{
+		map[string]any{"id": "gemini-" + window, "name": name, "window": window, "remaining_fraction": fraction, "reset_at": resetRaw},
+	}}
 }
 
 // describeQuotaGroup names a group's fields and bucket fields, never values, so
@@ -208,8 +285,7 @@ func sortedKeys(values map[string]any) string {
 
 // describeModelList asks for the model list and writes only its field names,
 // to see where Google reports quota that the summary does not carry.
-func (q *QuotaService) describeModelList(ctx context.Context, access, project string) {
-	models, err := q.http.cloudPost(ctx, access, "fetchAvailableModels", map[string]any{"project": project})
+func (q *QuotaService) describeModelList(models map[string]any, err error) {
 	if err != nil {
 		fmt.Fprintf(q.diagnostics, "quota: fetchAvailableModels failed: %v\n", err)
 		return
