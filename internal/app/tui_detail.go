@@ -61,10 +61,12 @@ func (a *Application) tuiGaugeDetail(state *tuiState, width, maxRows int, plan t
 			facts = append(facts, "updated "+formatDuration(age.Seconds())+" ago")
 		}
 	}
-	if len(facts) > 0 {
+	if len(facts) > 0 && !plan.tight {
 		rows = append(rows, a.tuiSecondary(strings.Join(facts, " · ")))
 	}
-	rows = append(rows, "")
+	if !plan.tight {
+		rows = append(rows, "")
+	}
 	switch {
 	case view.needsAttention:
 		rows = append(rows, a.p.Yellow+"Needs re-auth"+a.p.Reset+" · "+tuiText(view.attentionReason))
@@ -108,7 +110,7 @@ func (a *Application) tuiPoolPanels(pools []poolView, now time.Time, width int, 
 		}
 		var rows []string
 		for i, pool := range pools {
-			if i > 0 {
+			if i > 0 && !plan.tight {
 				rows = append(rows, "")
 			}
 			rows = append(rows, compact(pool, width)...)

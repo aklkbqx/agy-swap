@@ -82,35 +82,21 @@ func TestSiteStoryFrames(t *testing.T) {
 	for _, scene := range []string{"hero", "accounts", "quota", "switch"} {
 		frames.Frames[scene] = map[string][]string{}
 		for layout, size := range map[string]struct{ width, height int }{
-			"desktop": {120, 24},
-			"tablet":  {80, 22},
-			"stage":   {63, 22},
-			"mobile":  {48, 22},
-			"narrow":  {40, 22},
+			"desktop": {120, 34},
+			"tablet":  {80, 24},
+			"stage":   {80, 38},
+			"mobile":  {48, 24},
+			"narrow":  {40, 24},
 		} {
-			switch scene {
-			case "hero":
-				if layout == "desktop" {
-					size.width = 72
-				}
-				size.height = 20
-			case "accounts":
-				if layout == "stage" || layout == "mobile" || layout == "narrow" {
-					size.height = 16
-				}
-			case "switch":
-				if layout == "stage" || layout == "mobile" || layout == "narrow" {
-					size.height = 18
-				}
-			}
 			state := newTUIState(accounts, application.credentials.Current(context.Background()))
 			state.motionEnabled = false
 			switch scene {
+			case "hero":
+				state.selectedEmail = "alpha@example.invalid"
 			case "accounts":
 				state.selectedEmail = "beta@example.invalid"
 			case "quota":
-				state.view = tuiViewQuota
-				state.selectedEmail = "beta@example.invalid"
+				state.selectedEmail = "gamma@example.invalid"
 			case "switch":
 				state.selectedEmail = "beta@example.invalid"
 				state.active = "beta@example.invalid"

@@ -46,6 +46,7 @@ func (a *Application) tuiFitPlan(state *tuiState, width, budget int, plan tuiLay
 		}
 	}
 	plan.digits = digitsNone
+	plan.tight = true
 	return plan
 }
 
