@@ -16,13 +16,13 @@ func TestMeterIsAlwaysExactlyItsWidthInEveryStyle(t *testing.T) {
 
 func TestHalfHeightMeterFillsInHalfCellsAndKeepsAVisibleRail(t *testing.T) {
 	// Fill and rail colors are escape prefixes; here they are visible markers.
-	if got := renderMeter(meterHalf, 0.25, 4, "[", "|", "]"); got != "[▄|▄▄▄]" {
+	if got := renderMeter(meterHalf, 0.25, 4, "[", "|", "]"); got != "[▄|▂▂▂]" {
 		t.Fatalf("a quarter of four cells = %q", got)
 	}
-	if got := renderMeter(meterHalf, 0.375, 4, "[", "|", "]"); got != "[▄▖|▄▄]" {
+	if got := renderMeter(meterHalf, 0.375, 4, "[", "|", "]"); got != "[▄▖|▂▂]" {
 		t.Fatalf("a half cell step = %q", got)
 	}
-	if got := renderMeter(meterHalf, 0, 3, "[", "|", "]"); got != "|▄▄▄]" {
+	if got := renderMeter(meterHalf, 0, 3, "[", "|", "]"); got != "|▂▂▂]" {
 		t.Fatalf("empty = %q", got)
 	}
 	if got := renderMeter(meterLine, 0.3, 10, "", "", ""); got != "━━━───────" {

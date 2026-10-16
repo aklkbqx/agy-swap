@@ -78,7 +78,7 @@ func TestAccountBlockShowsADashForAPoolTheAccountDoesNotHave(t *testing.T) {
 	}, "c@example.invalid")
 	view := a.tuiAccountView(state, "c@example.invalid", poolNow)
 	lines := a.tuiAccountBlock(view, state, 50, 2)
-	if !strings.Contains(lines[1], "Gem ░░░░░░░░    —") {
+	if !strings.Contains(lines[1], "Gem ▂▂▂▂▂▂▂▂    —") {
 		t.Fatalf("meter line = %q", lines[1])
 	}
 }
@@ -150,8 +150,8 @@ func TestAccountRowsMarkHiddenAccountsAboveAndBelow(t *testing.T) {
 			t.Fatalf("lines=%d: window lost the selection or a marker:\n%s", listLines, text)
 		}
 		var above, below, shown int
-		fmt.Sscanf(strings.TrimSpace(rows[0]), "▲ %d more", &above)
-		fmt.Sscanf(strings.TrimSpace(rows[len(rows)-1]), "▼ %d more", &below)
+		_, _ = fmt.Sscanf(strings.TrimSpace(rows[0]), "▲ %d more", &above)
+		_, _ = fmt.Sscanf(strings.TrimSpace(rows[len(rows)-1]), "▼ %d more", &below)
 		for _, row := range rows {
 			if strings.Contains(row, "User ") {
 				shown++
