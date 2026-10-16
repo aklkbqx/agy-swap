@@ -656,12 +656,8 @@ func (a *Application) fitKeycaps(hints []keyHint, width int) string {
 	}
 	fits := func() bool { return visibleWidth(render()) <= width }
 	for level := 1; level <= 5 && !fits(); level++ {
-		for i := range list {
-			if list[i].keep == level {
-				list[i].label = ""
-			}
-		}
-		if level <= 2 && !fits() {
+		if level <= 2 {
+			// A bare key such as [^K] says nothing, so these go whole.
 			kept := list[:0]
 			for _, hint := range list {
 				if hint.keep > level {
@@ -669,6 +665,12 @@ func (a *Application) fitKeycaps(hints []keyHint, width int) string {
 				}
 			}
 			list = kept
+			continue
+		}
+		for i := range list {
+			if list[i].keep == level {
+				list[i].label = ""
+			}
 		}
 	}
 	for !fits() && len(list) > 1 {
