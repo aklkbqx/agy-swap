@@ -123,3 +123,35 @@ func TestDashboardNeverRepeatsTheAccountList(t *testing.T) {
 		}
 	}
 }
+
+func TestTheDividerRunsDownToTheStatusRuleAtAnyHeight(t *testing.T) {
+	a, state := overviewState()
+	for _, size := range [][2]int{{100, 30}, {118, 56}, {235, 66}} {
+		lines := a.tuiLines(state, size[0], size[1])
+		col, first := -1, -1
+		for i, line := range lines {
+			runes := []rune(line)
+			if col < 0 && strings.ContainsRune(string(runes), '┬') {
+				for j, r := range runes {
+					if r == '┬' {
+						col, first = j, i
+					}
+				}
+			}
+			if col < 0 {
+				continue
+			}
+			if runes[col] == '┴' {
+				if i < first+3 {
+					t.Fatalf("%dx%d: the divider ends too early", size[0], size[1])
+				}
+				goto joined
+			}
+			if runes[col] != '│' && i != first {
+				t.Fatalf("%dx%d: row %d breaks the divider at column %d: %q", size[0], size[1], i, col, string(runes))
+			}
+		}
+		t.Fatalf("%dx%d: the divider never meets the status rule", size[0], size[1])
+	joined:
+	}
+}

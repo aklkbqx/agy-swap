@@ -24,6 +24,7 @@ func (a *Application) tuiEmptyListRows(state *tuiState, width, height int) []str
 func (a *Application) tuiPoolBody(state *tuiState, width, height int) []string {
 	g := newTUIGeometry(width, height+8)
 	g.bodyRows = maxInt(1, height)
+	state.bodySplit = 0
 	if state.accounts == nil || state.accounts.Len() == 0 {
 		return a.tuiEmptyBody(g)
 	}
@@ -96,6 +97,7 @@ func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLa
 	list = append(list, rows...)
 	plan = a.tuiFitPlan(state, minInt(g.rightWidth, tuiDetailMaxWidth), available, plan)
 	details := a.tuiGaugeDetail(state, minInt(g.rightWidth, tuiDetailMaxWidth), available, plan)
+	state.bodySplit = g.leftWidth + 3
 	count := maxInt(len(list), len(details))
 	for i := 0; i < count && len(lines) < g.bodyRows; i++ {
 		left, right := "", ""
@@ -106,6 +108,10 @@ func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLa
 			right = details[i]
 		}
 		lines = append(lines, panelRow(left, right, g, a.p))
+	}
+	// The divider runs down to the status rule however short the content is.
+	for len(lines) < g.bodyRows {
+		lines = append(lines, panelRow("", "", g, a.p))
 	}
 	return fitBodyLines(lines, g, a.p)
 }
