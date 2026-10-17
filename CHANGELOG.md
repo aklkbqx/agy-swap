@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.13.0
+
+### Features
+
+- TUI: the dashboard is rebuilt around the two quota pools. Each account shows a Gemini and a Claude/GPT meter with a status word (READY, LOW, GEMINI ONLY, CLAUDE, GPT ONLY, LIMITED, NO TOKEN, ATTENTION), and the detail side draws one gauge per pool with big digits, a bar and the reset time. Accounts that need attention are grouped under their own divider, and a NO TOKEN row names the fix (`agy-swap add`).
+- TUI: the dashboard uses the whole window. Digits grow up to twice their size, bars get thicker, the account list gets wider with longer bars, and on small windows the gauges degrade step by step to plain limit lines (down to 28 by 12).
+- TUI: resize the accounts list against the detail panel by dragging the divider with the mouse or with `[` and `]` (`=` resets). Clicking an account selects it.
+- TUI: `AGY_SWAP_ASCII=1` draws the dashboard with ASCII characters only. It is chosen automatically on a Linux console, a dumb terminal or a non-UTF-8 locale; `AGY_SWAP_ASCII=0` turns it off.
+- TUI: every screen shows its own key hints, the welcome and help screens open with the logo and credit, and warnings are shown in yellow instead of as errors.
+
+### Fixes
+
+- TUI: the account list is no longer repeated under the gauges, and the divider runs down to the status line on tall windows.
+
 ## 2.12.2
 
 ### Fixes
