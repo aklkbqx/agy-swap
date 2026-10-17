@@ -155,3 +155,106 @@ func TestTheDividerRunsDownToTheStatusRuleAtAnyHeight(t *testing.T) {
 	joined:
 	}
 }
+
+// dividerColumn is the 0-based column of the list/detail divider in a frame.
+func dividerColumn(t *testing.T, lines []string) int {
+	t.Helper()
+	for _, line := range lines {
+		for j, r := range []rune(line) {
+			if r == '┬' {
+				return j
+			}
+		}
+	}
+	t.Fatalf("no divider in:\n%s", strings.Join(lines, "\n"))
+	return -1
+}
+
+func TestTheDragTargetMatchesWhereTheDividerIsDrawn(t *testing.T) {
+	a, state := overviewState()
+	for _, width := range []int{100, 120, 235} {
+		for _, offset := range []int{-100, -6, 0, 9, 100} {
+			state.width, state.height = width, 40
+			state.splitOffset = 0
+			state.setSplit(offset)
+			lines := a.tuiLines(state, width-2, 40)
+			_, _, _, dividerCol, ok := state.wideSplitBounds()
+			if !ok {
+				t.Fatalf("%d wide is not a wide layout", width)
+			}
+			// Mouse columns start at 1, string columns at 0.
+			if got := dividerColumn(t, lines); got+1 != dividerCol {
+				t.Fatalf("width %d offset %d: drawn at %d, hit zone at %d", width, offset, got+1, dividerCol)
+			}
+		}
+	}
+}
+
+func TestDraggingFromTheHitZoneRoundTrips(t *testing.T) {
+	a, state := overviewState()
+	state.width, state.height = 235, 66
+	base, _, _, dividerCol, _ := state.wideSplitBounds()
+	for _, target := range []int{50, 70, 90} {
+		state.setSplit(target - 4 - base)
+		lines := a.tuiLines(state, 233, 66)
+		if got := dividerColumn(t, lines) + 1; got != target {
+			t.Fatalf("dragged to column %d but the divider is at %d (was %d)", target, got, dividerCol)
+		}
+	}
+}
+
+func TestTheSplitCanUseTheWholeRangeOfALargeWindow(t *testing.T) {
+	_, state := overviewState()
+	state.width, state.height = 235, 66
+	state.setSplit(1000)
+	_, _, max, _, _ := state.wideSplitBounds()
+	g := newTUIGeometry(233, 66)
+	_, _, _, left := tuiWideSplit(g.frameWidth, state.splitOffset)
+	if left != max || state.splitOffset <= 40 {
+		t.Fatalf("left=%d max=%d offset=%d: a 235-column window should allow more than +40", left, max, state.splitOffset)
+	}
+	state.adjustSplit(-2)
+	_, _, _, left2 := tuiWideSplit(g.frameWidth, state.splitOffset)
+	if left2 != max-2 {
+		t.Fatalf("after one step back the list should be %d wide, got %d", max-2, left2)
+	}
+	state.setSplit(-1000)
+	_, min, _, _, _ := state.wideSplitBounds()
+	_, _, _, left3 := tuiWideSplit(g.frameWidth, state.splitOffset)
+	if left3 != min {
+		t.Fatalf("narrowest list = %d, want %d", left3, min)
+	}
+}
+
+func TestEveryListRowRemembersWhichAccountItBelongsTo(t *testing.T) {
+	a, state := overviewState()
+	state.width, state.height = 120, 40
+	lines := a.tuiLines(state, 118, 40)
+	if len(state.listHits) == 0 {
+		t.Fatal("the wide dashboard recorded no click targets")
+	}
+	for _, email := range state.visibleEmails() {
+		view := a.tuiAccountView(state, email, a.renderTime())
+		row := -1
+		for i, hit := range state.listHits {
+			if hit == email {
+				row = state.bodyTop + state.listFirstRow + i
+				if strings.Contains(lines[row], view.name) {
+					break
+				}
+			}
+		}
+		if row < 0 {
+			t.Fatalf("%s has no click target", email)
+		}
+		found := false
+		for i, hit := range state.listHits {
+			if hit == email && strings.Contains(lines[state.bodyTop+state.listFirstRow+i], view.name) {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("no row of %s carries its name at the recorded position:\n%s", email, strings.Join(lines, "\n"))
+		}
+	}
+}

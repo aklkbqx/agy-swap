@@ -90,6 +90,7 @@ When there are too few rows for big digits, the gauges become plain limit lines,
 | `↑` / `↓` or `j` / `k` | Move the highlight up or down |
 | `[` / `]` or `<` / `>` | Narrow or widen the account pane in wide layout |
 | `=` | Reset the pane split |
+| Mouse | Drag the divider between the list and the gauges to resize it, double-click it to reset, click an account to select it |
 | `Enter` | Switch to the highlighted account |
 | `1` – `9` | Select an account by number; press Enter to switch |
 | `n` | Refresh and move to the next eligible account |

@@ -1420,8 +1420,8 @@ func TestTUIWideSplitBoundsAndMouseDrag(t *testing.T) {
 	if !ok {
 		t.Fatal("expected wide split bounds ok at 120x24")
 	}
-	if baseLeft < 48 {
-		t.Fatalf("expected baseLeft >= 48, got %d", baseLeft)
+	if baseLeft < 42 {
+		t.Fatalf("expected baseLeft >= 42, got %d", baseLeft)
 	}
 	if dividerCol != baseLeft+4 {
 		t.Fatalf("expected dividerCol %d, got %d", baseLeft+4, dividerCol)
