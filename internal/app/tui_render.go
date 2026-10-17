@@ -33,6 +33,8 @@ type tuiAccountView struct {
 	tone            tuiHealthTone
 	needsAttention  bool
 	attentionReason string
+	pools           []poolView
+	status          tuiAccountStatus
 }
 
 type tuiLayout uint8
@@ -97,6 +99,9 @@ func (a *Application) renderTUI(state *tuiState, out *os.File) {
 	frameWidth := maxInt(28, width)
 	state.width, state.height = frameWidth, height
 	lines := a.tuiLines(state, frameWidth-2, height)
+	if tuiUseASCII(os.Getenv) {
+		lines = asciiLines(lines)
+	}
 	var output strings.Builder
 	output.Grow((frameWidth + 8) * height)
 	output.WriteString("\x1b[H")
@@ -132,17 +137,11 @@ func (a *Application) tuiLines(state *tuiState, width, height int) []string {
 	g := newTUIGeometry(width, height)
 	lines := a.tuiTopLines(state, g.innerWidth)
 	lines = append(lines, a.tuiActiveLine(state, g.innerWidth))
+	state.bodyTop = len(lines)
 	if state.view != tuiViewDashboard {
 		lines = append(lines, a.tuiViewBody(state, g.innerWidth, g.bodyRows)...)
 	} else {
-		switch g.layout {
-		case tuiLayoutWide:
-			lines = append(lines, a.tuiWideBody(state, g.innerWidth, g.bodyRows)...)
-		case tuiLayoutStacked:
-			lines = append(lines, a.tuiStackedBody(state, g.innerWidth, g.bodyRows)...)
-		default:
-			lines = append(lines, a.tuiCompactBody(state, g.innerWidth, g.bodyRows)...)
-		}
+		lines = append(lines, a.tuiPoolBody(state, g.innerWidth, g.bodyRows)...)
 	}
 	lines = append(lines, a.tuiStatusLines(state, g.innerWidth)...)
 	lines = append(lines, a.tuiFooterLines(state, g.innerWidth)...)
@@ -167,30 +166,31 @@ func (a *Application) tuiLines(state *tuiState, width, height int) []string {
 
 func (a *Application) tuiHeaderLinesWithVersion(version string, state *tuiState, width int) []string {
 	g := newTUIGeometry(width, 12)
-	left := a.p.Orange + "▎" + a.p.Bold + a.p.Orange + "AGY " + a.p.White + "SWAP" + a.p.Reset + " " + a.p.Gray + "· v" + tuiText(stateVersion(version)) + a.p.Reset
-	right := a.p.Gray + tuiCredit + "  ·  LOCAL" + a.p.Reset
+	left := tuiWordmark(a.p) + "  " + a.p.Gray + "v" + tuiText(stateVersion(version)) + a.p.Reset
+	sync := a.p.Gray + "LOCAL" + a.p.Reset
 	if state != nil {
 		switch {
 		case state.refreshing:
 			frames := []string{"◐", "◓", "◑", "◒"}
-			right = a.p.Gray + tuiCredit + "  ·  " + a.p.Cyan + frames[state.animationPhase()] + " SYNCING" + a.p.Reset
+			sync = a.p.Cyan + frames[state.animationPhase()] + " SYNCING" + a.p.Reset
 		case state.animation.kind == "success" && state.animation.active:
-			right = a.p.Gray + tuiCredit + "  ·  " + a.p.Green + "✓ SYNCED" + a.p.Reset
+			sync = a.p.Green + "✓ SYNCED" + a.p.Reset
 		case state.animation.kind == "error" && state.animation.active:
-			right = a.p.Gray + tuiCredit + "  ·  " + a.p.Yellow + "⚠ SYNC WARNINGS" + a.p.Reset
+			sync = a.p.Yellow + "⚠ SYNC WARNINGS" + a.p.Reset
 		}
+	}
+	// The sync state always stays; the credit goes first when the row is short.
+	right := sync
+	if full := a.p.Gray + tuiCredit + "  ·  " + a.p.Reset + sync; visibleWidth(left)+2+visibleWidth(full) <= g.contentWidth {
+		right = full
 	}
 	if visibleWidth(left) > g.contentWidth {
 		left = truncateVisible(left, g.contentWidth, a.p)
 	}
-	if visibleWidth(right) > g.contentWidth {
-		right = truncateVisible(right, g.contentWidth, a.p)
+	if visibleWidth(left)+1+visibleWidth(right) > g.contentWidth {
+		right = truncateVisible(right, maxInt(1, g.contentWidth-visibleWidth(left)-1), a.p)
 	}
 	gap := maxInt(1, g.contentWidth-visibleWidth(left)-visibleWidth(right))
-	if visibleWidth(left)+visibleWidth(right)+gap > g.contentWidth {
-		right = truncateVisible(right, maxInt(1, g.contentWidth-visibleWidth(left)-1), a.p)
-		gap = maxInt(1, g.contentWidth-visibleWidth(left)-visibleWidth(right))
-	}
 	content := left + strings.Repeat(" ", gap) + right
 	return []string{
 		a.p.Gray + "╭" + strings.Repeat("─", g.frameWidth-2) + "╮" + a.p.Reset,
@@ -265,23 +265,6 @@ func tuiHealthToneForGroups(groups []quotaGroupHealth, account Account, now time
 	return tuiHealthPending
 }
 
-func (a *Application) tuiHealthColor(tone tuiHealthTone) string {
-	switch tone {
-	case tuiHealthReady:
-		return a.p.Green
-	case tuiHealthWarning:
-		return a.p.Yellow
-	case tuiHealthCritical:
-		return a.p.Red
-	case tuiHealthLimited:
-		return a.p.Red
-	case tuiHealthCooldown:
-		return a.p.Yellow
-	default:
-		return a.p.Gray
-	}
-}
-
 func (a *Application) tuiAccountView(state *tuiState, email string, now time.Time) tuiAccountView {
 	account := state.accounts.ByEmail[email]
 	name := firstString(tuiText(getString(account, "name")), "Google User")
@@ -294,7 +277,9 @@ func (a *Application) tuiAccountView(state *tuiState, email string, now time.Tim
 		active:   strings.EqualFold(email, state.active),
 		health:   accountHealthCompactForGroups(account, groups, now),
 		tone:     tuiHealthToneForGroups(groups, account, now),
+		pools:    poolViews(account, now),
 	}
+	view.status = accountStatusFor(view.pools, false)
 	if state != nil {
 		if needs, reason := state.accountNeedsAttention(email); needs {
 			view.needsAttention = true
@@ -302,8 +287,10 @@ func (a *Application) tuiAccountView(state *tuiState, email string, now time.Tim
 			view.tone = tuiHealthWarning
 			if strings.Contains(strings.ToLower(reason), "vault") || strings.Contains(strings.ToLower(reason), "token") {
 				view.health = "⚠ Token unavailable"
+				view.status = statusNoToken
 			} else {
 				view.health = "⚠ Needs attention"
+				view.status = statusAttention
 			}
 		}
 	}
@@ -343,118 +330,6 @@ func (a *Application) renderAccountRow(view tuiAccountView, width int) string {
 	return fitVisible(line, width, a.p)
 }
 
-func (a *Application) tuiWideBody(state *tuiState, width, height int) []string {
-	g := newTUIGeometry(width, height+8)
-	g.bodyRows = maxInt(1, height)
-	totalAvail := maxInt(2, g.frameWidth-7)
-	baseLeft := maxInt(48, minInt(68, totalAvail*46/100))
-	offset := 0
-	if state != nil {
-		offset = state.splitOffset
-	}
-	minLeft := minInt(32, totalAvail-1)
-	maxLeft := maxInt(minLeft, totalAvail-24)
-	g.leftWidth = maxInt(minLeft, minInt(maxLeft, baseLeft+offset))
-	g.rightWidth = maxInt(1, totalAvail-g.leftWidth)
-	lines := []string{panelDivider(g, a.p)}
-	if g.bodyRows > 1 {
-		leftTitle := a.tuiSectionTitle("ACCOUNTS") + "  " + a.p.Gray + fmt.Sprintf("%d", len(state.visibleEmails())) + "  ❯ selected · ● active" + a.p.Reset
-		rightTitle := a.tuiSectionTitle("ACCOUNT HEALTH")
-		lines = append(lines, panelRow(leftTitle, rightTitle, g, a.p))
-	}
-	available := maxInt(0, g.bodyRows-len(lines))
-	list := a.tuiAccountTableRows(state, g.leftWidth, available)
-	details := a.tuiDetailTableLines(state, g.rightWidth, available)
-	rows := maxInt(len(list), len(details))
-	for i := 0; i < rows && len(lines) < g.bodyRows; i++ {
-		left, right := "", ""
-		if i < len(list) {
-			left = list[i]
-		}
-		if i < len(details) {
-			right = details[i]
-		}
-		lines = append(lines, panelRow(left, right, g, a.p))
-	}
-	return fitBodyLines(lines, g, a.p)
-}
-
-func (a *Application) tuiStackedBody(state *tuiState, width, height int) []string {
-	g := newTUIGeometry(width, height+8)
-	g.bodyRows = maxInt(1, height)
-	lines := []string{a.p.Gray + "├" + strings.Repeat("─", g.frameWidth-2) + "┤" + a.p.Reset}
-	if len(lines) < g.bodyRows {
-		title := a.tuiSectionTitle("ACCOUNTS") + "  " + a.p.Gray + fmt.Sprintf("%d", len(state.visibleEmails())) + "  ❯ selected · ● active" + a.p.Reset
-		lines = append(lines, frameRow(title, g, a.p))
-	}
-	if len(lines) >= g.bodyRows {
-		return fitBodyLines(lines, g, a.p)
-	}
-	detailBudget := 0
-	if _, _, ok := state.selectedAccount(); ok {
-		available := maxInt(0, g.bodyRows-len(lines))
-		detailBudget = minInt(8, maxInt(3, available/2+1))
-		if detailBudget+3 > available {
-			detailBudget = maxInt(3, available-3)
-		}
-	}
-	listBudget := maxInt(1, g.bodyRows-len(lines)-detailBudget-2)
-	rows := a.tuiAccountRows(state, g.contentWidth, listBudget)
-	if len(rows) == 0 {
-		if state.accounts == nil || state.accounts.Len() == 0 {
-			rows = a.tuiWelcomeRows(g.contentWidth, maxInt(1, g.bodyRows-1))
-		} else {
-			rows = []string{a.p.Gray + "No matching accounts" + a.p.Reset + " · press / to clear search"}
-		}
-	}
-	for _, row := range rows {
-		if len(lines) >= g.bodyRows-detailBudget-1 {
-			break
-		}
-		lines = append(lines, frameRow(row, g, a.p))
-	}
-	if detailBudget > 0 && len(lines) < g.bodyRows {
-		lines = append(lines, a.p.Gray+"├"+strings.Repeat("─", g.frameWidth-2)+"┤"+a.p.Reset)
-		if len(lines) < g.bodyRows {
-			lines = append(lines, frameRow(a.tuiSectionTitle("ACCOUNT HEALTH"), g, a.p))
-		}
-		for _, row := range a.tuiDetailLines(state, g.contentWidth, detailBudget) {
-			if len(lines) >= g.bodyRows {
-				break
-			}
-			lines = append(lines, frameRow(row, g, a.p))
-		}
-	}
-	return fitBodyLines(lines, g, a.p)
-}
-
-func (a *Application) tuiCompactBody(state *tuiState, width, height int) []string {
-	if height >= 16 {
-		// A narrow terminal still needs selected-account details. Reuse the
-		// stacked renderer once there is enough vertical room instead of
-		// silently reducing the UI to an account list.
-		return a.tuiStackedBody(state, width, height)
-	}
-	g := newTUIGeometry(width, height+8)
-	g.bodyRows = maxInt(1, height)
-	lines := []string{a.p.Gray + "├" + strings.Repeat("─", g.frameWidth-2) + "┤" + a.p.Reset}
-	rows := a.tuiAccountRows(state, g.contentWidth, maxInt(0, g.bodyRows-1))
-	if len(rows) == 0 {
-		if state.accounts == nil || state.accounts.Len() == 0 {
-			rows = a.tuiWelcomeRows(g.contentWidth, maxInt(1, g.bodyRows-1))
-		} else {
-			rows = []string{a.p.Gray + "No matching accounts" + a.p.Reset + " · press / to clear search"}
-		}
-	}
-	for _, row := range rows {
-		if len(lines) >= g.bodyRows {
-			break
-		}
-		lines = append(lines, frameRow(row, g, a.p))
-	}
-	return fitBodyLines(lines, g, a.p)
-}
-
 func (a *Application) tuiSectionDividerRow(title string, count int, isAttention bool, width int) string {
 	width = maxInt(1, width)
 	label := fmt.Sprintf("%s (%d)", title, count)
@@ -469,234 +344,14 @@ func (a *Application) tuiSectionDividerRow(title string, count int, isAttention 
 	return fitVisible(content, width, a.p)
 }
 
-func (a *Application) tuiAccountRows(state *tuiState, width, maxRows int) []string {
-	width = maxInt(1, width)
-	if maxRows <= 0 {
-		return nil
-	}
-	emails := state.visibleEmails()
-	if len(emails) == 0 {
-		return nil
-	}
-	ready, attention := state.partitionedEmails()
-	now := a.renderTime()
-	if len(attention) == 0 {
-		if maxRows > 1 {
-			maxRows -= maxRows % 2
-		}
-		accountBudget := maxInt(1, maxRows/2)
-		start := 0
-		for i, email := range emails {
-			if strings.EqualFold(email, state.selectedEmail) {
-				start = maxInt(0, i-accountBudget/2)
-				break
-			}
-		}
-		end := minInt(len(emails), start+accountBudget)
-		rows := make([]string, 0, (end-start)*2)
-		for i := start; i < end; i++ {
-			email := emails[i]
-			view := a.tuiAccountView(state, email, now)
-			label := a.tuiAccountIdentityLine(view, state)
-			if maxRows == 1 {
-				rows = append(rows, fitVisible(label, width, a.p))
-				break
-			}
-			summary := "  " + a.tuiHealthColor(view.tone) + tuiText(view.health) + a.p.Reset
-			rows = append(rows, fitVisible(label, width, a.p), fitVisible(summary, width, a.p))
-		}
-		return rows
-	}
-
-	type stackedBlock struct {
-		isHeader bool
-		email    string
-		lines    []string
-	}
-	var blocks []stackedBlock
-	if len(ready) > 0 {
-		blocks = append(blocks, stackedBlock{isHeader: true, lines: []string{a.tuiSectionDividerRow("READY", len(ready), false, width)}})
-		for _, email := range ready {
-			view := a.tuiAccountView(state, email, now)
-			label := a.tuiAccountIdentityLine(view, state)
-			summary := "  " + a.tuiHealthColor(view.tone) + tuiText(view.health) + a.p.Reset
-			blocks = append(blocks, stackedBlock{email: email, lines: []string{fitVisible(label, width, a.p), fitVisible(summary, width, a.p)}})
-		}
-	}
-	if len(attention) > 0 {
-		blocks = append(blocks, stackedBlock{isHeader: true, lines: []string{a.tuiSectionDividerRow("ATTENTION REQUIRED", len(attention), true, width)}})
-		for _, email := range attention {
-			view := a.tuiAccountView(state, email, now)
-			label := a.tuiAccountIdentityLine(view, state)
-			summary := "  " + a.tuiHealthColor(view.tone) + tuiText(view.health) + a.p.Reset
-			blocks = append(blocks, stackedBlock{email: email, lines: []string{fitVisible(label, width, a.p), fitVisible(summary, width, a.p)}})
-		}
-	}
-
-	selectedBlockIdx := 0
-	for idx, blk := range blocks {
-		if !blk.isHeader && strings.EqualFold(blk.email, state.selectedEmail) {
-			selectedBlockIdx = idx
-			break
-		}
-	}
-
-	startBlock := selectedBlockIdx
-	endBlock := selectedBlockIdx + 1
-	currentLines := len(blocks[selectedBlockIdx].lines)
-
-	for {
-		expanded := false
-		if startBlock > 0 && currentLines+len(blocks[startBlock-1].lines) <= maxRows {
-			startBlock--
-			currentLines += len(blocks[startBlock].lines)
-			expanded = true
-		}
-		if endBlock < len(blocks) && currentLines+len(blocks[endBlock].lines) <= maxRows {
-			currentLines += len(blocks[endBlock].lines)
-			endBlock++
-			expanded = true
-		}
-		if !expanded {
-			break
-		}
-	}
-
-	var rows []string
-	for _, blk := range blocks[startBlock:endBlock] {
-		rows = append(rows, blk.lines...)
-	}
-	if len(rows) > maxRows {
-		rows = rows[:maxRows]
-	}
-	return rows
-}
-
-// tuiAccountTableRows renders the wide-layout account list as a real table:
-// selection, active state, identity, and health each occupy a stable column.
-// Keeping each account to one row makes the list scannable and prevents a
-// dangling second line from looking like a missing record.
-func (a *Application) tuiAccountTableRows(state *tuiState, width, maxRows int) []string {
-	width = maxInt(1, width)
-	if maxRows <= 0 {
-		return nil
-	}
-	markerWidth, identityWidth, healthWidth := tuiAccountColumnWidths(width)
-	columns := []string{
-		fitVisible("S", 1, a.p),
-		fitVisible("A", 1, a.p),
-		fitVisible("TAG", markerWidth, a.p),
-		fitVisible("ACCOUNT", identityWidth, a.p),
-		fitVisible("HEALTH", healthWidth, a.p),
-	}
-	header := a.p.Bold + a.p.Gray + strings.Join(columns, " ") + a.p.Reset
-	rows := []string{fitVisible(header, width, a.p)}
-	if maxRows == 1 {
-		return rows
-	}
-	headerRule := fitVisible(a.p.DarkGray+strings.Repeat("─", width)+a.p.Reset, width, a.p)
-
-	emails := state.visibleEmails()
-	if len(emails) == 0 {
-		rows = append(rows, headerRule)
-		remaining := maxInt(0, maxRows-len(rows))
-		for _, welcome := range a.tuiWelcomeRows(width, remaining) {
-			rows = append(rows, fitVisible(welcome, width, a.p))
-		}
-		return rows
-	}
-
-	ready, attention := state.partitionedEmails()
-	// Grouped lists open with a section divider, which already separates the
-	// header from the body. Drawing the header rule too stacks two rules.
-	if len(attention) == 0 {
-		rows = append(rows, headerRule)
-		rowBudget := maxRows - len(rows)
-		start := 0
-		selectedIndex := state.selectedIndex()
-		if len(emails) > rowBudget {
-			start = maxInt(0, minInt(selectedIndex-rowBudget/2, len(emails)-rowBudget))
-		}
-		end := minInt(len(emails), start+rowBudget)
-		now := a.renderTime()
-		for _, email := range emails[start:end] {
-			view := a.tuiAccountView(state, email, now)
-			identity := a.tuiIdentity(view.name)
-			health := a.tuiHealthColor(view.tone) + tuiText(view.health) + a.p.Reset
-			cells := []string{
-				fitVisible(a.tuiSelectionMarker(view, state), 1, a.p),
-				fitVisible(a.tuiActiveMarker(view), 1, a.p),
-				fitVisible(view.avatar, markerWidth, a.p),
-				fitVisible(identity, identityWidth, a.p),
-				fitVisible(health, healthWidth, a.p),
-			}
-			rows = append(rows, fitVisible(strings.Join(cells, " "), width, a.p))
-		}
-		return rows
-	}
-
-	type tableItem struct {
-		isHeader    bool
-		headerTitle string
-		headerCount int
-		isAttention bool
-		email       string
-	}
-	var items []tableItem
-	if len(ready) > 0 {
-		items = append(items, tableItem{isHeader: true, headerTitle: "READY", headerCount: len(ready)})
-		for _, email := range ready {
-			items = append(items, tableItem{email: email})
-		}
-	}
-	if len(attention) > 0 {
-		items = append(items, tableItem{isHeader: true, headerTitle: "ATTENTION REQUIRED", headerCount: len(attention), isAttention: true})
-		for _, email := range attention {
-			items = append(items, tableItem{email: email})
-		}
-	}
-
-	rowBudget := maxRows - len(rows)
-	selectedItemIdx := 0
-	for idx, it := range items {
-		if !it.isHeader && strings.EqualFold(it.email, state.selectedEmail) {
-			selectedItemIdx = idx
-			break
-		}
-	}
-	start := 0
-	if len(items) > rowBudget {
-		start = maxInt(0, minInt(selectedItemIdx-rowBudget/2, len(items)-rowBudget))
-	}
-	end := minInt(len(items), start+rowBudget)
-	now := a.renderTime()
-	for _, it := range items[start:end] {
-		if it.isHeader {
-			rows = append(rows, a.tuiSectionDividerRow(it.headerTitle, it.headerCount, it.isAttention, width))
-		} else {
-			view := a.tuiAccountView(state, it.email, now)
-			identity := a.tuiIdentity(view.name)
-			health := a.tuiHealthColor(view.tone) + tuiText(view.health) + a.p.Reset
-			cells := []string{
-				fitVisible(a.tuiSelectionMarker(view, state), 1, a.p),
-				fitVisible(a.tuiActiveMarker(view), 1, a.p),
-				fitVisible(view.avatar, markerWidth, a.p),
-				fitVisible(identity, identityWidth, a.p),
-				fitVisible(health, healthWidth, a.p),
-			}
-			rows = append(rows, fitVisible(strings.Join(cells, " "), width, a.p))
-		}
-	}
-	return rows
-}
-
 func (a *Application) tuiWelcomeRows(width, maxRows int) []string {
-	rows := []string{
-		a.p.Bold + a.p.White + "Welcome to AGY SWAP" + a.p.Reset,
-		"No saved accounts yet.",
-		"Press " + a.p.Orange + "a" + a.p.Reset + " to sign in, or " + a.p.Cyan + "Ctrl-K" + a.p.Reset + " for every action.",
-		"Your tokens go to a private local vault after sign-in.",
+	rows := []string{a.p.Bold + a.p.White + "Welcome to agy-swap" + a.p.Reset, "No saved accounts yet."}
+	if width >= 50 {
+		rows = append(rows, "Press "+a.p.Orange+"a"+a.p.Reset+" to sign in, or "+a.p.Cyan+"Ctrl-K"+a.p.Reset+" for every action.")
+	} else {
+		rows = append(rows, "Press "+a.p.Orange+"a"+a.p.Reset+" to sign in,", "or "+a.p.Cyan+"Ctrl-K"+a.p.Reset+" for every action.")
 	}
+	rows = append(rows, wrapWords("Your tokens go to a private local vault after sign-in.", width)...)
 	if maxRows < len(rows) {
 		rows = rows[:maxRows]
 	}
@@ -706,16 +361,25 @@ func (a *Application) tuiWelcomeRows(width, maxRows int) []string {
 	return rows
 }
 
-func tuiAccountColumnWidths(width int) (marker, identity, health int) {
-	width = maxInt(16, width)
-	marker = 4 // [AA]
-	health = maxInt(14, minInt(32, width/3))
-	identity = width - marker - health - 6 // two marker columns plus four spaces
-	if identity < 12 {
-		health = maxInt(10, health-(12-identity))
-		identity = width - marker - health - 6
+// wrapWords breaks plain text into lines of at most width columns.
+func wrapWords(text string, width int) []string {
+	var lines []string
+	line := ""
+	for _, word := range strings.Fields(text) {
+		switch {
+		case line == "":
+			line = word
+		case len(line)+1+len(word) <= width:
+			line += " " + word
+		default:
+			lines = append(lines, line)
+			line = word
+		}
 	}
-	return marker, maxInt(1, identity), maxInt(1, health)
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 func sessionTokenReset(account Account) (string, bool) {
@@ -883,17 +547,44 @@ func (a *Application) tuiStatusLines(state *tuiState, width int) []string {
 			prefix, color = "✓ ", a.p.Green
 		case "error":
 			prefix, color = "✕ ", a.p.Red
+		case "warning":
+			prefix, color = "⚠ ", a.p.Yellow
 		}
 		content = color + prefix + cleanText(state.message) + a.p.Reset
 	case state.accounts == nil || state.accounts.Len() == 0:
 		content = a.p.Yellow + "No accounts yet · press a to add your first account" + a.p.Reset
+	case state.view != tuiViewDashboard:
+		content = a.p.Gray + tuiViewHint(state.view) + a.p.Reset
 	default:
 		content = a.p.Gray + "Ready · select an account to inspect health" + a.p.Reset
 	}
+	rule := []rune("├" + strings.Repeat("─", g.frameWidth-2) + "┤")
+	if state.view == tuiViewDashboard && state.bodySplit > 0 && state.bodySplit < len(rule)-1 {
+		rule[state.bodySplit] = '┴' // the list/detail divider meets this rule
+	}
 	return []string{
-		a.p.Gray + "├" + strings.Repeat("─", g.frameWidth-2) + "┤" + a.p.Reset,
+		a.p.Gray + string(rule) + a.p.Reset,
 		frameRow(content, g, a.p),
 	}
+}
+
+// tuiViewHint is the status line of a screen other than the dashboard.
+func tuiViewHint(view tuiView) string {
+	switch view {
+	case tuiViewQuota:
+		return "Limits for every saved account · r refreshes · b returns"
+	case tuiViewProfiles:
+		return "A profile picks the account for a job · c creates one"
+	case tuiViewHistory:
+		return "Switches and refreshes stay on this machine"
+	case tuiViewSettings:
+		return "Policy, notifications and integrations · Enter edits"
+	case tuiViewDoctor:
+		return "A read-only check of this installation · Enter runs it again"
+	case tuiViewBackup:
+		return "Export or import your accounts · x, i and v"
+	}
+	return "Ready"
 }
 
 func (a *Application) tuiToastOverlay(base []string, state *tuiState, width, height int) []string {
@@ -939,10 +630,11 @@ func formatKeycaps(p palette, pairs ...string) string {
 
 func (a *Application) tuiFooterLines(state *tuiState, width int) []string {
 	g := newTUIGeometry(width, 12)
-	footer := formatKeycaps(a.p, "[↑↓]", "Move", "[Enter]", "Switch", "[^K]", "Actions", "[?]", "Help", "[q]", "Quit")
+	hints := []keyHint{{"[↑↓]", "Move", 4}, {"[Enter]", "Switch", 5}, {"[^K]", "Actions", 2}, {"[?]", "Help", 3}, {"[q]", "Quit", 4}}
 	if state.view == tuiViewDashboard && g.layout == tuiLayoutWide {
-		footer = formatKeycaps(a.p, "[↑↓]", "Move", "[Enter]", "Switch", "[[]/[]]", "Resize", "[^K]", "Actions", "[?]", "Help", "[q]", "Quit")
+		hints = []keyHint{{"[↑↓]", "Move", 4}, {"[Enter]", "Switch", 5}, {"[[]/[]]", "Resize", 1}, {"[^K]", "Actions", 2}, {"[?]", "Help", 3}, {"[q]", "Quit", 4}}
 	}
+	footer := a.fitKeycaps(hints, g.contentWidth)
 	if state.view != tuiViewDashboard {
 		footer = formatKeycaps(a.p, "[↑↓]", "Navigate", "[Enter]", "Edit", "[b]", "Dashboard", "[^K]", "Actions", "[?]", "Help")
 		switch state.view {
@@ -977,31 +669,79 @@ func (a *Application) tuiFooterLines(state *tuiState, width int) []string {
 	}
 }
 
+// keyHint is one footer key. A higher keep value survives narrower screens.
+type keyHint struct {
+	key, label string
+	keep       int
+}
+
+// fitKeycaps draws the hints in order. When the row is too wide it gives up
+// the least useful things first: the labels and then the keys of the
+// lowest-priority hints, then the labels of the more important ones.
+func (a *Application) fitKeycaps(hints []keyHint, width int) string {
+	list := append([]keyHint(nil), hints...)
+	render := func() string {
+		pairs := make([]string, 0, len(list)*2)
+		for _, hint := range list {
+			pairs = append(pairs, hint.key, hint.label)
+		}
+		return strings.TrimRight(formatKeycaps(a.p, pairs...), " ")
+	}
+	fits := func() bool { return visibleWidth(render()) <= width }
+	for level := 1; level <= 5 && !fits(); level++ {
+		if level <= 2 {
+			// A bare key such as [^K] says nothing, so these go whole.
+			kept := list[:0]
+			for _, hint := range list {
+				if hint.keep > level {
+					kept = append(kept, hint)
+				}
+			}
+			list = kept
+			continue
+		}
+		for i := range list {
+			if list[i].keep == level {
+				list[i].label = ""
+			}
+		}
+	}
+	for !fits() && len(list) > 1 {
+		lowest := 0
+		for i, hint := range list {
+			if hint.keep < list[lowest].keep {
+				lowest = i
+			}
+		}
+		list = append(list[:lowest], list[lowest+1:]...)
+	}
+	return render()
+}
+
 func (a *Application) tuiHelpLines(width int) []string {
 	lines := []string{
-		"KEYBOARD GUIDE",
+		tuiWordmark(a.p) + a.p.Gray + "  v" + tuiText(stateVersion(a.Version)) + "  ·  by " + strings.TrimPrefix(tuiCredit, "credit: ") + "  ·  MIT" + a.p.Reset,
+		a.p.Gray + "github.com/aklkbqx/agy-swap" + a.p.Reset,
+		a.p.Gray + "Independent, not affiliated with Google." + a.p.Reset,
 		"",
+		a.p.Bold + "KEYBOARD GUIDE" + a.p.Reset,
 		"↑ ↓ / j k   Move through accounts",
-		"[ ] / + -   Resize accounts split (drag or = resets)",
+		"1 – 9       Select an account by number",
 		"Enter       Switch selected account",
 		"/           Search by name or email",
 		"Ctrl-K / :  Open action palette",
 		"p h s o b   Profiles, history, settings, doctor, backup",
 		"r           Refresh quota",
-		"a           Add account",
-		"d           Delete selected account",
-		"n           Choose next available account",
-		"t           Toggle manual tier",
+		"n           Refresh, then pick the next account",
+		"a           Add account        d  Delete account",
+		"t           Toggle manual tier  l  Log out",
 		"m           Move tokens into the vault",
-		"l           Log out",
 		"e           Edit tags / selected item",
-		"x / i / v   Export, import, or verify in managers",
-		"c / x       Create/clear or export in managers",
+		"x i v c     In managers: export, import, verify, create/clear",
+		"[ ] / + -   Resize the accounts split (drag, = resets)",
 		"u           Download and install the latest release",
 		"b           Return to dashboard",
 		"Esc / any   Close help",
-		"",
-		a.p.Gray + "Actions keep the active session safe." + a.p.Reset,
 	}
 	for i := range lines {
 		lines[i] = truncateVisible(lines[i], maxInt(18, width-8), a.p)
@@ -1031,7 +771,7 @@ func (a *Application) tuiOverlay(base, overlay []string, width, height int) []st
 	maxContent := maxInt(1, g.frameHeight-4)
 	if len(overlay) > maxContent {
 		overlay = append([]string(nil), overlay[:maxContent]...)
-		overlay[len(overlay)-1] = a.p.Gray + "… more in ? help" + a.p.Reset
+		overlay[len(overlay)-1] = a.p.Gray + "… the window is too short for every key" + a.p.Reset
 	}
 	dialog := make([]string, 0, len(overlay)+2)
 	dialog = append(dialog, a.p.Blue+"╭"+strings.Repeat("─", contentWidth)+"╮"+a.p.Reset)

@@ -46,4 +46,9 @@ EXPECT_SCRIPT
 run_shape 28 12
 run_shape 40 20
 run_shape 80 24
+run_shape 63 24
+run_shape 96 28
+run_shape 120 18
+run_shape 100 30
 run_shape 120 30
+run_shape 200 60
