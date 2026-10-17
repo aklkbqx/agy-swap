@@ -949,47 +949,11 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 									armFrame()
 									continue
 								}
-								if col >= 2 && col < dividerCol && row >= 6 && row <= state.height-3 {
-									tableRowIdx := row - 6
-									ready, attention := state.partitionedEmails()
-									type clickItem struct {
-										email    string
-										isHeader bool
-									}
-									var items []clickItem
-									if len(attention) == 0 {
-										for _, em := range state.visibleEmails() {
-											items = append(items, clickItem{email: em})
-										}
-									} else {
-										if len(ready) > 0 {
-											items = append(items, clickItem{isHeader: true})
-											for _, em := range ready {
-												items = append(items, clickItem{email: em})
-											}
-										}
-										if len(attention) > 0 {
-											items = append(items, clickItem{isHeader: true})
-											for _, em := range attention {
-												items = append(items, clickItem{email: em})
-											}
-										}
-									}
-									rowBudget := maxInt(1, state.height-8-2)
-									selectedIdx := 0
-									for idx, it := range items {
-										if !it.isHeader && strings.EqualFold(it.email, state.selectedEmail) {
-											selectedIdx = idx
-											break
-										}
-									}
-									start := 0
-									if len(items) > rowBudget {
-										start = maxInt(0, minInt(selectedIdx-rowBudget/2, len(items)-rowBudget))
-									}
-									clickedIdx := start + tableRowIdx
-									if clickedIdx >= 0 && clickedIdx < len(items) && !items[clickedIdx].isHeader {
-										clickedEmail := items[clickedIdx].email
+								if col >= 2 && col < dividerCol {
+									// Rows are 1-based on the terminal; the renderer recorded
+									// which account each list row belongs to.
+									if hit := row - 1 - state.bodyTop - state.listFirstRow; hit >= 0 && hit < len(state.listHits) && state.listHits[hit] != "" {
+										clickedEmail := state.listHits[hit]
 										if strings.EqualFold(clickedEmail, state.selectedEmail) && time.Since(lastClickTime) < 350*time.Millisecond {
 											performSwitch()
 										} else {
@@ -1005,14 +969,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 								continue
 							case "drag":
 								if draggingSplit {
-									targetLeft := col - 4
-									targetOffset := targetLeft - baseLeft
-									if targetOffset < -40 {
-										targetOffset = -40
-									} else if targetOffset > 40 {
-										targetOffset = 40
-									}
-									state.splitOffset = targetOffset
+									state.setSplit(col - 4 - baseLeft)
 									state.message, state.messageType = fmt.Sprintf("Split offset: %+d (drag or [/], = resets)", state.splitOffset), "info"
 									a.renderTUI(state, outFile)
 									armFrame()

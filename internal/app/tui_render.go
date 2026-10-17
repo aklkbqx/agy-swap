@@ -137,6 +137,7 @@ func (a *Application) tuiLines(state *tuiState, width, height int) []string {
 	g := newTUIGeometry(width, height)
 	lines := a.tuiTopLines(state, g.innerWidth)
 	lines = append(lines, a.tuiActiveLine(state, g.innerWidth))
+	state.bodyTop = len(lines)
 	if state.view != tuiViewDashboard {
 		lines = append(lines, a.tuiViewBody(state, g.innerWidth, g.bodyRows)...)
 	} else {
@@ -737,7 +738,7 @@ func (a *Application) tuiHelpLines(width int) []string {
 		"m           Move tokens into the vault",
 		"e           Edit tags / selected item",
 		"x i v c     In managers: export, import, verify, create/clear",
-		"[ ] / + -   Resize the accounts split (= resets)",
+		"[ ] / + -   Resize the accounts split (drag, = resets)",
 		"u           Download and install the latest release",
 		"b           Return to dashboard",
 		"Esc / any   Close help",
