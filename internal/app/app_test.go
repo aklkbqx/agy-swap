@@ -514,7 +514,7 @@ func TestTUIWideAccountTableUsesStableColumns(t *testing.T) {
 	accounts.Set("beta@example.com", Account{"email": "beta@example.com", "name": "Beta"})
 	a := &Application{Version: "2.1.1", p: makePalette(false), color: false}
 	state := newTUIState(accounts, "")
-	rows := a.tuiAccountRowsFor(state, 56, 8, 2)
+	rows := a.tuiAccountRowsFor(state, 56, 5, 2)
 	if len(rows) != 5 { // two lines for each of two accounts, and a blank line between them
 		t.Fatalf("rows = %d, want 4: %q", len(rows), rows)
 	}

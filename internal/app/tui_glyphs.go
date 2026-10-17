@@ -62,6 +62,44 @@ func bigNumber(text string, rows int) []string {
 	return result
 }
 
+// bigNumberScaled draws text in 5*scale rows: every pixel of the 3x5 bitmap is
+// a block 2*scale cells wide and scale rows tall, so the digits stay square
+// and grow with the window.
+func bigNumberScaled(text string, scale int) []string {
+	scale = maxInt(1, scale)
+	lines := make([]strings.Builder, 5*scale)
+	for index, r := range []rune(text) {
+		bitmap, ok := bigGlyphs[r]
+		if !ok {
+			bitmap = [5]string{"000", "000", "000", "000", "000"}
+		}
+		for row := 0; row < 5; row++ {
+			for sub := 0; sub < scale; sub++ {
+				out := &lines[row*scale+sub]
+				if index > 0 {
+					out.WriteString(strings.Repeat(" ", 2*scale))
+				}
+				for col := 0; col < 3; col++ {
+					out.WriteString(pick(bitmap[row][col] == '1', strings.Repeat("█", 2*scale), strings.Repeat(" ", 2*scale)))
+				}
+			}
+		}
+	}
+	result := make([]string, len(lines))
+	for i := range lines {
+		result[i] = lines[i].String()
+	}
+	return result
+}
+
+// bigNumberWidth is the columns bigNumberScaled needs for glyphs characters.
+func bigNumberWidth(glyphs, scale int) int {
+	if glyphs <= 0 {
+		return 0
+	}
+	return glyphs*6*scale + (glyphs-1)*2*scale
+}
+
 func pick(condition bool, yes, no string) string {
 	if condition {
 		return yes
