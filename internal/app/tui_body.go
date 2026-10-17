@@ -25,6 +25,7 @@ func (a *Application) tuiPoolBody(state *tuiState, width, height int) []string {
 	g := newTUIGeometry(width, height+8)
 	g.bodyRows = maxInt(1, height)
 	state.bodySplit = 0
+	state.listHits = nil
 	if state.accounts == nil || state.accounts.Len() == 0 {
 		return a.tuiEmptyBody(g)
 	}
@@ -74,23 +75,33 @@ func (a *Application) tuiEmptyBody(g tuiGeometry) []string {
 	return fitBodyLines(lines, g, a.p)
 }
 
+// tuiWideSplit is the one place that decides how wide the account list is in
+// the two-column dashboard. The list grows a little on very wide screens; the
+// detail pane keeps at least 44 columns and the list at least 34. The mouse
+// drag, the [ ] keys and the renderer all read it, so they cannot disagree.
+func tuiWideSplit(frameWidth, offset int) (base, minLeft, maxLeft, left int) {
+	totalAvail := maxInt(2, frameWidth-7)
+	minLeft = minInt(34, totalAvail-1)
+	maxLeft = maxInt(minLeft, totalAvail-44)
+	base = maxInt(42, minInt(64, totalAvail*30/100))
+	left = maxInt(minLeft, minInt(maxLeft, base+offset))
+	return base, minLeft, maxLeft, left
+}
+
 func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLayoutPlan) []string {
-	totalAvail := maxInt(2, g.frameWidth-7)
 	offset := 0
 	if state != nil {
 		offset = state.splitOffset
 	}
-	minLeft := minInt(34, totalAvail-1)
-	maxLeft := maxInt(minLeft, totalAvail-44)
-	// The list grows a little on very wide screens; the gauges stop at a width
-	// where the bars and numbers still read as one panel.
-	baseLeft := maxInt(42, minInt(64, totalAvail*30/100))
-	g.leftWidth = maxInt(minLeft, minInt(maxLeft, baseLeft+offset))
-	g.rightWidth = maxInt(1, totalAvail-g.leftWidth)
+	_, _, _, left := tuiWideSplit(g.frameWidth, offset)
+	g.leftWidth = left
+	g.rightWidth = maxInt(1, maxInt(2, g.frameWidth-7)-left)
 	lines := []string{panelDivider(g, a.p)}
 	available := maxInt(0, g.bodyRows-len(lines))
 	list := []string{a.tuiListTitle(state), ""}
-	rows := a.tuiAccountRowsFor(state, g.leftWidth, maxInt(0, available-len(list)), plan.listLines)
+	rows, hits := a.tuiAccountRowsHits(state, g.leftWidth, maxInt(0, available-len(list)), plan.listLines, true)
+	state.listHits = hits
+	state.listFirstRow = 1 + len(list) // body index of the first account row
 	if len(rows) == 0 {
 		rows = a.tuiEmptyListRows(state, g.leftWidth, available-len(list))
 	}

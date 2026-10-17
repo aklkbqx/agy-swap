@@ -148,14 +148,21 @@ func (a *Application) tuiAccountRowsFor(state *tuiState, width, maxRows, listLin
 // tuiAccountRowsSpaced is tuiAccountRowsFor with the blank lines between
 // accounts optional, so a caller can first measure the plain list.
 func (a *Application) tuiAccountRowsSpaced(state *tuiState, width, maxRows, listLines int, allowSpacing bool) []string {
+	rows, _ := a.tuiAccountRowsHits(state, width, maxRows, listLines, allowSpacing)
+	return rows
+}
+
+// tuiAccountRowsHits also returns, for every row, the account it belongs to
+// ("" for dividers, spacing and markers), which is what a mouse click needs.
+func (a *Application) tuiAccountRowsHits(state *tuiState, width, maxRows, listLines int, allowSpacing bool) ([]string, []string) {
 	width = maxInt(1, width)
 	listLines = pick2(listLines == 1, 1, 2)
 	if maxRows <= 0 {
-		return nil
+		return nil, nil
 	}
 	emails := state.visibleEmails()
 	if len(emails) == 0 {
-		return nil
+		return nil, nil
 	}
 	ready, attention := state.partitionedEmails()
 	now := a.renderTime()
@@ -252,20 +259,26 @@ func (a *Application) tuiAccountRowsSpaced(state *tuiState, width, maxRows, list
 		start, end = nextStart, nextEnd
 	}
 	hiddenAbove, hiddenBelow := countAccounts(blocks[:start]), countAccounts(blocks[end:])
-	var rows []string
+	var rows, hits []string
 	if hiddenAbove > 0 {
 		rows = append(rows, a.tuiMoreMarker("▲", hiddenAbove, width))
+		hits = append(hits, "")
 	}
 	for _, b := range blocks[start:end] {
-		rows = append(rows, b.lines...)
+		for range b.lines {
+			rows = append(rows, "")
+			hits = append(hits, b.email)
+		}
+		copy(rows[len(rows)-len(b.lines):], b.lines)
 	}
 	if hiddenBelow > 0 {
 		rows = append(rows, a.tuiMoreMarker("▼", hiddenBelow, width))
+		hits = append(hits, "")
 	}
 	if len(rows) > maxRows {
-		rows = rows[:maxRows]
+		rows, hits = rows[:maxRows], hits[:maxRows]
 	}
-	return rows
+	return rows, hits
 }
 
 func pick2(condition bool, yes, no int) int {
