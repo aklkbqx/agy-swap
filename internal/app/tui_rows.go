@@ -199,11 +199,8 @@ func (a *Application) tuiAccountRowsHits(state *tuiState, width, maxRows, listLi
 			}
 		}
 		if total+accountsShown-1 <= maxRows {
-			// Tall windows get more air between accounts, up to three rows.
-			gap := 1
-			if separators := accountsShown - 1; separators > 0 {
-				gap = 1 + minInt(2, (maxRows-(total+separators))/separators)
-			}
+			// One blank row is enough air; more makes the list read as scattered.
+			const gap = 1
 			spaced := make([]block, 0, len(blocks)*2)
 			for i, b := range blocks {
 				spaced = append(spaced, b)
