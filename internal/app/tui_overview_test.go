@@ -259,21 +259,11 @@ func TestEveryListRowRemembersWhichAccountItBelongsTo(t *testing.T) {
 	}
 }
 
-func TestTallWindowsGiveTheListMoreAirBetweenAccounts(t *testing.T) {
+func TestTallWindowsKeepOneBlankRowBetweenAccounts(t *testing.T) {
 	a, state := overviewState()
-	short := a.tuiAccountRowsFor(state, 60, 8, 2)
-	tall := a.tuiAccountRowsFor(state, 60, 24, 2)
-	if len(tall) <= len(short) {
-		t.Fatalf("a tall list should be roomier: %d rows vs %d", len(tall), len(short))
-	}
-	blanks := 0
-	for _, row := range tall[2:5] {
-		if strings.TrimSpace(row) == "" {
-			blanks++
-		}
-	}
-	if blanks != 3 {
-		t.Fatalf("expected three blank rows between the first two accounts:\n%s", strings.Join(tall, "\n"))
+	tall := a.tuiAccountRowsFor(state, 60, 40, 2)
+	if strings.TrimSpace(tall[2]) != "" || strings.TrimSpace(tall[3]) == "" {
+		t.Fatalf("expected exactly one blank row between the first two accounts:\n%s", strings.Join(tall, "\n"))
 	}
 }
 
