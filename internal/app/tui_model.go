@@ -101,6 +101,7 @@ type tuiState struct {
 	settings       AppSettings
 	settingsLoaded bool
 	splitOffset    int
+	bodySplit      int // column of the list/detail divider in the last dashboard body, 0 when single-column
 	profileNames   []string
 	profileIndex   int
 	history        []historyEvent

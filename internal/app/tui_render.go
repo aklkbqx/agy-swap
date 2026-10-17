@@ -557,8 +557,12 @@ func (a *Application) tuiStatusLines(state *tuiState, width int) []string {
 	default:
 		content = a.p.Gray + "Ready · select an account to inspect health" + a.p.Reset
 	}
+	rule := []rune("├" + strings.Repeat("─", g.frameWidth-2) + "┤")
+	if state.view == tuiViewDashboard && state.bodySplit > 0 && state.bodySplit < len(rule)-1 {
+		rule[state.bodySplit] = '┴' // the list/detail divider meets this rule
+	}
 	return []string{
-		a.p.Gray + "├" + strings.Repeat("─", g.frameWidth-2) + "┤" + a.p.Reset,
+		a.p.Gray + string(rule) + a.p.Reset,
 		frameRow(content, g, a.p),
 	}
 }
