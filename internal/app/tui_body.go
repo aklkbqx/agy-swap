@@ -96,13 +96,6 @@ func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLa
 	list = append(list, rows...)
 	plan = a.tuiFitPlan(state, minInt(g.rightWidth, tuiDetailMaxWidth), available, plan)
 	details := a.tuiGaugeDetail(state, minInt(g.rightWidth, tuiDetailMaxWidth), available, plan)
-	// With plenty of rows left under the gauges, the whole fleet in one table.
-	if state.accounts != nil && len(state.visibleEmails()) >= 2 {
-		if spare := available - len(details); spare >= 6 {
-			details = append(details, "", a.tuiSectionTitle("ALL ACCOUNTS"))
-			details = append(details, a.tuiOverviewRows(state, minInt(g.rightWidth, 120), spare-2)...)
-		}
-	}
 	count := maxInt(len(list), len(details))
 	for i := 0; i < count && len(lines) < g.bodyRows; i++ {
 		left, right := "", ""
