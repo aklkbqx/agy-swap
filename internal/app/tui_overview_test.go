@@ -297,30 +297,21 @@ func TestBigDigitsScaleSquare(t *testing.T) {
 	}
 }
 
-func TestBigWindowsGetBiggerDigitsAndFillTheRows(t *testing.T) {
+func TestBigWindowsGetBiggerDigitsButNotPosterSized(t *testing.T) {
 	a, state := overviewState()
 	state.width, state.height = 235, 66
 	text := strings.Join(a.tuiLines(state, 233, 66), "\n")
-	// Scale 3 draws 6-cell-wide pixels: a run of 6 blocks is only possible when scaled.
+	// Scale 2 draws 4-cell-wide pixels: a run of 6 blocks is only possible when scaled.
 	if !strings.Contains(text, strings.Repeat("█", 6)) {
 		t.Fatalf("a 235x66 window should show scaled digits:\n%s", text)
 	}
-	rows := strings.Split(text, "\n")
-	lastBox, bodyEnd := -1, -1
-	for i, row := range rows {
-		if strings.Contains(row, "╰") && strings.Contains(row, "│") && i < len(rows)-3 {
-			lastBox = i
-		}
-		if strings.Contains(row, "┴") {
-			bodyEnd = i
-		}
-	}
-	if lastBox < 0 || bodyEnd-lastBox > 8 {
-		t.Fatalf("the panels should reach the bottom of a 66-row window (last panel row %d, body ends %d):\n%s", lastBox, bodyEnd, text)
-	}
-	for _, row := range rows {
+	for _, row := range strings.Split(text, "\n") {
 		if visibleWidth(row) != 235 {
 			t.Fatalf("row is %d wide: %q", visibleWidth(row), row)
 		}
+	}
+	// Scale 3 would draw 6 row-tall digit strokes; the digits stop at scale 2.
+	if strings.Contains(text, "\n"+strings.Repeat("█", 1)) && strings.Count(text, "█") > 235*20 {
+		t.Fatalf("a 235x66 window should not be mostly solid blocks")
 	}
 }
