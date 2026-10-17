@@ -155,7 +155,7 @@ func (a *Application) tuiPoolPanels(pools []poolView, now time.Time, width int, 
 		return rows
 	}
 	box := func(pool poolView, boxWidth int) []string {
-		return tuiBox(a.p, tuiPoolPanelLines(a.p, pool, now, maxInt(8, boxWidth-4), plan.digits), boxWidth, poolBorderColor(a.p, pool))
+		return tuiBox(a.p, tuiPoolPanelScaled(a.p, pool, now, maxInt(8, boxWidth-4), plan.digits, plan.scale, plan.gap, plan.thick), boxWidth, poolBorderColor(a.p, pool))
 	}
 	if plan.panels == panelsSide {
 		half := (width - 1) / 2

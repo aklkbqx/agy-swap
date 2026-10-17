@@ -37,6 +37,10 @@ type tuiLayoutPlan struct {
 	// tight drops the freshness line and the blank rows between pools, for
 	// terminals that are too short to show both pools any other way.
 	tight bool
+	// scale grows the 5-row digits and the bars with the window (1 = normal),
+	// gap adds blank rows between the sections of a panel and thick is how many
+	// rows tall each bar is.
+	scale, gap, thick int
 }
 
 // tuiBodyRowsFor is the rows left for the body once the header, status line,

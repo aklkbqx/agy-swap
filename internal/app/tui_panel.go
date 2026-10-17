@@ -65,6 +65,18 @@ func tuiLimitCaption(pool poolView) string {
 // tuiPoolPanelLines is the body of one pool's gauge panel, every row exactly
 // width columns wide. The border is added by tuiBox.
 func tuiPoolPanelLines(p palette, pool poolView, now time.Time, width int, digits tuiDigits) []string {
+	return tuiPoolPanelScaled(p, pool, now, width, digits, 1, 0, 1)
+}
+
+// tuiPoolPanelScaled is tuiPoolPanelLines with the digits and bars grown by
+// scale, gap extra blank rows between the sections and bars thick rows tall.
+func tuiPoolPanelScaled(p palette, pool poolView, now time.Time, width int, digits tuiDigits, scale, gap, thick int) []string {
+	scale, gap, thick = maxInt(1, scale), maxInt(0, gap), maxInt(1, thick)
+	blank := func(lines *[]string, pad func(string) string) {
+		for i := 0; i <= gap; i++ {
+			*lines = append(*lines, pad(""))
+		}
+	}
 	color := poolColor(p, pool.state)
 	pad := func(value string) string { return fitVisible(value, width, p) }
 	var lines []string
@@ -74,18 +86,31 @@ func tuiPoolPanelLines(p palette, pool poolView, now time.Time, width int, digit
 		// Big digits are for what needs attention: a pool with plenty left
 		// gets the smaller figure.
 		rows := 5
-		if digits == digitsThree || pool.state == poolPlenty {
+		if digits == digitsThree || (scale == 1 && pool.state == poolPlenty) {
 			rows = 3
 		}
 		lines = append(lines, pad(""))
 		// The % is not drawn big (the 3x5 sign is unreadable); the caption says it.
 		digitsOnly := strings.TrimSuffix(poolPercent(pool.limiting.fraction), "%")
-		for _, row := range bigNumber(digitsOnly, rows) {
-			lines = append(lines, pad(color+row+p.Reset))
+		figure := bigNumber(digitsOnly, rows)
+		if rows == 5 && scale > 1 {
+			figure = bigNumberScaled(digitsOnly, scale)
 		}
-		lines = append(lines, pad(p.Gray+tuiLimitCaption(pool)+p.Reset))
+		caption := tuiLimitCaption(pool)
+		indent := ""
+		if scale > 1 {
+			// A big figure sits in the middle of its panel.
+			indent = strings.Repeat(" ", maxInt(0, (width-visibleWidth(figure[0]))/2))
+		}
+		for _, row := range figure {
+			lines = append(lines, pad(indent+color+row+p.Reset))
+		}
+		if scale > 1 {
+			indent = strings.Repeat(" ", maxInt(0, (width-len([]rune(caption)))/2))
+		}
+		lines = append(lines, pad(indent+p.Gray+caption+p.Reset))
 	}
-	lines = append(lines, pad(""))
+	blank(&lines, pad)
 	limit := func(name string, l poolLimit, other poolLimit) {
 		if !l.present {
 			if name == "5-hour" && pool.paused {
@@ -96,24 +121,33 @@ func tuiPoolPanelLines(p palette, pool poolView, now time.Time, width int, digit
 		}
 		tone := poolColor(p, poolStateFor(l.fraction))
 		lines = append(lines, pad(rowSpread(name, p.Bold+tone+poolPercent(l.fraction)+p.Reset, width, p)))
-		lines = append(lines, pad(renderMeter(tuiMeterStyle, l.fraction, width, tone, p.Track, p.Reset)))
+		if scale > 1 || thick > 1 {
+			for _, row := range renderThickMeter(p, l.fraction, width, maxInt(thick, minInt(scale, 4)), tone) {
+				lines = append(lines, pad(row))
+			}
+		} else {
+			lines = append(lines, pad(renderMeter(tuiMeterStyle, l.fraction, width, tone, p.Track, p.Reset)))
+		}
 		if reset := tuiResetText(l, now); reset != "" {
 			lines = append(lines, pad(p.Gray+reset+p.Reset))
 		}
 	}
 	limit("Weekly", pool.weekly, pool.fiveHour)
 	if pool.weekly.present && (pool.fiveHour.present || pool.paused) {
-		lines = append(lines, pad(""))
+		blank(&lines, pad)
 	}
 	limit("5-hour", pool.fiveHour, pool.weekly)
 	switch {
 	case pool.state == poolUsedUp && pool.backIn > 0:
-		lines = append(lines, pad(""), pad(p.Bold+p.Red+"back in "+formatDuration(pool.backIn.Seconds())+p.Reset))
+		blank(&lines, pad)
+		lines = append(lines, pad(p.Bold+p.Red+"back in "+formatDuration(pool.backIn.Seconds())+p.Reset))
 	case pool.state == poolUsedUp:
-		lines = append(lines, pad(""), pad(p.Bold+p.Red+"used up"+p.Reset))
+		blank(&lines, pad)
+		lines = append(lines, pad(p.Bold+p.Red+"used up"+p.Reset))
 	case pool.state != poolPlenty:
 		// The chip already says PLENTY; only a pool in trouble needs the reassurance.
-		lines = append(lines, pad(""), pad(p.Bold+color+"still usable"+p.Reset))
+		blank(&lines, pad)
+		lines = append(lines, pad(p.Bold+color+"still usable"+p.Reset))
 	}
 	return lines
 }
