@@ -28,13 +28,27 @@ func NewDemo(version string, in io.Reader, out, errOut io.Writer, options DemoOp
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	for i, fixture := range []struct {
+	bucket := func(id, name, window string, fraction float64, reset time.Duration) any {
+		return map[string]any{
+			"id": id, "name": name, "window": window, "remaining_fraction": fraction,
+			"reset_at": now.Add(reset).Format(time.RFC3339),
+		}
+	}
+	hour := time.Hour
+	for _, fixture := range []struct {
 		email, name string
-		remaining   float64
+		gemini      []any // weekly, then 5-hour
+		claude      []any // weekly, then 5-hour (absent while the weekly limit is used up)
 	}{
-		{"alpha@example.invalid", "Alpha User", 0.86},
-		{"beta@example.invalid", "Beta User", 0.43},
-		{"gamma@example.invalid", "Gamma User", 0.09},
+		{"alpha@example.invalid", "Alpha User",
+			[]any{bucket("gemini-weekly", "Weekly", "weekly", 0.86, 123*hour), bucket("gemini-5h", "5-Hour", "5h", 0.97, 4*hour+12*time.Minute)},
+			[]any{bucket("3p-weekly", "Weekly", "weekly", 1, 123*hour), bucket("3p-5h", "5-Hour", "5h", 1, 4*hour+12*time.Minute)}},
+		{"beta@example.invalid", "Beta User",
+			[]any{bucket("gemini-weekly", "Weekly", "weekly", 0.43, 16*hour), bucket("gemini-5h", "5-Hour", "5h", 0.93, 4*hour+41*time.Minute)},
+			[]any{bucket("3p-weekly", "Weekly", "weekly", 0, 22*hour+43*time.Minute)}},
+		{"gamma@example.invalid", "Gamma User",
+			[]any{bucket("gemini-weekly", "Weekly", "weekly", 0.09, 54*hour), bucket("gemini-5h", "5-Hour", "5h", 0.4, 2*hour+5*time.Minute)},
+			[]any{bucket("3p-weekly", "Weekly", "weekly", 0.41, 73*hour), bucket("3p-5h", "5-Hour", "5h", 1, 2*hour+5*time.Minute)}},
 	} {
 		token := demoToken(fixture.email)
 		accounts.Set(fixture.email, Account{
@@ -43,14 +57,10 @@ func NewDemo(version string, in io.Reader, out, errOut io.Writer, options DemoOp
 			"quota_snapshot": map[string]any{
 				"observed_at": now.Format(time.RFC3339),
 				"tier":        map[string]any{"id": "pro-tier", "name": "Pro"},
-				"groups": []any{map[string]any{
-					"id": "gemini", "name": "Gemini Models",
-					"buckets": []any{map[string]any{
-						"id": "gemini-weekly", "name": "Weekly", "window": "weekly",
-						"remaining_fraction": fixture.remaining,
-						"reset_at":           now.Add(time.Duration(i+1) * 8 * time.Hour).Format(time.RFC3339),
-					}},
-				}},
+				"groups": []any{
+					map[string]any{"id": "gemini", "name": "Gemini Models", "buckets": fixture.gemini},
+					map[string]any{"id": "third_party", "name": "Claude and GPT Models", "buckets": fixture.claude},
+				},
 			},
 		})
 	}

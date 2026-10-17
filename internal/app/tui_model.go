@@ -101,6 +101,10 @@ type tuiState struct {
 	settings       AppSettings
 	settingsLoaded bool
 	splitOffset    int
+	listHits       []string // email per list row of the last wide dashboard, "" for dividers and markers
+	listFirstRow   int      // body index of the first list row
+	bodyTop        int      // line index of the first body line in the last frame
+	bodySplit      int      // column of the list/detail divider in the last dashboard body, 0 when single-column
 	profileNames   []string
 	profileIndex   int
 	history        []historyEvent
@@ -346,15 +350,6 @@ func (s *tuiState) animationPhase() int {
 	return s.animation.phase % 4
 }
 
-func (s *tuiState) selectedIndex() int {
-	for i, email := range s.visibleEmails() {
-		if strings.EqualFold(email, s.selectedEmail) {
-			return i
-		}
-	}
-	return 0
-}
-
 func (s *tuiState) moveProfile(delta int) {
 	if len(s.profileNames) == 0 {
 		return
@@ -378,13 +373,18 @@ func (s *tuiState) moveHistory(delta int) {
 }
 
 func (s *tuiState) adjustSplit(delta int) {
-	next := s.splitOffset + delta
-	if next < -40 {
-		next = -40
-	} else if next > 40 {
-		next = 40
+	s.setSplit(s.splitOffset + delta)
+}
+
+// setSplit stores an offset from the default list width. On a known wide
+// screen it stops at the narrowest and widest list the layout allows, so a
+// keypress after hitting a limit always moves the divider.
+func (s *tuiState) setSplit(offset int) {
+	lo, hi := -40, 40
+	if base, minLeft, maxLeft, _, ok := s.wideSplitBounds(); ok {
+		lo, hi = minLeft-base, maxLeft-base
 	}
-	s.splitOffset = next
+	s.splitOffset = maxInt(lo, minInt(hi, offset))
 }
 
 func (s *tuiState) resetSplit() {
@@ -395,17 +395,12 @@ func (s *tuiState) wideSplitBounds() (baseLeft, minLeft, maxLeft, dividerCol int
 	if s == nil {
 		return 0, 0, 0, 0, false
 	}
-	g := newTUIGeometry(s.width, s.height)
-	if g.layout != tuiLayoutWide {
+	g := newTUIGeometry(s.width-2, s.height)
+	if tuiLayoutPlanFor(g.frameWidth, g.frameHeight).arrangement != arrWide {
 		return 0, 0, 0, 0, false
 	}
-	totalAvail := maxInt(2, g.frameWidth-7)
-	baseLeft = maxInt(48, minInt(68, totalAvail*46/100))
-	minLeft = minInt(32, totalAvail-1)
-	maxLeft = maxInt(minLeft, totalAvail-24)
-	leftWidth := maxInt(minLeft, minInt(maxLeft, baseLeft+s.splitOffset))
-	dividerCol = leftWidth + 4
-	return baseLeft, minLeft, maxLeft, dividerCol, true
+	baseLeft, minLeft, maxLeft, leftWidth := tuiWideSplit(g.frameWidth, s.splitOffset)
+	return baseLeft, minLeft, maxLeft, leftWidth + 4, true
 }
 
 func absInt(n int) int {

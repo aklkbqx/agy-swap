@@ -94,7 +94,7 @@ func TestTokenIdentityMatchesTargetAccount(t *testing.T) {
 }
 
 func TestNormalizedReleaseTag(t *testing.T) {
-	for input, want := range map[string]string{"2.12.2": "v2.12.2", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} { //nolint:gocritic // the padded key tests trimming
+	for input, want := range map[string]string{"2.13.0": "v2.13.0", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} { //nolint:gocritic // the padded key tests trimming
 		if got := normalizedReleaseTag(input); got != want {
 			t.Fatalf("%q normalized to %q, want %q", input, got, want)
 		}
@@ -392,10 +392,14 @@ func TestTUIResponsiveRenderersShareVisualContract(t *testing.T) {
 	a := &Application{Version: "2.1.1", p: makePalette(false), color: false}
 	state := newTUIState(accounts, "user@example.com")
 	stacked := a.tuiAccountRows(state, 78, 2)
-	wide := a.tuiAccountTableRows(state, 56, 4)
+	wide := a.tuiAccountRowsFor(state, 56, 4, 2)
+	wants := map[string][]string{
+		"stacked": {"❯", "[US]", "READY", "Gem", " 85%"},
+		"wide":    {"❯", "[US]", "READY", "Gem", " 85%"},
+	}
 	for name, rows := range map[string][]string{"stacked": stacked, "wide": wide} {
 		joined := strings.Join(rows, "\n")
-		for _, want := range []string{"❯", "[US]", "Gemini 85% ready"} {
+		for _, want := range wants[name] {
 			if !strings.Contains(joined, want) {
 				t.Fatalf("%s renderer missing %q: %q", name, want, rows)
 			}
@@ -422,7 +426,7 @@ func TestTUIResponsiveRenderersShareColorTokens(t *testing.T) {
 	state := newTUIState(accounts, "user@example.com")
 	state.active = "user@example.com"
 	stacked := strings.Join(a.tuiAccountRows(state, 78, 2), "\n") + "\n" + strings.Join(a.tuiDetailLines(state, 62, 12), "\n")
-	wide := strings.Join(a.tuiAccountTableRows(state, 56, 4), "\n") + "\n" + strings.Join(a.tuiDetailTableLines(state, 62, 12), "\n")
+	wide := strings.Join(a.tuiAccountRowsFor(state, 56, 4, 2), "\n") + "\n" + strings.Join(a.tuiDetailTableLines(state, 62, 12), "\n")
 	for name, rendered := range map[string]string{"stacked": stacked, "wide": wide} {
 		for token, want := range map[string]string{"orange": p.Orange, "green": p.Green, "blue": p.Blue, "cyan": p.Cyan} {
 			if want == "" || !strings.Contains(rendered, want) {
@@ -469,7 +473,7 @@ func TestTUINarrowQuotaValueWithoutResetOrDue(t *testing.T) {
 	}
 }
 
-func TestTUIQuotaListDropsEmailBeforeHealthAtNarrowWidth(t *testing.T) {
+func TestTUIQuotaOverviewNamesAccountsWithoutTheEmailAndKeepsStatusAtNarrowWidth(t *testing.T) {
 	accounts := NewAccounts()
 	account := quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(50*time.Hour))
 	account["name"] = "Alpha Tester"
@@ -479,12 +483,12 @@ func TestTUIQuotaListDropsEmailBeforeHealthAtNarrowWidth(t *testing.T) {
 	state.view = tuiViewQuota
 
 	narrow := a.tuiQuotaViewRows(state, 36, 12)
-	if want := "● Alpha Tester  Gemini 85% ready"; narrow[0] != want {
-		t.Fatalf("narrow row = %q, want %q", narrow[0], want)
+	if !strings.Contains(narrow[0], "Alpha Tester") || !strings.Contains(narrow[0], "READY") || strings.Contains(narrow[0], "user@example.com") {
+		t.Fatalf("narrow overview row = %q", narrow[0])
 	}
-	wide := a.tuiQuotaViewRows(state, 80, 12)
-	if !strings.Contains(wide[0], "user@example.com") || !strings.Contains(wide[0], "Gemini 85% ready") {
-		t.Fatalf("wide row lost email or health: %q", wide[0])
+	wide := a.tuiQuotaViewRows(state, 100, 12)
+	if !strings.Contains(wide[0], "ACCOUNT") || !strings.Contains(wide[1], "Alpha Tester") || !strings.Contains(wide[1], "READY") {
+		t.Fatalf("wide overview = %q", wide[:2])
 	}
 }
 
@@ -495,7 +499,7 @@ func TestTUICompactTallViewportKeepsSelectedDetail(t *testing.T) {
 	state := newTUIState(accounts, "user@example.com")
 	lines := a.tuiLines(state, 58, 24)
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"ACCOUNT HEALTH", "STATUS", "Gemini Models"} {
+	for _, want := range []string{"user@example.com", "GEMINI", "CLAUDE/GPT", "Weekly"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("compact tall viewport missing %q: %q", want, lines)
 		}
@@ -510,15 +514,12 @@ func TestTUIWideAccountTableUsesStableColumns(t *testing.T) {
 	accounts.Set("beta@example.com", Account{"email": "beta@example.com", "name": "Beta"})
 	a := &Application{Version: "2.1.1", p: makePalette(false), color: false}
 	state := newTUIState(accounts, "")
-	rows := a.tuiAccountTableRows(state, 56, 8)
-	if len(rows) != 4 { // header, rule, and two account rows
+	rows := a.tuiAccountRowsFor(state, 56, 5, 2)
+	if len(rows) != 5 { // two lines for each of two accounts, and a blank line between them
 		t.Fatalf("rows = %d, want 4: %q", len(rows), rows)
 	}
-	if !strings.Contains(rows[0], "ACCOUNT") || !strings.Contains(rows[0], "HEALTH") {
-		t.Fatalf("missing table headers: %q", rows[0])
-	}
-	if !strings.Contains(rows[2], "❯ · [AL]") || !strings.Contains(rows[2], "Alpha") {
-		t.Fatalf("selected row lost its identity: %q", rows[2])
+	if !strings.Contains(rows[0], "❯ · [AL]") || !strings.Contains(rows[0], "Alpha") {
+		t.Fatalf("selected row lost its identity: %q", rows[0])
 	}
 	for i, row := range rows {
 		if visibleWidth(row) != 56 {
@@ -535,7 +536,7 @@ func TestTUIAccountTableSurvivesInvalidUTF8(t *testing.T) {
 	accounts.Set("bad@example.com", Account{"email": "bad@example.com", "name": string([]byte{'B', 0xff, 'd'})})
 	a := &Application{Version: "2.1.1", p: makePalette(false), color: false}
 	state := newTUIState(accounts, "")
-	rows := a.tuiAccountTableRows(state, 42, 5)
+	rows := a.tuiAccountRowsFor(state, 42, 5, 2)
 	for i, row := range rows {
 		if strings.ContainsRune(row, '\uFFFD') {
 			t.Fatalf("row %d contains replacement glyph: %q", i, row)
@@ -633,7 +634,7 @@ func TestTUIOverlayKeepsFrameGeometry(t *testing.T) {
 func TestTUISuccessToastKeepsFrameGeometryAndExpires(t *testing.T) {
 	accounts := NewAccounts()
 	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
-	a := &Application{Version: "2.12.2", p: makePalette(false), color: false}
+	a := &Application{Version: "2.13.0", p: makePalette(false), color: false}
 	state := newTUIState(accounts, "user@example.com")
 	state.showToast("Switched to user@example.com", "success")
 
@@ -1202,7 +1203,7 @@ func TestExtendedSettingsAliasesAndEncryptedBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	a := &Application{Version: "2.12.2", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
+	a := &Application{Version: "2.13.0", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
 	if code := a.Run(context.Background(), []string{"config", "set", "policy.min_remaining_pct", "25"}); code != 0 {
 		t.Fatalf("config set code=%d err=%s", code, errOut.String())
 	}
@@ -1419,8 +1420,8 @@ func TestTUIWideSplitBoundsAndMouseDrag(t *testing.T) {
 	if !ok {
 		t.Fatal("expected wide split bounds ok at 120x24")
 	}
-	if baseLeft < 48 {
-		t.Fatalf("expected baseLeft >= 48, got %d", baseLeft)
+	if baseLeft < 42 {
+		t.Fatalf("expected baseLeft >= 42, got %d", baseLeft)
 	}
 	if dividerCol != baseLeft+4 {
 		t.Fatalf("expected dividerCol %d, got %d", baseLeft+4, dividerCol)
@@ -1452,13 +1453,13 @@ func TestTUIWideBodySplitOffsetGeometry(t *testing.T) {
 	accounts.Set("user@example.com", Account{"email": "user@example.com", "name": "User"})
 	state := newTUIState(accounts, "user@example.com")
 
-	linesDefault := a.tuiWideBody(state, 120, 22)
+	linesDefault := a.tuiPoolBody(state, 120, 22)
 	if len(linesDefault) == 0 {
 		t.Fatal("expected lines, got none")
 	}
 
 	state.adjustSplit(15)
-	linesWider := a.tuiWideBody(state, 120, 22)
+	linesWider := a.tuiPoolBody(state, 120, 22)
 	if len(linesWider) != len(linesDefault) {
 		t.Fatalf("line count changed: %d vs %d", len(linesWider), len(linesDefault))
 	}
@@ -1466,20 +1467,6 @@ func TestTUIWideBodySplitOffsetGeometry(t *testing.T) {
 		if visibleWidth(line) != visibleWidth(linesDefault[i]) {
 			t.Fatalf("row %d width mismatch: %d vs %d", i, visibleWidth(line), visibleWidth(linesDefault[i]))
 		}
-	}
-}
-
-func TestTUIColumnWidthsExpansion(t *testing.T) {
-	_, idNarrow, healthNarrow := tuiAccountColumnWidths(42)
-	if healthNarrow != 14 {
-		t.Fatalf("expected health 14 at width 42, got %d", healthNarrow)
-	}
-	_, idWide, healthWide := tuiAccountColumnWidths(90)
-	if healthWide != 30 {
-		t.Fatalf("expected health 30 at width 90, got %d", healthWide)
-	}
-	if idWide <= idNarrow {
-		t.Fatalf("expected id to expand: %d vs %d", idWide, idNarrow)
 	}
 }
 
@@ -1746,13 +1733,13 @@ func TestAccountRowSelection(t *testing.T) {
 }
 
 func TestTUIDisplayVersionDev(t *testing.T) {
-	appDev := &Application{Version: "2.12.2", BuildID: "dev", p: makePalette(false)}
+	appDev := &Application{Version: "2.13.0", BuildID: "dev", p: makePalette(false)}
 	linesDev := appDev.tuiTopLines(newTUIState(NewAccounts(), ""), 80)
 	if !strings.Contains(strings.Join(linesDev, "\n"), "v"+appDev.Version+"-dev") {
 		t.Fatalf("TUI header missing dev tag: %q", linesDev)
 	}
 
-	appRel := &Application{Version: "2.12.2", BuildID: "release-v2.12.2", p: makePalette(false)}
+	appRel := &Application{Version: "2.13.0", BuildID: "release-v2.13.0", p: makePalette(false)}
 	linesRel := appRel.tuiTopLines(newTUIState(NewAccounts(), ""), 80)
 	if !strings.Contains(strings.Join(linesRel, "\n"), "v"+appRel.Version) || strings.Contains(strings.Join(linesRel, "\n"), "v"+appRel.Version+"-") {
 		t.Fatalf("TUI header should not have dev tag for release: %q", linesRel)
@@ -1839,7 +1826,7 @@ func TestTUIGroupedSectionRendering(t *testing.T) {
 	state := newTUIState(accounts, "")
 
 	// 1. Without errors: No section dividers should be present
-	rowsClean := app.tuiAccountTableRows(state, 60, 8)
+	rowsClean := app.tuiAccountRowsFor(state, 60, 8, 2)
 	cleanJoined := strings.Join(rowsClean, "\n")
 	if strings.Contains(cleanJoined, "READY (") || strings.Contains(cleanJoined, "ATTENTION") {
 		t.Fatalf("clean accounts should not render section headers: %s", cleanJoined)
@@ -1847,7 +1834,7 @@ func TestTUIGroupedSectionRendering(t *testing.T) {
 
 	// 2. With error on user2: Should render READY (1) and ATTENTION REQUIRED (1)
 	state.quotaErrors["user2@example.com"] = "secret vault entry is unavailable"
-	rowsGrouped := app.tuiAccountTableRows(state, 60, 10)
+	rowsGrouped := app.tuiAccountRowsFor(state, 60, 10, 2)
 	groupedJoined := strings.Join(rowsGrouped, "\n")
 
 	if !strings.Contains(groupedJoined, "READY (1)") {
@@ -1857,18 +1844,14 @@ func TestTUIGroupedSectionRendering(t *testing.T) {
 		t.Fatalf("expected ATTENTION REQUIRED (1) section header in table:\n%s", groupedJoined)
 	}
 
-	// The first section divider replaces the header rule: no plain ─ rule row
-	// may stack directly on top of "── READY".
-	if len(rowsGrouped) < 2 || !strings.Contains(rowsGrouped[1], "READY (1)") {
-		t.Fatalf("grouped table should put READY divider right under the column header:\n%s", groupedJoined)
+	// The READY divider opens the list: no plain ─ rule row may stack above it.
+	if len(rowsGrouped) < 1 || !strings.Contains(rowsGrouped[0], "READY (1)") {
+		t.Fatalf("grouped list should open with the READY divider:\n%s", groupedJoined)
 	}
 	for i, row := range rowsGrouped {
-		if strings.Trim(row, "─ ") == "" {
+		if strings.Contains(row, "─") && strings.Trim(row, "─ ") == "" {
 			t.Fatalf("grouped table row %d is a bare rule stacked with section dividers:\n%s", i, groupedJoined)
 		}
-	}
-	if !strings.Contains(rowsClean[1], strings.Repeat("─", 60)) {
-		t.Fatalf("clean table should keep the header rule, got %q", rowsClean[1])
 	}
 
 	// Verify all rows strictly conform to width

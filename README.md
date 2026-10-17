@@ -47,7 +47,7 @@ Requirements: Go 1.27.2 or later. macOS source builds require Xcode Command Line
 ```bash
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-go build -trimpath -ldflags "-s -w -X main.version=2.12.2 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.13.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ./agy-swap version
 ```
 
@@ -75,17 +75,22 @@ Run `agy-swap` with no arguments to open the terminal UI:
 agy-swap
 ```
 
+Each account shows a status word and two meters: Gem (Gemini) and C/G (Claude and GPT). The status word says what the account can be used for right now: `READY`, `LOW` (a pool is at 30% or less), `GEMINI ONLY` or `CLAUDE/GPT ONLY` (the other pool is used up), `LIMITED` (both are used up), or `NO TOKEN`. Each meter shows the tighter of that pool's weekly and 5-hour limit. The selected account gets a gauge panel per pool with both limits, when each resets, and, for a used-up pool, when it is back. Green means more than 30% is left, yellow 30% or less, red 10% or less; every state also has a word.
+
 The layout follows your terminal size:
 
-- **Wide (at least 92 columns and 18 rows):** the account list on the left, health details on the right.
-- **Stacked (at least 64 columns and 16 rows, when wide does not fit):** the panels stacked vertically.
-- **Compact (fewer than 64 columns or 16 rows):** one column for split panes and SSH from a phone.
+- **Wide (92 columns or more):** the account list on the left, the gauges on the right. From 120 columns the two pool panels sit side by side with large percentages when there are enough rows.
+- **Stacked (64 to 91 columns):** the list on top, the gauges below.
+- **Compact (41 to 63 columns) and narrow (40 or fewer):** one column, with the selected account's pools below the list.
+
+A terminal cannot change its font, so on a large window the dashboard scales what it draws instead: the big digits grow up to twice their size, the bars get thicker, the list bars lengthen and the sections get a little more air, without turning the gauges into posters. When there are too few rows for big digits, the gauges become plain limit lines, down to a 28 by 12 window. Set `AGY_SWAP_ASCII=1` to draw with ASCII characters only (it is chosen for you on a Linux console, a dumb terminal or a non-UTF-8 locale; `AGY_SWAP_ASCII=0` turns it off). `AGY_SWAP_QUOTA_DEBUG=1 agy-swap list --refresh` explains how each account's quota was read.
 
 | Key | Action |
 | :--- | :--- |
 | `↑` / `↓` or `j` / `k` | Move the highlight up or down |
 | `[` / `]` or `<` / `>` | Narrow or widen the account pane in wide layout |
 | `=` | Reset the pane split |
+| Mouse | Drag the divider between the list and the gauges to resize it, double-click it to reset, click an account to select it |
 | `Enter` | Switch to the highlighted account |
 | `1` – `9` | Select an account by number; press Enter to switch |
 | `n` | Refresh and move to the next eligible account |
