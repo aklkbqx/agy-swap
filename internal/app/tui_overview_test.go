@@ -258,3 +258,79 @@ func TestEveryListRowRemembersWhichAccountItBelongsTo(t *testing.T) {
 		}
 	}
 }
+
+func TestTallWindowsGiveTheListMoreAirBetweenAccounts(t *testing.T) {
+	a, state := overviewState()
+	short := a.tuiAccountRowsFor(state, 60, 8, 2)
+	tall := a.tuiAccountRowsFor(state, 60, 24, 2)
+	if len(tall) <= len(short) {
+		t.Fatalf("a tall list should be roomier: %d rows vs %d", len(tall), len(short))
+	}
+	blanks := 0
+	for _, row := range tall[2:5] {
+		if strings.TrimSpace(row) == "" {
+			blanks++
+		}
+	}
+	if blanks != 3 {
+		t.Fatalf("expected three blank rows between the first two accounts:\n%s", strings.Join(tall, "\n"))
+	}
+}
+
+func TestTheListBarsGrowWithTheListWidth(t *testing.T) {
+	a, state := overviewState()
+	view := a.tuiAccountView(state, "beta@example.invalid", poolNow)
+	narrow := a.tuiAccountBlock(view, state, 62, 2)[1]
+	wide := a.tuiAccountBlock(view, state, 96, 2)[1]
+	if strings.Count(wide, "▄")+strings.Count(wide, "▂") <= strings.Count(narrow, "▄")+strings.Count(narrow, "▂") {
+		t.Fatalf("a wider row should draw longer bars:\n%s\n%s", narrow, wide)
+	}
+	if visibleWidth(wide) != 96 {
+		t.Fatalf("wide row = %d columns", visibleWidth(wide))
+	}
+}
+
+func TestBigDigitsScaleSquare(t *testing.T) {
+	for scale := 1; scale <= 5; scale++ {
+		rows := bigNumberScaled("100", scale)
+		if len(rows) != 5*scale {
+			t.Fatalf("scale %d: %d rows", scale, len(rows))
+		}
+		for _, row := range rows {
+			if visibleWidth(row) != bigNumberWidth(3, scale) {
+				t.Fatalf("scale %d: row is %d wide, want %d", scale, visibleWidth(row), bigNumberWidth(3, scale))
+			}
+		}
+	}
+	if got, want := strings.Join(bigNumberScaled("36%", 1), "\n"), strings.Join(bigNumber("36%", 5), "\n"); got != want {
+		t.Fatalf("scale 1 must equal the 5-row digits:\n%s\n%s", got, want)
+	}
+}
+
+func TestBigWindowsGetBiggerDigitsAndFillTheRows(t *testing.T) {
+	a, state := overviewState()
+	state.width, state.height = 235, 66
+	text := strings.Join(a.tuiLines(state, 233, 66), "\n")
+	// Scale 3 draws 6-cell-wide pixels: a run of 6 blocks is only possible when scaled.
+	if !strings.Contains(text, strings.Repeat("█", 6)) {
+		t.Fatalf("a 235x66 window should show scaled digits:\n%s", text)
+	}
+	rows := strings.Split(text, "\n")
+	lastBox, bodyEnd := -1, -1
+	for i, row := range rows {
+		if strings.Contains(row, "╰") && strings.Contains(row, "│") && i < len(rows)-3 {
+			lastBox = i
+		}
+		if strings.Contains(row, "┴") {
+			bodyEnd = i
+		}
+	}
+	if lastBox < 0 || bodyEnd-lastBox > 8 {
+		t.Fatalf("the panels should reach the bottom of a 66-row window (last panel row %d, body ends %d):\n%s", lastBox, bodyEnd, text)
+	}
+	for _, row := range rows {
+		if visibleWidth(row) != 235 {
+			t.Fatalf("row is %d wide: %q", visibleWidth(row), row)
+		}
+	}
+}

@@ -55,3 +55,42 @@ func renderMeter(style meterStyle, fraction float64, width int, fill, track, res
 	b.WriteString(reset)
 	return b.String()
 }
+
+// renderThickMeter is a bar thickness rows tall, drawn with full blocks so it
+// grows with the window; the unfilled rail is a dark block, and without color a
+// light shade. The fill resolves eighths of a cell.
+func renderThickMeter(p palette, fraction float64, width, thickness int, fill string) []string {
+	width = maxInt(1, width)
+	fraction = max(0, min(1, fraction))
+	total := fraction * float64(width)
+	whole := int(math.Floor(total))
+	eighths := int(math.Round((total - float64(whole)) * 8))
+	if eighths >= 8 {
+		whole, eighths = whole+1, 0
+	}
+	if whole >= width {
+		whole, eighths = width, 0
+	}
+	var b strings.Builder
+	b.WriteString(fill)
+	b.WriteString(strings.Repeat("█", whole))
+	used := whole
+	if eighths > 0 {
+		b.WriteString(fractionalBlocks[eighths])
+		used++
+	}
+	rail, railColor := "█", p.TrackBg
+	if p.Reset == "" {
+		rail = "░"
+	}
+	if rest := width - used; rest > 0 {
+		b.WriteString(railColor)
+		b.WriteString(strings.Repeat(rail, rest))
+	}
+	b.WriteString(p.Reset)
+	rows := make([]string, maxInt(1, thickness))
+	for i := range rows {
+		rows[i] = b.String()
+	}
+	return rows
+}

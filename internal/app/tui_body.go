@@ -5,9 +5,6 @@ import (
 	"strings"
 )
 
-// tuiDetailMaxWidth caps the gauge area so two panels never stretch across a huge window.
-const tuiDetailMaxWidth = 108
-
 func (a *Application) tuiListTitle(state *tuiState) string {
 	return a.tuiSectionTitle("ACCOUNTS") + "  " + a.p.Gray + fmt.Sprintf("%d", len(state.visibleEmails())) + "  ❯ selected · ● active" + a.p.Reset
 }
@@ -47,6 +44,27 @@ func (a *Application) tuiFitPlan(state *tuiState, width, budget int, plan tuiLay
 	}
 	switch plan.digits {
 	case digitsFive:
+		// Grow the digits and bars into the room: the biggest scale whose digits
+		// still fit a panel and whose panels still fit the rows, then fill what
+		// is left with air between the sections.
+		inner := width - 4
+		if plan.panels == panelsSide {
+			inner = (width-1)/2 - 4
+		}
+		for scale := 6; scale >= 2; scale-- {
+			if bigNumberWidth(3, scale) > inner {
+				continue
+			}
+			// Thicker bars first, then air: the extra rows go into the meters
+			// before the blank lines.
+			for thick := 6; thick >= minInt(scale, 4); thick-- {
+				for gap := 6; gap >= 0; gap-- {
+					candidate := plan
+					candidate.scale, candidate.gap, candidate.thick = scale, gap, thick
+					candidates = append(candidates, candidate)
+				}
+			}
+		}
 		with(digitsFive, plan.panels, false)
 		with(digitsThree, plan.panels, false)
 	case digitsThree:
@@ -83,7 +101,7 @@ func tuiWideSplit(frameWidth, offset int) (base, minLeft, maxLeft, left int) {
 	totalAvail := maxInt(2, frameWidth-7)
 	minLeft = minInt(34, totalAvail-1)
 	maxLeft = maxInt(minLeft, totalAvail-44)
-	base = maxInt(42, minInt(64, totalAvail*30/100))
+	base = maxInt(42, minInt(96, totalAvail*30/100))
 	left = maxInt(minLeft, minInt(maxLeft, base+offset))
 	return base, minLeft, maxLeft, left
 }
@@ -106,8 +124,8 @@ func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLa
 		rows = a.tuiEmptyListRows(state, g.leftWidth, available-len(list))
 	}
 	list = append(list, rows...)
-	plan = a.tuiFitPlan(state, minInt(g.rightWidth, tuiDetailMaxWidth), available, plan)
-	details := a.tuiGaugeDetail(state, minInt(g.rightWidth, tuiDetailMaxWidth), available, plan)
+	plan = a.tuiFitPlan(state, g.rightWidth, available, plan)
+	details := a.tuiGaugeDetail(state, g.rightWidth, available, plan)
 	state.bodySplit = g.leftWidth + 3
 	count := maxInt(len(list), len(details))
 	for i := 0; i < count && len(lines) < g.bodyRows; i++ {

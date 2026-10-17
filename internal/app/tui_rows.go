@@ -113,9 +113,10 @@ func (a *Application) tuiAccountBlock(view tuiAccountView, state *tuiState, widt
 		case width < 40:
 			second += a.tuiPoolMeters(view.pools, labelsShort, 6)
 		case width >= 60:
-			second += a.tuiPoolMeters(view.pools, labelsFull, 8)
+			// Bars take whatever the names and percentages leave over.
+			second += a.tuiPoolMeters(view.pools, labelsFull, minInt(40, maxInt(8, (width-34)/2)))
 		default:
-			second += a.tuiPoolMeters(view.pools, labelsAbbrev, 8)
+			second += a.tuiPoolMeters(view.pools, labelsAbbrev, maxInt(8, minInt(14, (width-24)/2)))
 		}
 		for _, pool := range view.pools {
 			if pool.stale {
@@ -198,11 +199,19 @@ func (a *Application) tuiAccountRowsHits(state *tuiState, width, maxRows, listLi
 			}
 		}
 		if total+accountsShown-1 <= maxRows {
+			// Tall windows get more air between accounts, up to three rows.
+			gap := 1
+			if separators := accountsShown - 1; separators > 0 {
+				gap = 1 + minInt(2, (maxRows-(total+separators))/separators)
+			}
 			spaced := make([]block, 0, len(blocks)*2)
 			for i, b := range blocks {
 				spaced = append(spaced, b)
 				if !b.isHeader && i+1 < len(blocks) {
-					spaced = append(spaced, block{isHeader: true, lines: []string{strings.Repeat(" ", width)}})
+					spaced = append(spaced, block{isHeader: true, lines: make([]string, gap)})
+					for j := range spaced[len(spaced)-1].lines {
+						spaced[len(spaced)-1].lines[j] = strings.Repeat(" ", width)
+					}
 				}
 			}
 			blocks = spaced
