@@ -111,13 +111,15 @@ func TestQuotaOverviewScreenUsesTheNewStatusNotTheOldReadyText(t *testing.T) {
 	}
 }
 
-func TestDashboardAddsAnOverviewOnlyWhenTheWindowIsTallEnough(t *testing.T) {
+func TestDashboardNeverRepeatsTheAccountList(t *testing.T) {
 	a, state := overviewState()
-	if strings.Contains(strings.Join(a.tuiLines(state, 118, 34), "\n"), "ALL ACCOUNTS") {
-		t.Fatal("a 34-row window has no spare rows for the overview")
-	}
-	tall := strings.Join(a.tuiLines(state, 118, 56), "\n")
-	if !strings.Contains(tall, "ALL ACCOUNTS") || !strings.Contains(tall, "Only Claude") {
-		t.Fatalf("a tall window should show the overview:\n%s", tall)
+	for _, size := range [][2]int{{118, 34}, {118, 56}, {235, 66}} {
+		text := strings.Join(a.tuiLines(state, size[0], size[1]), "\n")
+		if strings.Contains(text, "ALL ACCOUNTS") {
+			t.Fatalf("%dx%d: the list is already beside the gauges, a second table repeats it:\n%s", size[0], size[1], text)
+		}
+		if n := strings.Count(text, "Only Claude"); n != 1 {
+			t.Fatalf("%dx%d: Only Claude appears %d times, want once:\n%s", size[0], size[1], n, text)
+		}
 	}
 }
