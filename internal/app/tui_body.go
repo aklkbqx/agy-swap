@@ -44,21 +44,22 @@ func (a *Application) tuiFitPlan(state *tuiState, width, budget int, plan tuiLay
 	}
 	switch plan.digits {
 	case digitsFive:
-		// Grow the digits and bars into the room: the biggest scale whose digits
-		// still fit a panel and whose panels still fit the rows, then fill what
-		// is left with air between the sections.
+		// Grow the digits and bars into the room, but only so far: the biggest
+		// scale (at most 2) whose digits still fit a panel and whose panels
+		// still fit the rows, with at most a little air between the sections.
+		// Beyond that the figures read as a poster, not a gauge.
 		inner := width - 4
 		if plan.panels == panelsSide {
 			inner = (width-1)/2 - 4
 		}
-		for scale := 6; scale >= 2; scale-- {
+		for scale := 2; scale >= 2; scale-- {
 			if bigNumberWidth(3, scale) > inner {
 				continue
 			}
 			// Thicker bars first, then air: the extra rows go into the meters
 			// before the blank lines.
-			for thick := 6; thick >= minInt(scale, 4); thick-- {
-				for gap := 6; gap >= 0; gap-- {
+			for thick := 2; thick >= minInt(scale, 4); thick-- {
+				for gap := 3; gap >= 0; gap-- {
 					candidate := plan
 					candidate.scale, candidate.gap, candidate.thick = scale, gap, thick
 					candidates = append(candidates, candidate)
