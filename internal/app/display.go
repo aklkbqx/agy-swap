@@ -17,7 +17,8 @@ type palette struct {
 	SelectionBg                                                                string
 	TrackBg                                                                    string
 	// Track draws the empty part of a meter and SelectBg tints the selected
-	// row in the brand orange; both are visible on a dark terminal, unlike
+	// row in the same gray as the 256-colour fallback, so a terminal and the
+	// website frames agree; both are visible on a dark terminal, unlike
 	// DarkGray and SelectionBg.
 	Track, SelectBg string
 }
@@ -57,7 +58,7 @@ func makePalette(color bool) palette {
 			SelectionBg: "\x1b[48;2;22;27;34m",
 			TrackBg:     "\x1b[38;2;33;38;45m",
 			Track:       "\x1b[38;2;74;82;92m",
-			SelectBg:    "\x1b[48;2;70;44;16m",
+			SelectBg:    "\x1b[48;2;48;48;48m",
 		}
 	}
 	return palette{
