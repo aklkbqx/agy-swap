@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.13.1
+
+### Fixes
+
+- TUI: each limit bar in the big gauge panels is one row again. Two rows read as two separate bars in terminals that leave a gap between lines.
+- TUI: the selected account row is tinted the same gray in a truecolor terminal as in a 256-color one and on the website, instead of a brown that almost disappeared into the background.
+
 ## 2.13.0
 
 ### Features
