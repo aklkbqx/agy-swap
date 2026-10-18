@@ -205,3 +205,19 @@ func TestCompactPoolLinesForAUsedUpPoolSayBackInAndPaused(t *testing.T) {
 		}
 	}
 }
+
+func TestScaledPanelDrawsEachLimitAsOneBarRow(t *testing.T) {
+	pool := panelPool(t, poolGroup("gemini", "Gemini models",
+		poolBucket("weekly", 0.86, 54*time.Hour), poolBucket("5h", 0.4, 2*time.Hour+5*time.Minute)))
+	lines := tuiPoolPanelScaled(palette{}, pool, poolNow, 40, digitsFive, 2, 1, 1)
+	for i, line := range lines {
+		if strings.HasPrefix(line, "Weekly") || strings.HasPrefix(line, "5-hour") {
+			if !strings.Contains(lines[i+1], "▄") && !strings.Contains(lines[i+1], "█") && !strings.Contains(lines[i+1], "░") {
+				t.Fatalf("no bar under %q: %q", line, lines[i+1])
+			}
+			if !strings.HasPrefix(lines[i+2], "resets") {
+				t.Fatalf("the bar under %q is more than one row: %q", line, lines[i+2])
+			}
+		}
+	}
+}

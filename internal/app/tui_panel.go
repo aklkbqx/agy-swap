@@ -122,7 +122,7 @@ func tuiPoolPanelScaled(p palette, pool poolView, now time.Time, width int, digi
 		tone := poolColor(p, poolStateFor(l.fraction))
 		lines = append(lines, pad(rowSpread(name, p.Bold+tone+poolPercent(l.fraction)+p.Reset, width, p)))
 		if scale > 1 || thick > 1 {
-			for _, row := range renderThickMeter(p, l.fraction, width, maxInt(thick, minInt(scale, 4)), tone) {
+			for _, row := range renderThickMeter(p, l.fraction, width, maxInt(1, thick), tone) {
 				lines = append(lines, pad(row))
 			}
 		} else {
