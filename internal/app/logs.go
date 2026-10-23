@@ -231,6 +231,9 @@ func quotaKey(label string) string {
 func modelIdentity(label string) string { return strings.TrimSuffix(quotaKey(label), "-thinking") }
 func modelFamily(label string) string {
 	lower := strings.ToLower(label)
+	if wordPresent(lower, "argon") {
+		return "argon"
+	}
 	for _, word := range []string{"gemini", "flash"} {
 		if wordPresent(lower, word) {
 			return "gemini"

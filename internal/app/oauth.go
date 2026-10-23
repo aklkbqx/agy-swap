@@ -320,7 +320,7 @@ func (h *HTTPService) accessTokenData(ctx context.Context, tokenData string) (st
 	return access, "go-keyring-base64:" + base64.StdEncoding.EncodeToString(encoded), nil
 }
 func (h *HTTPService) cloudPost(ctx context.Context, access, method string, body any) (map[string]any, error) {
-	result, status, err := h.jsonRequest(ctx, http.MethodPost, h.cloudAPI+method, map[string]string{"Authorization": "Bearer " + access, "Content-Type": "application/json", "User-Agent": "antigravity"}, body, 15*time.Second, 4*1024*1024)
+	result, status, err := h.jsonRequest(ctx, http.MethodPost, h.cloudAPI+method, map[string]string{"Authorization": "Bearer " + access, "Content-Type": "application/json", "User-Agent": cloudUserAgent()}, body, 15*time.Second, 4*1024*1024)
 	if err != nil {
 		if status != 0 {
 			var statusErr *httpStatusError
@@ -352,7 +352,7 @@ func (h *HTTPService) cloudGet(ctx context.Context, access, operationName string
 	if err != nil {
 		return nil, err
 	}
-	result, status, err := h.jsonRequest(ctx, http.MethodGet, endpoint, map[string]string{"Authorization": "Bearer " + access, "User-Agent": "antigravity"}, nil, 15*time.Second, 4*1024*1024)
+	result, status, err := h.jsonRequest(ctx, http.MethodGet, endpoint, map[string]string{"Authorization": "Bearer " + access, "User-Agent": cloudUserAgent()}, nil, 15*time.Second, 4*1024*1024)
 	if err != nil {
 		if status != 0 {
 			var statusErr *httpStatusError

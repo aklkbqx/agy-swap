@@ -188,11 +188,13 @@ func (q *QuotaService) onboardProject(ctx context.Context, access string, info m
 }
 
 // quotaGroupsFromSummary turns Google's quota summary into saved groups. Each
-// bucket is classified by its id prefix, and buckets without a known window,
-// a remaining fraction or a reset time are skipped. The notes say what happened
-// to every bucket so a missing model group can be explained.
+// group is named by its bucket ids (see quotaPoolForBucket), groups that share
+// a name are merged, and buckets without a well-formed window, a remaining
+// fraction or a reset time are skipped. The notes say what happened to every
+// bucket so a missing model group can be explained.
 func quotaGroupsFromSummary(summary map[string]any) ([]any, []string) {
 	groups := make([]any, 0)
+	byID := make(map[string]map[string]any)
 	notes := []string{"response fields: " + sortedKeys(summary)}
 	for _, rawGroup := range getSlice(summary["groups"]) {
 		group := getMap(rawGroup)
@@ -204,17 +206,15 @@ func quotaGroupsFromSummary(summary map[string]any) ([]any, []string) {
 		for _, rawBucket := range getSlice(group["buckets"]) {
 			bucket := getMap(rawBucket)
 			id := cleanText(getString(bucket, "bucketId"))
-			if strings.HasPrefix(id, "gemini-") {
-				groupID = "gemini"
-			} else if strings.HasPrefix(id, "3p-") {
-				groupID = "third_party"
-			}
 			window := getString(bucket, "window")
+			if groupID == "" {
+				groupID = quotaPoolForBucket(id, window)
+			}
 			fraction, ok := getFloat(bucket["remainingFraction"])
 			reset := getString(bucket, "resetTime")
 			switch {
-			case !oneOf(window, "weekly", "5h"):
-				verdicts = append(verdicts, verdict{id, window, "skipped, window is not weekly or 5h"})
+			case !validQuotaWindow(window):
+				verdicts = append(verdicts, verdict{id, window, "skipped, window is not a plain name"})
 				continue
 			case bucket["disabled"] == true:
 				// Google marks a limit that does not apply right now, for example
@@ -234,7 +234,13 @@ func quotaGroupsFromSummary(summary map[string]any) ([]any, []string) {
 		}
 		keep := groupID != "" && len(buckets) > 0
 		if keep {
-			groups = append(groups, map[string]any{"id": groupID, "name": cleanText(firstString(group["displayName"], "Model group")), "buckets": buckets})
+			if existing := byID[groupID]; existing != nil {
+				existing["buckets"] = append(getSlice(existing["buckets"]), buckets...)
+			} else {
+				saved := map[string]any{"id": groupID, "name": cleanText(firstString(group["displayName"], "Model group")), "buckets": buckets}
+				byID[groupID] = saved
+				groups = append(groups, saved)
+			}
 		}
 		for _, v := range verdicts {
 			reason := v.reason
@@ -243,7 +249,7 @@ func quotaGroupsFromSummary(summary map[string]any) ([]any, []string) {
 			case keep:
 				reason = "kept as " + groupID
 			case groupID == "":
-				reason = "group dropped, bucket id has no gemini- or 3p- prefix"
+				reason = "group dropped, bucket id gives no pool name"
 			default:
 				reason = "group dropped, no usable buckets"
 			}
@@ -275,7 +281,8 @@ func geminiGroupFromModels(models map[string]any, now time.Time) map[string]any 
 		resetRaw string
 	)
 	for id, entry := range getMap(models["models"]) {
-		if !strings.HasPrefix(id, "gemini-") {
+		if !strings.HasPrefix(id, "gemini-") || strings.Contains(id, "-argon") {
+			// Argon models carry the Argon pool, not the Gemini one.
 			continue
 		}
 		info := getMap(getMap(entry)["quotaInfo"])

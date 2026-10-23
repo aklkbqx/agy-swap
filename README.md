@@ -47,7 +47,7 @@ Requirements: Go 1.27.3 or later. macOS source builds require Xcode Command Line
 ```bash
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-go build -trimpath -ldflags "-s -w -X main.version=2.14.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.15.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ./agy-swap version
 ```
 
@@ -75,7 +75,7 @@ Run `agy-swap` with no arguments to open the terminal UI:
 agy-swap
 ```
 
-Each account shows a status word and two meters: Gem (Gemini) and C/G (Claude and GPT). The status word says what the account can be used for right now: `READY`, `LOW` (a pool is at 30% or less), `GEMINI ONLY` or `CLAUDE/GPT ONLY` (the other pool is used up), `LIMITED` (both are used up), `NO TOKEN`, or `VERIFY` (Google wants the account verified before Antigravity can use it). Each meter shows the tighter of that pool's weekly and 5-hour limit. The selected account gets a gauge panel per pool with both limits, when each resets, and, for a used-up pool, when it is back. Green means more than 30% is left, yellow 30% or less, red 10% or less; every state also has a word.
+Each account shows a status word and two meters: Gem (Gemini) and C/G (Claude and GPT). When Google gives an account a separate weekly Gemini 4 Argon pool (Pro plans), it gets its own gauge panel and a column in the quota overview, and a used-up Argon pool does not change the status word. The status word says what the account can be used for right now: `READY`, `LOW` (a pool is at 30% or less), `GEMINI ONLY` or `CLAUDE/GPT ONLY` (the other pool is used up), `LIMITED` (both are used up), `NO TOKEN`, or `VERIFY` (Google wants the account verified before Antigravity can use it). Each meter shows the tighter of that pool's weekly and 5-hour limit. The selected account gets a gauge panel per pool with both limits, when each resets, and, for a used-up pool, when it is back. Green means more than 30% is left, yellow 30% or less, red 10% or less; every state also has a word.
 
 The layout follows your terminal size:
 
@@ -83,7 +83,7 @@ The layout follows your terminal size:
 - **Stacked (64 to 91 columns):** the list on top, the gauges below.
 - **Compact (41 to 63 columns) and narrow (40 or fewer):** one column, with the selected account's pools below the list.
 
-A terminal cannot change its font, so on a large window the dashboard scales what it draws instead: the big digits grow up to twice their size, the bars become full-block, the list bars lengthen and the sections get a little more air, without turning the gauges into posters. When there are too few rows for big digits, the gauges become plain limit lines, down to a 28 by 12 window. Set `AGY_SWAP_ASCII=1` to draw with ASCII characters only (it is chosen for you on a Linux console, a dumb terminal or a non-UTF-8 locale; `AGY_SWAP_ASCII=0` turns it off). `AGY_SWAP_QUOTA_DEBUG=1 agy-swap list --refresh` explains how each account's quota was read.
+A terminal cannot change its font, so on a large window the dashboard scales what it draws instead: the big digits grow up to twice their size, the bars become full-block, the list bars lengthen and the sections get a little more air, without turning the gauges into posters. When there are too few rows for big digits, the gauges become plain limit lines, down to a 28 by 12 window. Set `AGY_SWAP_ASCII=1` to draw with ASCII characters only (it is chosen for you on a Linux console, a dumb terminal or a non-UTF-8 locale; `AGY_SWAP_ASCII=0` turns it off). `AGY_SWAP_QUOTA_DEBUG=1 agy-swap list --refresh` explains how each account's quota was read. Google picks which quota pools to report from the client version agy-swap sends; if a future Antigravity release makes pools disappear again, `AGY_SWAP_USER_AGENT` overrides the client string until agy-swap is updated.
 
 | Key | Action |
 | :--- | :--- |
@@ -149,7 +149,7 @@ agy-swap switch 2
 # Rotate to next account with available quota
 agy-swap next
 
-# Rotate specifically within a model family (e.g. claude / gemini)
+# Rotate specifically within a model family (claude, gemini, gpt or argon)
 agy-swap next --family claude
 
 # Display current active session status
@@ -237,7 +237,7 @@ agy-swap backup import agy-swap-backup.json --merge
 
 ## How account selection works
 
-`recommend` ranks eligible accounts first. Eligibility requires a quota snapshot no older than two minutes, positive remaining capacity at or above the policy reserve, and no matching manual or log cooldown. Without `--family`, the most restrictive model group and window govern readiness. `recommend --apply`, `next`, and bound runs refresh before selecting; failed refreshes cannot authorize a switch. Use `switch ACCOUNT` for an explicit override.
+`recommend` ranks eligible accounts first. Eligibility requires a quota snapshot no older than two minutes, positive remaining capacity at or above the policy reserve, and no matching manual or log cooldown. Without `--family`, the tighter of the shared Gemini and Claude/GPT pools governs readiness; the Argon pool counts only with `--family argon`. When an account has no Argon pool of its own (Ultra counts Argon against the Gemini pool), `--family argon` reads the Gemini pool. `recommend --apply`, `next`, and bound runs refresh before selecting; failed refreshes cannot authorize a switch. Use `switch ACCOUNT` for an explicit override.
 
 `sticky` prefers the active account (or profile primary), `balanced` favors remaining capacity, and `round-robin` advances through saved order. Profile reserves are fallback candidates when the primary is unavailable. `next` advances rotation even with sticky policy and, under any policy, leaves the active account whenever another account is eligible (balanced picks the one with the most quota). `watch --account` limits polling to that account; `watch --profile` uses its primary and notification threshold.
 

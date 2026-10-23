@@ -77,6 +77,7 @@ func (a *Application) tuiOverviewCell(pools []poolView, id string, barWidth int,
 // tuiOverviewRows is the whole-fleet table: one line per account with its
 // status word and a meter for each pool. It is the quota overview screen and
 // the extra section of a tall dashboard. The first row is the column titles.
+// The Argon column appears when any account listed has an Argon pool.
 func (a *Application) tuiOverviewRows(state *tuiState, width, maxRows int) []string {
 	width = maxInt(1, width)
 	if maxRows < 2 {
@@ -87,14 +88,23 @@ func (a *Application) tuiOverviewRows(state *tuiState, width, maxRows int) []str
 		return nil
 	}
 	now := a.renderTime()
+	columns := []struct{ id, title string }{{poolGemini, "GEMINI"}, {poolThirdParty, "CLAUDE/GPT"}}
+	for _, email := range emails {
+		if hasQuotaGroup(quotaGroups(state.accounts.ByEmail[email]), poolArgon) {
+			columns = append(columns, struct{ id, title string }{poolArgon, "ARGON"})
+			break
+		}
+	}
+	// Each extra column needs its cell width on top of the two-column breakpoints.
+	extra := len(columns) - 2
 	bar, withReset, statusWidth := 8, true, 15
-	fixed := 2 + 1 + statusWidth + 1 + 26 + 1 + 26
+	fixed := 2 + 1 + statusWidth + len(columns)*(1+26)
 	switch {
-	case width >= 89:
-	case width >= 61:
-		withReset, fixed = false, 2+1+statusWidth+1+13+1+13
-	case width >= 56:
-		bar, withReset, fixed = 6, false, 2+1+statusWidth+1+11+1+11
+	case width >= 89+extra*27:
+	case width >= 61+extra*14:
+		withReset, fixed = false, 2+1+statusWidth+len(columns)*(1+13)
+	case width >= 56+extra*12:
+		bar, withReset, fixed = 6, false, 2+1+statusWidth+len(columns)*(1+11)
 	default:
 		var rows []string
 		start, end := windowAround(len(emails), indexOf(emails, state.selectedEmail), maxRows)
@@ -111,7 +121,11 @@ func (a *Application) tuiOverviewRows(state *tuiState, width, maxRows int) []str
 	}
 	nameWidth := maxInt(12, minInt(30, width-fixed))
 	cellWidth := pick2(withReset, 26, bar+1+4)
-	header := a.p.Bold + a.p.Gray + "   " + fitVisible("ACCOUNT", nameWidth-1, a.p) + " " + fitVisible("STATUS", statusWidth, a.p) + " " + fitVisible("GEMINI", cellWidth, a.p) + " " + fitVisible("CLAUDE/GPT", cellWidth, a.p) + a.p.Reset
+	header := a.p.Bold + a.p.Gray + "   " + fitVisible("ACCOUNT", nameWidth-1, a.p) + " " + fitVisible("STATUS", statusWidth, a.p)
+	for _, column := range columns {
+		header += " " + fitVisible(column.title, cellWidth, a.p)
+	}
+	header += a.p.Reset
 	rows := []string{fitVisible(header, width, a.p)}
 	capacity := maxRows - 1
 	start, end := windowAround(len(emails), indexOf(emails, state.selectedEmail), capacity)
@@ -126,9 +140,10 @@ func (a *Application) tuiOverviewRows(state *tuiState, width, maxRows int) []str
 		}
 		status := a.tuiStatusColor(view.status) + a.p.Bold + view.status.String() + a.p.Reset
 		line := a.tuiSelectionMarker(view, state) + a.tuiActiveMarker(view) + " " +
-			fitVisible(name, nameWidth-1, a.p) + " " + fitVisible(status, statusWidth, a.p) + " " +
-			fitVisible(a.tuiOverviewCell(view.pools, "gemini", bar, withReset, now), cellWidth, a.p) + " " +
-			fitVisible(a.tuiOverviewCell(view.pools, "third_party", bar, withReset, now), cellWidth, a.p)
+			fitVisible(name, nameWidth-1, a.p) + " " + fitVisible(status, statusWidth, a.p)
+		for _, column := range columns {
+			line += " " + fitVisible(a.tuiOverviewCell(view.pools, column.id, bar, withReset, now), cellWidth, a.p)
+		}
 		line = fitVisible(line, width, a.p)
 		if view.selected && a.p.SelectBg != "" {
 			line = a.p.SelectBg + strings.ReplaceAll(line, "\x1b[0m", "\x1b[0m"+a.p.SelectBg) + a.p.Reset
