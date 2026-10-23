@@ -331,6 +331,14 @@ func accountSummary(account Account, active bool) map[string]any {
 	if limits := getMap(account["quota_limits"]); len(limits) > 0 {
 		result["cooldowns"] = limits
 	}
+	if ineligible, ok := accountEligibility(account); ok {
+		result["eligibility"] = map[string]any{
+			"state":   "verify_required",
+			"reason":  ineligible.Reason,
+			"message": ineligible.Message,
+			"has_url": ineligible.URL != "",
+		}
+	}
 	return result
 }
 
@@ -1038,8 +1046,12 @@ func rankAccounts(accounts *Accounts, settings AppSettings, active, profileName,
 		remaining, known, group := accountRemaining(account, family)
 		wait, waitKnown := accountCooldown(account, now, family)
 		age, ageKnown := quotaAge(account, now)
+		_, needsVerify := accountEligibility(account)
 		item := recommendation{Email: email, Name: getString(account, "name"), Remaining: remaining, Family: group, Reasons: []string{}}
-		item.Ready = known && ageKnown && age <= 2*time.Minute && (!waitKnown || wait <= 0) && remaining > 0 && remaining >= float64(settings.Policy.MinRemainingPct)
+		item.Ready = !needsVerify && known && ageKnown && age <= 2*time.Minute && (!waitKnown || wait <= 0) && remaining > 0 && remaining >= float64(settings.Policy.MinRemainingPct)
+		if needsVerify {
+			item.Reasons = append(item.Reasons, "needs Google verification")
+		}
 		if known {
 			item.Reasons = append(item.Reasons, fmt.Sprintf("%s has %.1f%% remaining", group, remaining))
 		} else {
@@ -1056,6 +1068,9 @@ func rankAccounts(accounts *Accounts, settings AppSettings, active, profileName,
 			item.Reasons = append(item.Reasons, "cooldown for "+item.Wait)
 		}
 		item.Score = int(remaining)
+		if needsVerify {
+			item.Score -= 1000
+		}
 		switch policy {
 		case "sticky":
 			preferred := active

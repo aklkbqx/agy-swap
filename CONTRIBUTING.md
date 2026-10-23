@@ -19,7 +19,7 @@ All contributors and participants are expected to adhere to our [Code of Conduct
 ## Development Environment Setup
 
 ### Prerequisites
-- **Go**: Version 1.27.2 or higher. With the default `GOTOOLCHAIN=auto`, an older go command downloads the version `go.mod` requires.
+- **Go**: Version 1.27.3 or higher. With the default `GOTOOLCHAIN=auto`, an older go command downloads the version `go.mod` requires.
 - **CGO**: Required for macOS native Keychain integration (`Security.framework`). Linux and Windows builds run without CGO.
 - **Make**: For running developer workflows and quality checks.
 - **Bun** or **Node.js**: Required only if modifying the web documentation/simulator in `site/`.

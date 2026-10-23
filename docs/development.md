@@ -6,7 +6,7 @@ This document guides contributors through setting up, testing, and verifying cha
 
 ## 1. Prerequisites
 
-- **Go**: Version 1.27.2 or newer (`go version`). `go.mod` declares `go 1.27.2`, the security floor; with the default `GOTOOLCHAIN=auto` an older go command downloads that toolchain, both in this checkout and for `go install …@latest` (`go env GOVERSION` shows the one in use).
+- **Go**: Version 1.27.3 or newer (`go version`). `go.mod` declares `go 1.27.3`, the security floor; with the default `GOTOOLCHAIN=auto` an older go command downloads that toolchain, both in this checkout and for `go install …@latest` (`go env GOVERSION` shows the one in use).
 - **Make**: Standard POSIX make.
 - **Xcode Command Line Tools** (macOS only): Required for compiling CGO bindings with Apple's `Security.framework`.
 - **Bun** or **Node.js** (Optional): For developing the React site and native browser terminal in `site/`.

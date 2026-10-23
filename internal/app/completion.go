@@ -14,13 +14,13 @@ func (a *Application) cmdCompletion(opts extendedOptions, positional []string) i
 	var script string
 	switch shell {
 	case "bash":
-		script = fmt.Sprintf(`_agy_swap_complete() { COMPREPLY=($(compgen -W '%s add list limits logout next switch remove status update version limit' -- "${COMP_WORDS[COMP_CWORD]}")); }; complete -F _agy_swap_complete agy-swap`, commands)
+		script = fmt.Sprintf(`_agy_swap_complete() { COMPREPLY=($(compgen -W '%s add list limits logout next switch remove status update version limit verify' -- "${COMP_WORDS[COMP_CWORD]}")); }; complete -F _agy_swap_complete agy-swap`, commands)
 	case "zsh":
-		script = fmt.Sprintf("#compdef agy-swap\n_arguments '1:command:(%s add list limits logout next switch remove status update version limit)'", commands)
+		script = fmt.Sprintf("#compdef agy-swap\n_arguments '1:command:(%s add list limits logout next switch remove status update version limit verify)'", commands)
 	case "fish":
-		script = fmt.Sprintf("complete -c agy-swap -f -a '%s add list limits logout next switch remove status update version limit'", commands)
+		script = fmt.Sprintf("complete -c agy-swap -f -a '%s add list limits logout next switch remove status update version limit verify'", commands)
 	case "powershell", "pwsh":
-		script = `Register-ArgumentCompleter -Native -CommandName agy-swap -ScriptBlock { param($wordToComplete, $commandAst, $cursorPosition); 'doctor','config','alias','tag','profile','bind','recommend','statusline','watch','history','stats','forecast','backup','metrics','completion','account','target','run','add','list','limits','logout','next','switch','remove','status','update','version','limit' | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) } }`
+		script = `Register-ArgumentCompleter -Native -CommandName agy-swap -ScriptBlock { param($wordToComplete, $commandAst, $cursorPosition); 'doctor','config','alias','tag','profile','bind','recommend','statusline','watch','history','stats','forecast','backup','metrics','completion','account','target','run','add','list','limits','logout','next','switch','remove','status','update','version','limit','verify' | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) } }`
 	default:
 		return a.extendedError("completion", opts, fmt.Errorf("unsupported shell %q", shell))
 	}

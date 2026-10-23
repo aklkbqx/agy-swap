@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -74,6 +75,24 @@ func (h *HTTPService) do(request *http.Request) (*http.Response, error) {
 	return h.insecure.Do(clone)
 }
 
+// httpStatusError is a non-2xx answer. It keeps at most 64 KiB of the body.
+type httpStatusError struct {
+	Status int
+	Body   []byte
+}
+
+func (e *httpStatusError) Error() string { return fmt.Sprintf("HTTP %d", e.Status) }
+
+// cloudError keeps Google's error body: it can say why an account cannot use
+// Antigravity and link the page that fixes it.
+type cloudError struct {
+	Method string
+	Status int
+	Body   []byte
+}
+
+func (e *cloudError) Error() string { return fmt.Sprintf("%s failed (HTTP %d)", e.Method, e.Status) }
+
 func (h *HTTPService) jsonRequest(ctx context.Context, method, endpoint string, headers map[string]string, body any, timeout time.Duration, limit int64) (map[string]any, int, error) {
 	var bodyReader io.Reader
 	if body != nil {
@@ -102,7 +121,8 @@ func (h *HTTPService) jsonRequest(ctx context.Context, method, endpoint string, 
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, response.StatusCode, fmt.Errorf("HTTP %d", response.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
+		return nil, response.StatusCode, &httpStatusError{Status: response.StatusCode, Body: body}
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
@@ -303,9 +323,46 @@ func (h *HTTPService) cloudPost(ctx context.Context, access, method string, body
 	result, status, err := h.jsonRequest(ctx, http.MethodPost, h.cloudAPI+method, map[string]string{"Authorization": "Bearer " + access, "Content-Type": "application/json", "User-Agent": "antigravity"}, body, 15*time.Second, 4*1024*1024)
 	if err != nil {
 		if status != 0 {
-			return nil, fmt.Errorf("%s failed (HTTP %d)", method, status)
+			var statusErr *httpStatusError
+			var body []byte
+			if errors.As(err, &statusErr) {
+				body = statusErr.Body
+			}
+			return nil, &cloudError{Method: method, Status: status, Body: body}
 		}
 		return nil, fmt.Errorf("%s failed: %w", method, err)
+	}
+	return result, nil
+}
+
+func (h *HTTPService) cloudOperationURL(name string) (string, error) {
+	trimmed := strings.TrimPrefix(strings.TrimSpace(name), "/")
+	if trimmed == "" || strings.Contains(trimmed, "..") || strings.ContainsAny(trimmed, "?#\\") || !strings.HasPrefix(trimmed, "operations/") {
+		return "", fmt.Errorf("invalid operation name")
+	}
+	base := strings.TrimSuffix(h.cloudAPI, ":")
+	if idx := strings.LastIndex(base, "/v1internal"); idx >= 0 {
+		return base[:idx+len("/v1internal")] + "/" + trimmed, nil
+	}
+	return strings.TrimRight(base, "/") + "/" + trimmed, nil
+}
+
+func (h *HTTPService) cloudGet(ctx context.Context, access, operationName string) (map[string]any, error) {
+	endpoint, err := h.cloudOperationURL(operationName)
+	if err != nil {
+		return nil, err
+	}
+	result, status, err := h.jsonRequest(ctx, http.MethodGet, endpoint, map[string]string{"Authorization": "Bearer " + access, "User-Agent": "antigravity"}, nil, 15*time.Second, 4*1024*1024)
+	if err != nil {
+		if status != 0 {
+			var statusErr *httpStatusError
+			var body []byte
+			if errors.As(err, &statusErr) {
+				body = statusErr.Body
+			}
+			return nil, &cloudError{Method: "getOperation", Status: status, Body: body}
+		}
+		return nil, fmt.Errorf("getOperation failed: %w", err)
 	}
 	return result, nil
 }
