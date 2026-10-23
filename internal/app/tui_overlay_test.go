@@ -15,7 +15,9 @@ func overlayTestState() (*Application, *tuiState) {
 	return a, newTUIState(accounts, "user@example.com")
 }
 
-func assertFrameBorders(t *testing.T, lines []string, marker string) {
+// assertOverlayKeepsMargins checks that an overlay sits inside the screen's
+// two-column margins: the screen has no frame, so its edge columns stay blank.
+func assertOverlayKeepsMargins(t *testing.T, lines []string, marker string) {
 	t.Helper()
 	found := false
 	for i, line := range lines {
@@ -25,8 +27,8 @@ func assertFrameBorders(t *testing.T, lines []string, marker string) {
 		}
 		found = true
 		runes := []rune(plain)
-		if first, last := runes[0], runes[len(runes)-1]; !strings.ContainsRune("│├╭╰", first) || !strings.ContainsRune("│┤╮╯", last) {
-			t.Fatalf("line %d lost the frame border: %q", i, plain)
+		if first, last := runes[0], runes[len(runes)-1]; first != ' ' || last != ' ' {
+			t.Fatalf("line %d runs into the screen edge: %q", i, plain)
 		}
 	}
 	if !found {
@@ -39,8 +41,8 @@ func TestTUIToastKeepsFrameBorders(t *testing.T) {
 		a, state := overlayTestState()
 		state.showToast("Switched to user@example.com", "success")
 		lines := a.tuiLines(state, width, 22)
-		assertFrameBorders(t, lines, "Switched to user@example.com")
-		assertFrameBorders(t, lines, "╰")
+		assertOverlayKeepsMargins(t, lines, "Switched to user@example.com")
+		assertOverlayKeepsMargins(t, lines, "╰")
 		for i, line := range lines {
 			if visibleWidth(line) != width+2 {
 				t.Fatalf("width=%d line %d width=%d", width, i, visibleWidth(line))
@@ -51,10 +53,10 @@ func TestTUIToastKeepsFrameBorders(t *testing.T) {
 
 func TestTUIDialogKeepsFrameBorders(t *testing.T) {
 	a, state := overlayTestState()
-	state.mode = tuiHelp
+	state.openHelp(a.tuiHelpLines(118))
 	lines := a.tuiLines(state, 118, 24)
-	assertFrameBorders(t, lines, "╭")
-	assertFrameBorders(t, lines, "╰")
+	assertOverlayKeepsMargins(t, lines, "╭")
+	assertOverlayKeepsMargins(t, lines, "╰")
 }
 
 func TestOverlayVisibleKeepsSurroundingColumns(t *testing.T) {
@@ -89,10 +91,10 @@ func TestTUIQuotaViewShowsSelectedEmailOnce(t *testing.T) {
 	}
 }
 
-func TestTUIFrameCorners(t *testing.T) {
+func TestTheHeaderIsABarWithoutCorners(t *testing.T) {
 	app := &Application{p: makePalette(false)}
 	lines := app.tuiHeaderLines("AGY SWAP", "v2.9.1", 80)
-	if !strings.HasPrefix(lines[0], "╭") || !strings.HasSuffix(lines[0], "╮") {
-		t.Errorf("Header top border = %q, want rounded corners ╭...╮", lines[0])
+	if strings.ContainsAny(lines[0], "╭╮") || visibleWidth(lines[0]) != 82 || !strings.Contains(lines[1], "agy") {
+		t.Errorf("header = %q", lines)
 	}
 }

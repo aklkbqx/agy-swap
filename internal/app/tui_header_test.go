@@ -62,7 +62,7 @@ func TestHelpOpensWithTheLogoAndCreditThenTheKeys(t *testing.T) {
 func TestHelpOverlayShowsTheLogoAndCreditAtCommonWindowSizes(t *testing.T) {
 	a, state := headerApp()
 	for _, size := range [][2]int{{100, 30}, {80, 24}, {63, 24}, {120, 40}} {
-		state.mode = tuiHelp
+		state.openHelp(a.tuiHelpLines(size[0] - 2))
 		text := strings.Join(a.tuiLines(state, size[0]-2, size[1]), "\n")
 		for _, want := range []string{"agy▔▔╲▁▁swap", "aklkbqx", "KEYBOARD GUIDE", "Enter"} {
 			if !strings.Contains(text, want) {
@@ -100,5 +100,26 @@ func TestEveryScreenHasItsOwnHintInsteadOfTheDashboardOne(t *testing.T) {
 		if strings.Contains(text, "inspect health") {
 			t.Fatalf("view %v shows the dashboard hint: %q", view, text)
 		}
+	}
+}
+
+func TestATallWindowPutsARowOfAirBetweenTheLogoAndTheActiveLine(t *testing.T) {
+	a, state := selectionState()
+	state.active = "alpha@example.invalid"
+	tall := a.tuiLines(state, 98, 40)
+	if strings.TrimSpace(strings.Trim(tall[2], "│")) != "" || !strings.Contains(tall[3], "ACTIVE") {
+		t.Fatalf("tall header:\n%s", strings.Join(tall[:5], "\n"))
+	}
+	short := a.tuiLines(state, 78, 24)
+	if !strings.Contains(short[2], "ACTIVE") {
+		t.Fatalf("a short window keeps the compact header:\n%s", strings.Join(short[:4], "\n"))
+	}
+	for _, lines := range [][]string{tall, short} {
+		if len(lines) != map[bool]int{true: 40, false: 24}[len(lines) > 30] {
+			t.Fatalf("rows = %d", len(lines))
+		}
+	}
+	if tuiBodyRowsFor(40) != 40-10 || tuiBodyRowsFor(24) != 24-9 {
+		t.Fatalf("body rows = %d, %d", tuiBodyRowsFor(40), tuiBodyRowsFor(24))
 	}
 }
