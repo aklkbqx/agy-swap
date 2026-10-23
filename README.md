@@ -47,7 +47,7 @@ Requirements: Go 1.27.3 or later. macOS source builds require Xcode Command Line
 ```bash
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-go build -trimpath -ldflags "-s -w -X main.version=2.15.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.16.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ./agy-swap version
 ```
 
@@ -65,7 +65,7 @@ You can also use `go install` or build from source as shown above.
 
 1. Run `agy-swap add` and complete the browser sign-in to save an account.
 2. Run `agy-swap` to open the terminal view. Check the active account and quota snapshot before switching.
-3. Select an account and press Enter to update the shared local Antigravity session. Processes already running may need to reload credentials.
+3. Select an account, press Enter and choose Switch to update the shared local Antigravity session. Processes already running may need to reload credentials.
 
 ## Using the terminal UI
 
@@ -79,11 +79,11 @@ Each account shows a status word and two meters: Gem (Gemini) and C/G (Claude an
 
 The layout follows your terminal size:
 
-- **Wide (92 columns or more):** the account list on the left, the gauges on the right. From 120 columns the two pool panels sit side by side with large percentages when there are enough rows.
+- **Wide (92 columns or more):** the account list on the left, the gauges on the right. Below 120 columns each pool panel puts its percentage beside the bars; from 120 columns the pool panels sit side by side, two to a row, with large percentages when there are enough rows. The dashboard stops growing at 160 columns and stays centred on a wider terminal.
 - **Stacked (64 to 91 columns):** the list on top, the gauges below.
 - **Compact (41 to 63 columns) and narrow (40 or fewer):** one column, with the selected account's pools below the list.
 
-A terminal cannot change its font, so on a large window the dashboard scales what it draws instead: the big digits grow up to twice their size, the bars become full-block, the list bars lengthen and the sections get a little more air, without turning the gauges into posters. When there are too few rows for big digits, the gauges become plain limit lines, down to a 28 by 12 window. Set `AGY_SWAP_ASCII=1` to draw with ASCII characters only (it is chosen for you on a Linux console, a dumb terminal or a non-UTF-8 locale; `AGY_SWAP_ASCII=0` turns it off). `AGY_SWAP_QUOTA_DEBUG=1 agy-swap list --refresh` explains how each account's quota was read. Google picks which quota pools to report from the client version agy-swap sends; if a future Antigravity release makes pools disappear again, `AGY_SWAP_USER_AGENT` overrides the client string until agy-swap is updated.
+A terminal cannot change its font, so on a large window the dashboard scales what it draws instead, up to its 160-column width: the big digits grow up to twice their size, the bars become full-block, the list bars lengthen and the sections get a little more air, without turning the gauges into posters. When there are too few rows for big digits, the gauges become plain limit lines, down to a 28 by 12 window. Changes move briefly (the selection slides, meters ease, dialogs open from their centre); set `AGY_SWAP_REDUCED_MOTION=1` to turn motion off. Set `AGY_SWAP_ASCII=1` to draw with ASCII characters only (it is chosen for you on a Linux console, a dumb terminal or a non-UTF-8 locale; `AGY_SWAP_ASCII=0` turns it off). `AGY_SWAP_QUOTA_DEBUG=1 agy-swap list --refresh` explains how each account's quota was read. Google picks which quota pools to report from the client version agy-swap sends; if a future Antigravity release makes pools disappear again, `AGY_SWAP_USER_AGENT` overrides the client string until agy-swap is updated.
 
 | Key | Action |
 | :--- | :--- |
@@ -91,8 +91,9 @@ A terminal cannot change its font, so on a large window the dashboard scales wha
 | `[` / `]` or `<` / `>` | Narrow or widen the account pane in wide layout |
 | `=` | Reset the pane split |
 | Mouse | Drag the divider between the list and the gauges to resize it, double-click it to reset, click an account to select it |
-| `Enter` | Switch to the highlighted account |
+| `Enter` | Switch to the highlighted account (asks first) |
 | `1` – `9` | Select an account by number; press Enter to switch |
+| `←` / `→` and `Enter` in a dialog | Choose a button and press it; `y` / `n` are shortcuts, `Esc` cancels |
 | `n` | Refresh and move to the next eligible account |
 | `/` | Filter accounts by name or email |
 | `Ctrl-K` or `:` | Open the command palette |

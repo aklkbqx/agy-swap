@@ -43,12 +43,40 @@ type tuiLayoutPlan struct {
 	scale, gap, thick int
 }
 
+// tuiHeaderAirMinHeight is the window height from which the header gets a
+// blank row between the logo and the active account line. From 32 rows the
+// body still has the 22 rows the richest layout asks for; shorter windows
+// keep that row for the list.
+const tuiHeaderAirMinHeight = 32
+
+// tuiChromeRows is what the header and footer bars take: the header's padding,
+// logo and active line, the body's leading blank row, and the footer's
+// padding, status line and keys.
+const tuiChromeRows = 9
+
+// tuiPlanChromeRows is the chrome the layout plan is measured against. Plans
+// stay tied to the window height they always had; when the padded bars leave a
+// row less, tuiFitPlan gives up detail instead of overflowing.
+const tuiPlanChromeRows = 8
+
+func tuiHeaderAir(height int) bool { return height >= tuiHeaderAirMinHeight }
+
 // tuiBodyRowsFor is the rows left for the body once the header, status line,
 // footer and rules are taken out. It matches newTUIGeometry.
-func tuiBodyRowsFor(height int) int { return maxInt(1, height-8) }
+func tuiBodyRowsFor(height int) int {
+	chrome := tuiChromeRows
+	if tuiHeaderAir(height) {
+		chrome++
+	}
+	return maxInt(1, height-chrome)
+}
 
 func tuiLayoutPlanFor(width, height int) tuiLayoutPlan {
-	rows := tuiBodyRowsFor(height)
+	return tuiLayoutPlanForRows(width, maxInt(1, height-tuiPlanChromeRows))
+}
+
+// tuiLayoutPlanForRows picks the plan for a body of this many rows.
+func tuiLayoutPlanForRows(width, rows int) tuiLayoutPlan {
 	switch {
 	case width >= 92:
 		plan := tuiLayoutPlan{arrangement: arrWide, listLines: 2, panels: panelsStack}
@@ -61,7 +89,9 @@ func tuiLayoutPlanFor(width, height int) tuiLayoutPlan {
 		case plan.panels == panelsSide && rows >= 13:
 			plan.digits = digitsThree
 		case plan.panels == panelsStack && rows >= 16:
-			plan.digits = digitsThree
+			// One gauge column: digits beside the bars keep a pool to about
+			// seven rows instead of a tall digit block over the bars.
+			plan.digits = digitsInline
 		}
 		return plan
 	case width >= 64:

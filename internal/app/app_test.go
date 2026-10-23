@@ -94,7 +94,7 @@ func TestTokenIdentityMatchesTargetAccount(t *testing.T) {
 }
 
 func TestNormalizedReleaseTag(t *testing.T) {
-	for input, want := range map[string]string{"2.15.0": "v2.15.0", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} { //nolint:gocritic // the padded key tests trimming
+	for input, want := range map[string]string{"2.16.0": "v2.16.0", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} { //nolint:gocritic // the padded key tests trimming
 		if got := normalizedReleaseTag(input); got != want {
 			t.Fatalf("%q normalized to %q, want %q", input, got, want)
 		}
@@ -394,8 +394,8 @@ func TestTUIResponsiveRenderersShareVisualContract(t *testing.T) {
 	stacked := a.tuiAccountRows(state, 78, 2)
 	wide := a.tuiAccountRowsFor(state, 56, 4, 2)
 	wants := map[string][]string{
-		"stacked": {"❯", "[US]", "READY", "Gem", " 85%"},
-		"wide":    {"❯", "[US]", "READY", "Gem", " 85%"},
+		"stacked": {tuiSelectionBar, "user@example.com", "READY", "Gem", " 85%"},
+		"wide":    {tuiSelectionBar, "user@example.com", "READY", "Gem", " 85%"},
 	}
 	for name, rows := range map[string][]string{"stacked": stacked, "wide": wide} {
 		joined := strings.Join(rows, "\n")
@@ -518,7 +518,7 @@ func TestTUIWideAccountTableUsesStableColumns(t *testing.T) {
 	if len(rows) != 5 { // two lines for each of two accounts, and a blank line between them
 		t.Fatalf("rows = %d, want 4: %q", len(rows), rows)
 	}
-	if !strings.Contains(rows[0], "❯ · [AL]") || !strings.Contains(rows[0], "Alpha") {
+	if !strings.HasPrefix(rows[0], tuiSelectionBar+"   Alpha") {
 		t.Fatalf("selected row lost its identity: %q", rows[0])
 	}
 	for i, row := range rows {
@@ -615,17 +615,19 @@ func TestTUIOverlayKeepsFrameGeometry(t *testing.T) {
 	accounts := NewAccounts()
 	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
 	a := &Application{Version: "2.1.1", p: makePalette(false), color: false}
-	for _, mode := range []tuiMode{tuiHelp, tuiConfirmDelete} {
+	for _, open := range []func(*tuiState){
+		func(s *tuiState) { s.openHelp(a.tuiHelpLines(118)) },
+		func(s *tuiState) { s.openDialog(confirmDialog("delete", "user@example.com", "User")) },
+	} {
 		state := newTUIState(accounts, "user@example.com")
-		state.mode = mode
-		state.confirmEmail = "user@example.com"
+		open(state)
 		lines := a.tuiLines(state, 118, 30)
 		if len(lines) != 30 {
-			t.Fatalf("mode=%d produced %d lines", mode, len(lines))
+			t.Fatalf("dialog %s produced %d lines", state.dialog.Kind, len(lines))
 		}
 		for i, line := range lines {
 			if visibleWidth(line) != 120 {
-				t.Fatalf("mode=%d line=%d width=%d", mode, i, visibleWidth(line))
+				t.Fatalf("dialog %s line=%d width=%d", state.dialog.Kind, i, visibleWidth(line))
 			}
 		}
 	}
@@ -634,7 +636,7 @@ func TestTUIOverlayKeepsFrameGeometry(t *testing.T) {
 func TestTUISuccessToastKeepsFrameGeometryAndExpires(t *testing.T) {
 	accounts := NewAccounts()
 	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
-	a := &Application{Version: "2.15.0", p: makePalette(false), color: false}
+	a := &Application{Version: "2.16.0", p: makePalette(false), color: false}
 	state := newTUIState(accounts, "user@example.com")
 	state.showToast("Switched to user@example.com", "success")
 
@@ -1203,7 +1205,7 @@ func TestExtendedSettingsAliasesAndEncryptedBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	a := &Application{Version: "2.15.0", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
+	a := &Application{Version: "2.16.0", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
 	if code := a.Run(context.Background(), []string{"config", "set", "policy.min_remaining_pct", "25"}); code != 0 {
 		t.Fatalf("config set code=%d err=%s", code, errOut.String())
 	}
@@ -1423,15 +1425,16 @@ func TestTUIWideSplitBoundsAndMouseDrag(t *testing.T) {
 	if baseLeft < 42 {
 		t.Fatalf("expected baseLeft >= 42, got %d", baseLeft)
 	}
-	if dividerCol != baseLeft+4 {
-		t.Fatalf("expected dividerCol %d, got %d", baseLeft+4, dividerCol)
+	// Two edge columns, the list, two columns of air, then the divider (1-based).
+	if dividerCol != baseLeft+5 {
+		t.Fatalf("expected dividerCol %d, got %d", baseLeft+5, dividerCol)
 	}
 	if minLeft >= maxLeft {
 		t.Fatalf("expected minLeft < maxLeft, got %d vs %d", minLeft, maxLeft)
 	}
 	// Simulate dragging 6 columns right
 	targetCol := dividerCol + 6
-	targetLeft := targetCol - 4
+	targetLeft := targetCol - 5
 	targetOffset := targetLeft - baseLeft
 	state.adjustSplit(targetOffset)
 	if state.splitOffset != 6 {
@@ -1727,19 +1730,19 @@ func TestAccountRowSelection(t *testing.T) {
 	app := &Application{p: makePalette(false)}
 	view := tuiAccountView{name: "Alpha User", email: "alpha@example.invalid", selected: true}
 	row := app.renderAccountRow(view, 40)
-	if !strings.Contains(row, "❯") {
-		t.Errorf("Selected row = %q, expected chevron ❯", row)
+	if !strings.Contains(row, tuiSelectionBar) {
+		t.Errorf("Selected row = %q, expected the selection bar", row)
 	}
 }
 
 func TestTUIDisplayVersionDev(t *testing.T) {
-	appDev := &Application{Version: "2.15.0", BuildID: "dev", p: makePalette(false)}
+	appDev := &Application{Version: "2.16.0", BuildID: "dev", p: makePalette(false)}
 	linesDev := appDev.tuiTopLines(newTUIState(NewAccounts(), ""), 80)
 	if !strings.Contains(strings.Join(linesDev, "\n"), "v"+appDev.Version+"-dev") {
 		t.Fatalf("TUI header missing dev tag: %q", linesDev)
 	}
 
-	appRel := &Application{Version: "2.15.0", BuildID: "release-v2.15.0", p: makePalette(false)}
+	appRel := &Application{Version: "2.16.0", BuildID: "release-v2.16.0", p: makePalette(false)}
 	linesRel := appRel.tuiTopLines(newTUIState(NewAccounts(), ""), 80)
 	if !strings.Contains(strings.Join(linesRel, "\n"), "v"+appRel.Version) || strings.Contains(strings.Join(linesRel, "\n"), "v"+appRel.Version+"-") {
 		t.Fatalf("TUI header should not have dev tag for release: %q", linesRel)

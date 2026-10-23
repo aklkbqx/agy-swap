@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.16.0
+
+### Features
+
+- TUI: a new look. The screen has no line frame: the header (logo, active account) and the footer (status line, key hints) are solid bars that run edge to edge and close into a solid frame with a one-column rail down each side (outside the content's two columns of air), quota pools are solid cards with their state colour as a bar down the left edge, and one quiet divider separates the list from the gauges. Keys are chips (` Enter `) instead of `[Enter]`, at the same width. Without colour, cards keep their outline and keys stay `[Enter]`.
+- TUI: the body is painted black (`#0a0c10`, the website's background) instead of showing the terminal's own background, and every gray is one ramp of cool grays above it: bars and cards, then the selection tint, then key chips and quiet lines.
+- TUI: even spacing everywhere: one row above and below and two columns either side of the content in the bars, the cards and the body (inside the side rails), and two columns either side of the divider; bar text lines up with the body. Side-by-side cards are the same width and end flush with the column. From 32 rows the header has a blank row between the logo and the active account line.
+- TUI: on a terminal wider than 160 columns the dashboard keeps 160 columns and stays centred; mouse clicks and divider drags follow it. From 92 to 119 columns each pool card puts its percentage beside the bars (about seven rows a pool instead of sixteen).
+- TUI: Enter (and a double click or the palette's switch action) asks before switching, naming the account; Enter on the account already in use just says so.
+- TUI: every question (switch, delete, remove profile, clear history, reset settings, update) and the help screen use one dialog. ←/→, ↑/↓ or Tab choose a button, Enter presses it, `y`/`n` still work and Esc cancels. The chosen button is drawn as `[ Label ]`; questions that delete or reset something start on Cancel. Dialogs, the command palette and forms sit on a dimmed backdrop; the status line and key hints stay lit.
+- TUI: a calmer account list: no initials before each name (the header keeps them) and no dot before accounts that are not in use. The selected account carries an orange bar `┃` down every line of its block on a lighter tint, with a row of padding above and below and a column on the right inside the tint, and a blank row of margin outside it. The account Antigravity is using has the word `ACTIVE` beside its name and a blue `●` (in the list, the quota overview and the header); green, yellow and red now only say how much quota is left. The website legend uses the same marks.
+- TUI: motion where it helps the eye follow a change, mostly 120–250 ms. The selection band slides to the next account; meters, percentages and big digits ease to new values, and the detail eases from the last account's numbers; a dialog, the palette or a form opens from its centre over a dimming backdrop; a toast rises into place and its bottom edge counts down; after a switch the active dot pulses and `ACTIVE` sweeps in; the chip of a pressed key lights; the divider lights while dragged; the search caret blinks; a status word that changes flashes once; start-up and a change of view wipe in from the top; a choice in a dialog slides from one button to the next; while a refresh you started with `r` runs, a soft diagonal light sweeps across the whole screen; and while nothing else moves the active account's dot breathes slowly (truecolor terminals, ten frames a second, only its row repainted). Redraws now rewrite only the rows that changed. `AGY_SWAP_REDUCED_MOTION=1` turns all motion off.
+- TUI: background quota refreshes (on start, every minute, after adding an account) run silently; only a failed refresh says so. A refresh started with `r` still shows its progress and result. The account detail drops the session token countdown and "updated just now", and says "updated … ago" in yellow only when the numbers are more than five minutes old.
+- Site: the legend and walkthrough describe the new screen in every language: the blue dot and `ACTIVE` for the live account, a switch confirmed with Switch, quota refreshed in the background, and the colour roles; the story frames show the new look.
+
+### Fixes
+
+- macOS: switching accounts no longer asks for the keychain password every time. agy-swap reset the access list of Antigravity's `gemini` keychain item on each switch, and macOS asks for the password whenever an access list changes. It now updates the item and keeps its access list, and opens a new item to Antigravity only when it creates one (#68).
+- TUI: switching no longer blanks the screen for a moment. The switch runs inside the dashboard with a "Switching to …" status line instead of leaving the full-screen view while the session is written (#70).
+- TUI: the right-most column of every row was wiped after drawing (an erase-to-end-of-line sent while the cursor waited on the last column), so the bars and cards stopped one column short and the right margin looked narrower than the left. The same happened to the bottom-right corner after the last row. Full-width rows are no longer followed by an erase.
+- TUI: the logo and the active account line no longer touch, and on a tall window a pool card gets at most one row of air between its sections.
+
 ## 2.15.0
 
 ### Features

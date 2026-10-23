@@ -75,6 +75,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	}()
 
 	state := newTUIState(accounts, current)
+	state.startedAt = time.Now() // the screen wipes in once
 	state.vault = a.vault
 	state.active = a.activeHint(accounts, current)
 	var initialSplitOffset int
@@ -161,16 +162,24 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	}
 	refreshing := false
 	var refreshRevision uint64
-	startRefresh := func(force bool) {
+	// startRefresh reloads quota in the background. A quiet refresh (on start,
+	// on the timer, after adding an account) shows nothing unless it fails;
+	// only a refresh the user asked for shows its progress and result.
+	refreshQuiet := false
+	startRefresh := func(force, quiet bool) {
 		if refreshing {
 			return
 		}
 		refreshRevision++
 		revision := refreshRevision
 		refreshing = true
-		state.refreshing = true
-		state.beginAnimation("refresh", 0)
-		a.renderTUI(state, outFile)
+		refreshQuiet = quiet
+		if !quiet {
+			state.refreshing = true
+			state.refreshStartedAt = time.Now()
+			state.beginAnimation("refresh", 0)
+			a.renderTUI(state, outFile)
+		}
 		go func() {
 			fresh, loadErr := a.store.Load(!a.demo)
 			errs := map[string]string{}
@@ -197,15 +206,24 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	var frameTimer *time.Timer
 	var frameC <-chan time.Time
 	armFrame := func() {
-		if !state.animation.active && !state.toastActive(time.Now()) {
+		now := time.Now()
+		moving := state.moving(now)
+		if !state.animation.active && !state.toastActive(now) && !moving && !state.ambient {
 			frameC = nil
 			if frameTimer != nil {
 				frameTimer.Stop()
 			}
 			return
 		}
+		interval := 80 * time.Millisecond
+		switch {
+		case moving:
+			interval = tuiFrameInterval
+		case state.ambient && !state.animation.active && !state.toastActive(now):
+			interval = tuiAmbientFrame // only the dot breathes
+		}
 		if frameTimer == nil {
-			frameTimer = time.NewTimer(80 * time.Millisecond)
+			frameTimer = time.NewTimer(interval)
 		} else {
 			if !frameTimer.Stop() {
 				select {
@@ -213,7 +231,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 				default:
 				}
 			}
-			frameTimer.Reset(80 * time.Millisecond)
+			frameTimer.Reset(interval)
 		}
 		frameC = frameTimer.C
 	}
@@ -234,7 +252,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	var lastClickTime time.Time
 	var lastClickCol, lastClickRow int
 	startActiveResolve()
-	startRefresh(false)
+	startRefresh(false, true)
 	armFrame()
 	demoNotice := func() {
 		state.message, state.messageType = errDemoUnavailable.Error(), "info"
@@ -264,6 +282,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			raw = true
 		}
 		enterScreen()
+		state.lastFrame = nil // the screen was left, so the next frame is painted whole
 		fresh, loadErr := a.store.Load(false)
 		if loadErr == nil {
 			state.setAccounts(fresh)
@@ -302,11 +321,20 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		a.renderTUI(state, outFile)
 	}
 
-	beginConfirmAction := func(kind, title string) {
-		state.mode = tuiConfirmAction
-		state.confirmAction = kind
-		state.confirmTitle = title
+	// openConfirm asks before an action with the shared dialog.
+	openConfirm := func(kind, subject string) {
+		state.openDialog(confirmDialog(kind, subject, subject))
 		a.renderTUI(state, outFile)
+	}
+	openHelp := func() {
+		frameWidth, _ := tuiFrameBox(state.width)
+		state.openHelp(a.tuiHelpLines(frameWidth - 2))
+	}
+	selectedProfile := func() string {
+		if state.profileIndex >= 0 && state.profileIndex < len(state.profileNames) {
+			return state.profileNames[state.profileIndex]
+		}
+		return ""
 	}
 
 	startDoctor := func(refresh bool) {
@@ -465,72 +493,42 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		code := suspend(func() int { return a.addLoginFlow(ctx) })
 		a.inTUISuspend = false
 		if code == 0 {
-			startRefresh(true)
+			startRefresh(true, true)
 		}
 	}
 
+	// performSwitch switches in place: the dashboard stays on screen, with a
+	// status line while the session is written, and a toast with the result.
 	performSwitch := func() {
-		email, account, ok := state.selectedAccount()
+		email, _, ok := state.selectedAccount()
 		if !ok {
 			return
 		}
-		if a.demo {
-			token, tokenErr := a.accountToken(ctx, account)
-			if tokenErr != nil || !a.applyAccount(ctx, token, email) {
-				state.showToast("Could not switch to "+email, "error")
-			} else {
-				current = a.credentials.Current(ctx)
-				state.current, state.active = current, email
-				if ineligible, verify := accountEligibility(account); verify {
-					hint := ""
-					if ineligible.URL != "" {
-						hint = " · press w"
-					}
-					state.showToast("Switched to "+email+" · needs Google verification"+hint, "warning")
-				} else {
-					state.showToast("Switched to "+email, "success")
-				}
-			}
-			a.renderTUI(state, outFile)
-			armFrame()
-			return
+		state.message, state.messageType = "Switching to "+email+"…", "info"
+		a.renderTUI(state, outFile)
+		message, kind := a.tuiSwitchSelected(ctx, state)
+		if fresh, loadErr := a.store.Load(false); loadErr == nil {
+			state.setAccounts(fresh)
 		}
-		alreadyUsing := false
-		var switchErr error
-		code := suspend(func() int {
-			token, tokenErr := a.accountToken(ctx, account)
-			if tokenErr != nil {
-				switchErr = tokenErr
-				return 1
-			}
-			if a.credentials.Current(ctx) == token {
-				alreadyUsing = true
-			}
-			if a.applyAccount(ctx, token, email) {
-				return 0
-			}
-			return 1
-		})
-		switch {
-		case code == 0:
-			if ineligible, verify := accountEligibility(account); verify {
-				hint := ""
-				if ineligible.URL != "" {
-					hint = " · press w"
-				}
-				state.showToast("Switched to "+email+" · needs Google verification"+hint, "warning")
-			} else if alreadyUsing {
-				state.showToast("Already using "+email, "info")
-			} else {
-				state.showToast("Switched to "+email, "success")
-			}
-		case switchErr != nil:
-			state.showToast("Switch failed: "+switchErr.Error(), "error")
-		default:
-			state.showToast("Could not switch to "+email, "error")
+		current = a.credentials.Current(ctx)
+		state.current = current
+		if kind == "error" {
+			state.active = a.activeHint(state.accounts, current)
+		} else {
+			state.active = email
 		}
+		startActiveResolve()
+		state.message, state.messageType = "", "info"
+		state.showToast(message, kind)
 		a.renderTUI(state, outFile)
 		armFrame()
+	}
+
+	// confirmSwitch asks before switching; Enter, a double click and the
+	// palette all come through here.
+	confirmSwitch := func() {
+		state.beginSwitchConfirm()
+		a.renderTUI(state, outFile)
 	}
 
 	submitForm := func() {
@@ -635,19 +633,19 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		case "update-check":
 			suspend(func() int { return a.cmdUpdate(ctx, cliArgs{updateCheck: true}) })
 		case "update":
-			beginConfirmAction("update", "Download and install the latest release")
+			openConfirm("update", "")
 		case "add-account":
 			setView(tuiViewDashboard)
 			runAddAccount()
 		case "verify":
 			a.tuiVerifySelected(ctx, state)
 		case "switch-account":
-			performSwitch()
+			confirmSwitch()
 		case "next-account":
 			suspend(func() int { return a.cmdNext(ctx, cliArgs{}) })
 		case "refresh":
 			state.message, state.messageType = "Refreshing quota…", "info"
-			startRefresh(true)
+			startRefresh(true, false)
 		case "edit-tags":
 			a.beginTUIForm(state, "tags")
 		case "toggle-tier":
@@ -662,11 +660,11 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			}
 		case "profile-remove":
 			if len(state.profileNames) > 0 {
-				beginConfirmAction("profile-remove", "Remove selected profile")
+				openConfirm("profile-remove", selectedProfile())
 			}
 		case "history-clear":
 			if len(state.history) > 0 {
-				beginConfirmAction("history-clear", "Clear local history")
+				openConfirm("history-clear", "")
 			}
 		case "history-export":
 			if len(state.history) > 0 {
@@ -675,7 +673,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		case "settings-edit":
 			a.beginTUIForm(state, "settings")
 		case "settings-reset":
-			beginConfirmAction("settings-reset", "Reset settings")
+			openConfirm("settings-reset", "")
 		case "alias-create":
 			a.beginTUIForm(state, "alias")
 		case "binding-create":
@@ -698,7 +696,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			state.resetSplit()
 			state.message, state.messageType = "Split reset to default", "info"
 		case "help":
-			state.mode = tuiHelp
+			openHelp()
 		case "quit":
 			state.quitRequested = true
 			finish()
@@ -706,6 +704,11 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	}
 
 	for {
+		// A render can start motion (a new target, a dialog, a toast); keep
+		// frames coming until it settles.
+		if frameC == nil && (state.moving(time.Now()) || state.ambient) {
+			armFrame()
+		}
 		select {
 		case <-ctx.Done():
 			finish()
@@ -726,8 +729,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			}
 		case <-quotaTicker.C:
 			if !refreshing {
-				state.message, state.messageType = "Background sync…", "info"
-				startRefresh(false)
+				startRefresh(false, true)
 			}
 		case <-frameC:
 			now := time.Now()
@@ -746,12 +748,11 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 				state.refreshing = false
 				state.setAccounts(value.accounts)
 				state.quotaErrors = value.quotaErrors
-				if len(value.quotaErrors) > 0 {
-					state.message, state.messageType = fmt.Sprintf("Usage refresh completed with %d warning(s)", len(value.quotaErrors)), "warning"
-					state.beginAnimation("error", 360*time.Millisecond)
-				} else {
-					state.message, state.messageType = "Usage refreshed", "success"
-					state.beginAnimation("success", 360*time.Millisecond)
+				if message, kind, animate := refreshNotice(refreshQuiet, value.quotaErrors); message != "" {
+					state.message, state.messageType = message, kind
+					if animate {
+						state.beginAnimation(map[string]string{"success": "success", "warning": "error"}[kind], 360*time.Millisecond)
+					}
 				}
 				startActiveResolve()
 				a.renderTUI(state, outFile)
@@ -795,39 +796,26 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 				armFrame()
 			case tuiKeyEvent:
 				key := strings.ToLower(value.key)
-				if state.mode == tuiHelp {
-					state.mode = tuiBrowse
-					a.renderTUI(state, outFile)
-					continue
-				}
+				state.keyFlash, state.keyFlashAt = key, time.Now()
 				if state.mode == tuiSearch {
 					searchKey(value.key)
 					a.renderTUI(state, outFile)
 					continue
 				}
-				if state.mode == tuiConfirmDelete {
-					switch key {
-					case "y", "enter":
-						email := state.confirmEmail
-						state.mode, state.confirmEmail = tuiBrowse, ""
-						performDelete(email)
-					case "n", "esc":
-						state.mode, state.confirmEmail = tuiBrowse, ""
-						state.message, state.messageType = "Delete canceled", "info"
+				if state.mode == tuiDialogOpen {
+					subject := ""
+					if state.dialog != nil {
+						subject = state.dialog.Subject
 					}
-					a.renderTUI(state, outFile)
-					armFrame()
-					continue
-				}
-				if state.mode == tuiConfirmAction {
-					switch key {
-					case "y", "enter":
-						action := state.confirmAction
-						state.mode, state.confirmAction, state.confirmTitle = tuiBrowse, "", ""
-						switch action {
+					kind, action, done := state.dialogKey(key)
+					switch {
+					case !done || kind == "help":
+					case action != "confirm":
+						state.message, state.messageType = "Canceled", "info"
+					default:
+						switch kind {
 						case "profile-remove":
-							if state.profileIndex >= 0 && state.profileIndex < len(state.profileNames) {
-								name := state.profileNames[state.profileIndex]
+							if name := subject; name != "" {
 								settings, loadErr := a.loadSettings()
 								if loadErr != nil {
 									state.message, state.messageType = loadErr.Error(), "error"
@@ -859,12 +847,14 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 							}
 						case "update":
 							suspend(func() int { return a.cmdUpdate(ctx, cliArgs{}) })
+						case "switch":
+							performSwitch()
+						case "delete":
+							performDelete(subject)
 						}
-					case "n", "esc":
-						state.mode, state.confirmAction, state.confirmTitle = tuiBrowse, "", ""
-						state.message, state.messageType = "Action canceled", "info"
 					}
 					a.renderTUI(state, outFile)
+					armFrame()
 					continue
 				}
 				if state.mode == tuiPalette {
@@ -955,6 +945,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 						action := parts[1]
 						col, _ := strconv.Atoi(parts[2])
 						row, _ := strconv.Atoi(parts[3])
+						col = state.frameColumn(col)
 
 						if baseLeft, _, _, dividerCol, ok := state.wideSplitBounds(); ok && state.view == tuiViewDashboard {
 							switch action {
@@ -963,9 +954,9 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 									if time.Since(lastClickTime) < 350*time.Millisecond && absInt(col-lastClickCol) <= 2 && absInt(row-lastClickRow) <= 1 {
 										state.resetSplit()
 										state.message, state.messageType = "Split reset to default", "info"
-										draggingSplit = false
+										draggingSplit, state.dragging = false, false
 									} else {
-										draggingSplit = true
+										draggingSplit, state.dragging = true, true
 										state.message, state.messageType = fmt.Sprintf("Split offset: %+d (drag or [/], = resets)", state.splitOffset), "info"
 									}
 									lastClickTime = time.Now()
@@ -980,7 +971,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 									if hit := row - 1 - state.bodyTop - state.listFirstRow; hit >= 0 && hit < len(state.listHits) && state.listHits[hit] != "" {
 										clickedEmail := state.listHits[hit]
 										if strings.EqualFold(clickedEmail, state.selectedEmail) && time.Since(lastClickTime) < 350*time.Millisecond {
-											performSwitch()
+											confirmSwitch()
 										} else {
 											state.selectedEmail = clickedEmail
 											state.beginAnimation("focus", 140*time.Millisecond)
@@ -994,7 +985,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 								continue
 							case "drag":
 								if draggingSplit {
-									state.setSplit(col - 4 - baseLeft)
+									state.setSplit(col - 5 - baseLeft)
 									state.message, state.messageType = fmt.Sprintf("Split offset: %+d (drag or [/], = resets)", state.splitOffset), "info"
 									a.renderTUI(state, outFile)
 									armFrame()
@@ -1002,7 +993,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 								}
 							case "up":
 								if draggingSplit {
-									draggingSplit = false
+									draggingSplit, state.dragging = false, false
 									a.renderTUI(state, outFile)
 									armFrame()
 									continue
@@ -1020,7 +1011,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 				case "ctrl-k", ":":
 					state.beginPalette()
 				case "?":
-					state.mode = tuiHelp
+					openHelp()
 				case "/":
 					state.beginSearch()
 				case "up", "k":
@@ -1083,7 +1074,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 						startDoctor(false)
 					case tuiViewDashboard, tuiViewQuota:
 						state.message, state.messageType = "Refreshing quota…", "info"
-						startRefresh(true)
+						startRefresh(true, false)
 					}
 				case "a":
 					if state.view == tuiViewSettings {
@@ -1093,10 +1084,10 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					}
 				case "d", "delete", "backspace":
 					if state.view == tuiViewProfiles && len(state.profileNames) > 0 {
-						beginConfirmAction("profile-remove", "Remove selected profile")
+						openConfirm("profile-remove", selectedProfile())
 					} else if (state.view == tuiViewDashboard || state.view == tuiViewQuota) && state.mode == tuiBrowse {
-						if email, _, ok := state.selectedAccount(); ok {
-							state.mode, state.confirmEmail = tuiConfirmDelete, email
+						if email, account, ok := state.selectedAccount(); ok {
+							state.openDialog(confirmDialog("delete", email, tuiText(firstString(account["name"], email))))
 						}
 					}
 				case "t":
@@ -1112,7 +1103,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 				case "enter":
 					switch state.view {
 					case tuiViewDashboard, tuiViewQuota:
-						performSwitch()
+						confirmSwitch()
 					case tuiViewProfiles:
 						if len(state.profileNames) > 0 {
 							a.beginTUIForm(state, "profile-edit")
@@ -1177,12 +1168,12 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					if state.view == tuiViewProfiles {
 						a.beginTUIForm(state, "profile-create")
 					} else if state.view == tuiViewHistory && len(state.history) > 0 {
-						beginConfirmAction("history-clear", "Clear local history")
+						openConfirm("history-clear", "")
 					}
 				case "m":
 					suspend(func() int { return a.cmdAccount(ctx, extendedOptions{Force: true}, []string{"migrate"}) })
 				case "u":
-					beginConfirmAction("update", "Download and install the latest release")
+					openConfirm("update", "")
 				case "]", ">", "+", "alt-right", "alt-f":
 					state.adjustSplit(2)
 					state.message, state.messageType = fmt.Sprintf("Split offset: %+d (drag or [/], = resets)", state.splitOffset), "info"

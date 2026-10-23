@@ -6,7 +6,7 @@ import (
 )
 
 func (a *Application) tuiListTitle(state *tuiState) string {
-	return a.tuiSectionTitle("ACCOUNTS") + "  " + a.p.Gray + fmt.Sprintf("%d", len(state.visibleEmails())) + "  ❯ selected · ● active" + a.p.Reset
+	return a.tuiSectionTitle("ACCOUNTS") + "  " + a.p.Gray + fmt.Sprintf("%d", len(state.visibleEmails())) + "  " + tuiSelectionBar + " selected · ● active" + a.p.Reset
 }
 
 func (a *Application) tuiEmptyListRows(state *tuiState, width, height int) []string {
@@ -26,7 +26,7 @@ func (a *Application) tuiPoolBody(state *tuiState, width, height int) []string {
 	if state.accounts == nil || state.accounts.Len() == 0 {
 		return a.tuiEmptyBody(g)
 	}
-	plan := tuiLayoutPlanFor(g.frameWidth, g.frameHeight)
+	plan := tuiLayoutPlanFor(g.frameWidth+tuiRails, g.frameHeight)
 	if plan.arrangement == arrWide {
 		return a.tuiPoolWideBody(state, g, plan)
 	}
@@ -59,7 +59,7 @@ func (a *Application) tuiFitPlan(state *tuiState, width, budget int, plan tuiLay
 			// The bar stays one full-block row: a second row reads as two bars in
 			// terminals that leave a gap between lines. The extra rows become air.
 			for thick := 1; thick >= 1; thick-- {
-				for gap := 3; gap >= 0; gap-- {
+				for gap := 1; gap >= 0; gap-- {
 					candidate := plan
 					candidate.scale, candidate.gap, candidate.thick = scale, gap, thick
 					candidates = append(candidates, candidate)
@@ -87,7 +87,7 @@ func (a *Application) tuiFitPlan(state *tuiState, width, budget int, plan tuiLay
 // tuiEmptyBody is the first screen: no accounts, so one column of welcome text
 // across the whole width instead of an empty list beside an empty detail.
 func (a *Application) tuiEmptyBody(g tuiGeometry) []string {
-	lines := []string{a.p.Gray + "├" + strings.Repeat("─", g.frameWidth-2) + "┤" + a.p.Reset}
+	lines := []string{frameRow("", g, a.p)}
 	for _, row := range a.tuiWelcomeRows(g.contentWidth, maxInt(1, g.bodyRows-2)) {
 		lines = append(lines, frameRow(row, g, a.p))
 	}
@@ -98,8 +98,12 @@ func (a *Application) tuiEmptyBody(g tuiGeometry) []string {
 // the two-column dashboard. The list grows a little on very wide screens; the
 // detail pane keeps at least 44 columns and the list at least 34. The mouse
 // drag, the [ ] keys and the renderer all read it, so they cannot disagree.
+// tuiWideChrome is the columns a wide body spends around its two panes: two
+// at each screen edge and two either side of the one-column divider.
+const tuiWideChrome = 9
+
 func tuiWideSplit(frameWidth, offset int) (base, minLeft, maxLeft, left int) {
-	totalAvail := maxInt(2, frameWidth-7)
+	totalAvail := maxInt(2, frameWidth-tuiWideChrome)
 	minLeft = minInt(34, totalAvail-1)
 	maxLeft = maxInt(minLeft, totalAvail-44)
 	base = maxInt(42, minInt(96, totalAvail*30/100))
@@ -114,7 +118,7 @@ func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLa
 	}
 	_, _, _, left := tuiWideSplit(g.frameWidth, offset)
 	g.leftWidth = left
-	g.rightWidth = maxInt(1, maxInt(2, g.frameWidth-7)-left)
+	g.rightWidth = maxInt(1, maxInt(2, g.frameWidth-tuiWideChrome)-left)
 	lines := []string{panelDivider(g, a.p)}
 	available := maxInt(0, g.bodyRows-len(lines))
 	list := []string{a.tuiListTitle(state), ""}
@@ -127,7 +131,7 @@ func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLa
 	list = append(list, rows...)
 	plan = a.tuiFitPlan(state, g.rightWidth, available, plan)
 	details := a.tuiGaugeDetail(state, g.rightWidth, available, plan)
-	state.bodySplit = g.leftWidth + 3
+	state.bodySplit = g.leftWidth + 4
 	count := maxInt(len(list), len(details))
 	for i := 0; i < count && len(lines) < g.bodyRows; i++ {
 		left, right := "", ""
@@ -143,12 +147,17 @@ func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLa
 	for len(lines) < g.bodyRows {
 		lines = append(lines, panelRow("", "", g, a.p))
 	}
+	if state != nil && state.dragging && a.p.Track != "" {
+		// While it is dragged the divider lights up in the action colour.
+		for i := range lines {
+			lines[i] = strings.Replace(lines[i], a.p.Track+"│", a.p.Orange+"│", 1)
+		}
+	}
 	return fitBodyLines(lines, g, a.p)
 }
 
 func (a *Application) tuiPoolColumnBody(state *tuiState, g tuiGeometry, plan tuiLayoutPlan) []string {
-	rule := a.p.Gray + "├" + strings.Repeat("─", g.frameWidth-2) + "┤" + a.p.Reset
-	lines := []string{rule}
+	lines := []string{frameRow("", g, a.p)}
 	if g.bodyRows > 1 {
 		lines = append(lines, frameRow(a.tuiListTitle(state), g, a.p))
 	}
@@ -188,7 +197,7 @@ func (a *Application) tuiPoolColumnBody(state *tuiState, g tuiGeometry, plan tui
 		lines = append(lines, frameRow(row, g, a.p))
 	}
 	if detailBudget > 0 && len(lines) < g.bodyRows {
-		lines = append(lines, rule)
+		lines = append(lines, a.tuiSeparator(g))
 		for i, row := range detail {
 			if i >= detailBudget || len(lines) >= g.bodyRows {
 				break
