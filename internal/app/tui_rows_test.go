@@ -137,35 +137,58 @@ func TestAccountBlockUsesShortLabelsAndBarsOnNarrowLists(t *testing.T) {
 	}
 }
 
-func TestAccountRowsMarkHiddenAccountsAboveAndBelow(t *testing.T) {
+// A list taller than its room scrolls: it keeps the selected account in
+// view, shows a bar at the right edge and no "N more" lines.
+func TestAccountRowsScrollToKeepTheSelectionInView(t *testing.T) {
 	a := rowsApp()
 	state := newTUIState(sizesAccounts(30), "")
 	for _, listLines := range []int{1, 2} {
 		state.selectedEmail = "user15@example.invalid"
 		rows := a.tuiAccountRowsFor(state, 50, 12, listLines)
-		if len(rows) > 12 {
-			t.Fatalf("lines=%d: %d rows, want at most 12", listLines, len(rows))
-		}
 		text := strings.Join(rows, "\n")
-		if !strings.Contains(text, "User 15") || !strings.Contains(text, "▲") || !strings.Contains(text, "▼") {
-			t.Fatalf("lines=%d: window lost the selection or a marker:\n%s", listLines, text)
+		if len(rows) != 12 || !strings.Contains(text, tuiSelectionBar) || strings.Contains(text, "more") {
+			t.Fatalf("lines=%d: %d rows, want 12 with the selection and no markers:\n%s", listLines, len(rows), text)
 		}
-		var above, below, shown int
-		_, _ = fmt.Sscanf(strings.TrimSpace(rows[0]), "▲ %d more", &above)
-		_, _ = fmt.Sscanf(strings.TrimSpace(rows[len(rows)-1]), "▼ %d more", &below)
+		thumb := 0
 		for _, row := range rows {
-			if strings.Contains(row, "User ") {
-				shown++
+			if visibleWidth(row) != 50 {
+				t.Fatalf("lines=%d: row is %d wide: %q", listLines, visibleWidth(row), row)
+			}
+			if strings.HasSuffix(row, "▐"+a.p.Reset) || strings.HasSuffix(row, "▐") {
+				thumb++
 			}
 		}
-		if above+shown+below != 30 {
-			t.Fatalf("lines=%d: %d above + %d shown + %d below != 30:\n%s", listLines, above, shown, below, text)
+		if thumb == 0 || thumb == 12 {
+			t.Fatalf("lines=%d: the scroll thumb covers %d of 12 rows:\n%s", listLines, thumb, text)
 		}
 	}
 	state.selectedEmail = "user00@example.invalid"
 	top := strings.Join(a.tuiAccountRowsFor(state, 50, 12, 2), "\n")
-	if strings.Contains(top, "▲") || !strings.Contains(top, "▼") {
-		t.Fatalf("at the top only the lower marker belongs:\n%s", top)
+	if !strings.Contains(top, tuiSelectionBar) {
+		t.Fatalf("moving to the first account scrolls back to the top:\n%s", top)
+	}
+}
+
+func TestTheWheelScrollsTheListWithoutMovingTheSelection(t *testing.T) {
+	a := rowsApp()
+	state := newTUIState(sizesAccounts(30), "")
+	state.selectedEmail = "user00@example.invalid"
+	a.tuiAccountRowsFor(state, 50, 12, 2)
+	if !state.scrollBy("list", 9) {
+		t.Fatal("a list taller than its room must scroll")
+	}
+	text := strings.Join(a.tuiAccountRowsFor(state, 50, 12, 2), "\n")
+	if strings.Contains(text, tuiSelectionBar) || state.selectedEmail != "user00@example.invalid" {
+		t.Fatalf("the wheel did not scroll, or it moved the selection:\n%s", text)
+	}
+	state.selectedEmail = "user01@example.invalid"
+	if text := strings.Join(a.tuiAccountRowsFor(state, 50, 12, 2), "\n"); !strings.Contains(text, tuiSelectionBar) {
+		t.Fatalf("a new selection comes back into view:\n%s", text)
+	}
+	short := newTUIState(sizesAccounts(2), "")
+	a.tuiAccountRowsFor(short, 50, 12, 2)
+	if short.scrollBy("list", 3) {
+		t.Fatal("a list that fits has nothing to scroll")
 	}
 }
 

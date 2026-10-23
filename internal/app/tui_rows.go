@@ -162,24 +162,77 @@ func (a *Application) tuiAccountRowsFor(state *tuiState, width, maxRows, listLin
 // tuiAccountRowsSpaced is tuiAccountRowsFor with the blank lines between
 // accounts optional, so a caller can first measure the plain list.
 func (a *Application) tuiAccountRowsSpaced(state *tuiState, width, maxRows, listLines int, allowSpacing bool) []string {
-	rows, _ := a.tuiAccountRowsHits(state, width, maxRows, listLines, allowSpacing)
+	rows, _ := a.tuiListRows(state, width, maxRows, listLines, allowSpacing, true)
+	return rows
+}
+
+// tuiAccountRowsMeasure is the list as it would be drawn, without moving its
+// scroll position or the selection band: for working out a layout.
+func (a *Application) tuiAccountRowsMeasure(state *tuiState, width, maxRows, listLines int, allowSpacing bool) []string {
+	rows, _ := a.tuiListRows(state, width, maxRows, listLines, allowSpacing, false)
 	return rows
 }
 
 // tuiAccountRowsHits also returns, for every row, the account it belongs to
-// ("" for dividers, spacing and markers), which is what a mouse click needs.
+// ("" for dividers and spacing), which is what a mouse click needs.
 func (a *Application) tuiAccountRowsHits(state *tuiState, width, maxRows, listLines int, allowSpacing bool) ([]string, []string) {
+	return a.tuiListRows(state, width, maxRows, listLines, allowSpacing, true)
+}
+
+// tuiListRows draws the list into maxRows rows. When it is taller it scrolls,
+// with a bar at the right edge, and keeps the selected account in view. Only
+// a commit moves the scroll position and the selection band.
+func (a *Application) tuiListRows(state *tuiState, width, maxRows, listLines int, allowSpacing, commit bool) ([]string, []string) {
 	width = maxInt(1, width)
 	listLines = pick2(listLines == 1, 1, 2)
 	if maxRows <= 0 {
 		return nil, nil
 	}
-	emails := state.visibleEmails()
-	if len(emails) == 0 {
+	if len(state.visibleEmails()) == 0 {
 		return nil, nil
 	}
-	ready, attention := state.partitionedEmails()
 	now := a.renderTime()
+	banded := a.p.SelectBg != ""
+	rows, hits := a.tuiListAllRows(state, width, maxRows, listLines, allowSpacing, now)
+	if len(rows) > maxRows && width > 12 {
+		rows, hits = a.tuiListAllRows(state, width-2, maxRows, listLines, allowSpacing, now) // room for the bar
+	}
+	top, end := -1, -1
+	for i, email := range hits {
+		if email != "" && strings.EqualFold(email, state.selectedEmail) {
+			if top < 0 {
+				top = i
+			}
+			end = i + 1
+		}
+	}
+	offset := state.scrollTo("list", state.selectedEmail, top, end, len(rows), maxRows, commit)
+	if banded && commit {
+		a.tuiSelectionBand(state, rows, hits, width, now)
+	}
+	if commit && a.p.BarBg != "" && state.hover.kind == hitAccount && !strings.EqualFold(state.hover.key, state.selectedEmail) {
+		// The account under the pointer gets a faint tint: a click selects it.
+		for i, email := range hits {
+			if strings.EqualFold(email, state.hover.key) {
+				rows[i] = tintColumns(rows[i], func(int) string { return a.p.BarBg })
+			}
+		}
+	}
+	if len(rows) <= maxRows {
+		return rows, hits
+	}
+	hits = hits[offset:minInt(len(hits), offset+maxRows)]
+	if width > 12 {
+		return a.tuiScrollWindow(rows, offset, maxRows, width), hits
+	}
+	return rows[offset:minInt(len(rows), offset+maxRows)], hits
+}
+
+// tuiListAllRows is every row of the list, before scrolling: account blocks,
+// grouped under READY and ATTENTION REQUIRED dividers when some account needs
+// attention, with a blank row between accounts when they all fit that way.
+func (a *Application) tuiListAllRows(state *tuiState, width, maxRows, listLines int, allowSpacing bool, now time.Time) ([]string, []string) {
+	ready, attention := state.partitionedEmails()
 	type block struct {
 		isHeader bool
 		email    string
@@ -220,13 +273,10 @@ func (a *Application) tuiAccountRowsHits(state *tuiState, width, maxRows, listLi
 			// With two rows more to spare, the selected account gets a row of
 			// padding above and below inside its tint; the blank rows that part
 			// it from its neighbours stay outside as margin.
-			padded := a.p.SelectBg != "" && total+accountsShown-1+2 <= maxRows
-			isSelected := func(b block) bool {
-				return padded && !b.isHeader && strings.EqualFold(b.email, state.selectedEmail)
-			}
+			padded := banded && total+accountsShown-1+2 <= maxRows
 			spaced := make([]block, 0, len(blocks)*2)
 			for i, b := range blocks {
-				if isSelected(b) {
+				if padded && !b.isHeader && strings.EqualFold(b.email, state.selectedEmail) {
 					pad := strings.Repeat(" ", width) // the band tints it
 					b.lines = append(append([]string{pad}, b.lines...), pad)
 				}
@@ -238,78 +288,12 @@ func (a *Application) tuiAccountRowsHits(state *tuiState, width, maxRows, listLi
 			blocks = spaced
 		}
 	}
-	selected := 0
-	for index, b := range blocks {
-		if !b.isHeader && strings.EqualFold(b.email, state.selectedEmail) {
-			selected = index
-			break
-		}
-	}
-	// Grow a window of whole blocks around the selection into capacity rows.
-	window := func(capacity int) (int, int) {
-		start, end := selected, selected+1
-		used := len(blocks[selected].lines)
-		for {
-			grown := false
-			if start > 0 && used+len(blocks[start-1].lines) <= capacity {
-				start--
-				used += len(blocks[start].lines)
-				grown = true
-			}
-			if end < len(blocks) && used+len(blocks[end].lines) <= capacity {
-				used += len(blocks[end].lines)
-				end++
-				grown = true
-			}
-			if !grown {
-				return start, end
-			}
-		}
-	}
-	countAccounts := func(list []block) int {
-		n := 0
-		for _, b := range list {
-			if !b.isHeader {
-				n++
-			}
-		}
-		return n
-	}
-	start, end := window(maxRows)
-	// A marker row on each side that hides accounts takes room from the window.
-	for pass := 0; pass < 3; pass++ {
-		reserve := pick2(countAccounts(blocks[:start]) > 0, 1, 0) + pick2(countAccounts(blocks[end:]) > 0, 1, 0)
-		if reserve == 0 {
-			break
-		}
-		nextStart, nextEnd := window(maxRows - reserve)
-		if nextStart == start && nextEnd == end {
-			break
-		}
-		start, end = nextStart, nextEnd
-	}
-	hiddenAbove, hiddenBelow := countAccounts(blocks[:start]), countAccounts(blocks[end:])
 	var rows, hits []string
-	if hiddenAbove > 0 {
-		rows = append(rows, a.tuiMoreMarker("▲", hiddenAbove, width))
-		hits = append(hits, "")
-	}
-	for _, b := range blocks[start:end] {
-		for range b.lines {
-			rows = append(rows, "")
+	for _, b := range blocks {
+		for _, line := range b.lines {
+			rows = append(rows, line)
 			hits = append(hits, b.email)
 		}
-		copy(rows[len(rows)-len(b.lines):], b.lines)
-	}
-	if hiddenBelow > 0 {
-		rows = append(rows, a.tuiMoreMarker("▼", hiddenBelow, width))
-		hits = append(hits, "")
-	}
-	if len(rows) > maxRows {
-		rows, hits = rows[:maxRows], hits[:maxRows]
-	}
-	if banded {
-		a.tuiSelectionBand(state, rows, hits, width, now)
 	}
 	return rows, hits
 }
@@ -330,6 +314,12 @@ func (a *Application) tuiSelectionBand(state *tuiState, rows, hits []string, wid
 	if top < 0 {
 		return
 	}
+	// The band slides only when the selection moves; when the same account's
+	// rows move (the list reflows or scrolls), it goes with them at once.
+	if tween := state.tweens["selection"]; tween != nil && tween.to != float64(top) && strings.EqualFold(state.bandEmail, state.selectedEmail) {
+		state.settle("selection", float64(top))
+	}
+	state.bandEmail = state.selectedEmail
 	at := int(state.follow("selection", float64(top), tuiMotionSlide, now) + 0.5)
 	for i := max(0, at); i < min(len(rows), at+height); i++ {
 		rows[i] = a.tuiBandRow(rows[i], width)

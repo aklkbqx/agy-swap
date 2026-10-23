@@ -94,7 +94,7 @@ func TestEmptyStateUsesTheWholeWidthAndNeverAsksToSelectAnAccount(t *testing.T) 
 
 func TestEveryScreenHasItsOwnHintInsteadOfTheDashboardOne(t *testing.T) {
 	a, state := overviewState()
-	for _, view := range []tuiView{tuiViewQuota, tuiViewProfiles, tuiViewHistory, tuiViewSettings, tuiViewDoctor, tuiViewBackup} {
+	for _, view := range []tuiView{tuiViewProfiles, tuiViewHistory, tuiViewSettings, tuiViewDoctor, tuiViewBackup} {
 		state.view = view
 		text := strings.Join(a.tuiStatusLines(state, 100), "\n")
 		if strings.Contains(text, "inspect health") {

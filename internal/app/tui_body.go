@@ -22,6 +22,7 @@ func (a *Application) tuiPoolBody(state *tuiState, width, height int) []string {
 	g := newTUIGeometry(width, height+8)
 	g.bodyRows = maxInt(1, height)
 	state.bodySplit = 0
+	state.stackRule, state.stackRuleBase = -1, -1
 	state.listHits = nil
 	if state.accounts == nil || state.accounts.Len() == 0 {
 		return a.tuiEmptyBody(g)
@@ -130,8 +131,17 @@ func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLa
 	}
 	list = append(list, rows...)
 	plan = a.tuiFitPlan(state, g.rightWidth, available, plan)
-	details := a.tuiGaugeDetail(state, g.rightWidth, available, plan)
+	details := a.tuiScrollDetail(state, a.tuiGaugeDetail(state, g.rightWidth, available, plan), available, g.rightWidth, func(width int) []string {
+		return a.tuiGaugeDetail(state, width, available, plan)
+	})
 	state.bodySplit = g.leftWidth + 4
+	// Pointer targets, in frame columns: the list runs from column 2 up to
+	// the divider at leftWidth+4, the gauges from leftWidth+7.
+	top := state.bodyTop
+	state.addAccountHits(hits, top+state.listFirstRow, 2, 2+g.leftWidth)
+	state.addScrollHits("list", top+state.listFirstRow, top+state.listFirstRow+len(rows), 0, g.leftWidth+3, 1+g.leftWidth)
+	state.addHit(tuiHit{kind: hitDivider, top: top, bottom: top + g.bodyRows, left: g.leftWidth + 3, right: g.leftWidth + 6})
+	state.addScrollHits("detail", top+1, top+g.bodyRows, g.leftWidth+6, g.frameWidth, g.leftWidth+6+g.rightWidth)
 	count := maxInt(len(list), len(details))
 	for i := 0; i < count && len(lines) < g.bodyRows; i++ {
 		left, right := "", ""
@@ -147,14 +157,19 @@ func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLa
 	for len(lines) < g.bodyRows {
 		lines = append(lines, panelRow("", "", g, a.p))
 	}
-	if state != nil && state.dragging && a.p.Track != "" {
-		// While it is dragged the divider lights up in the action colour.
+	if lit := a.tuiGripColor(state, hitDivider); lit != "" {
+		// Under the pointer the divider lights, and while dragged it takes the
+		// action colour.
 		for i := range lines {
-			lines[i] = strings.Replace(lines[i], a.p.Track+"│", a.p.Orange+"│", 1)
+			lines[i] = strings.Replace(lines[i], a.p.Track+"│", lit+"│", 1)
 		}
 	}
 	return fitBodyLines(lines, g, a.p)
 }
+
+// tuiStackAirRows is the body height from which the stacked dashboard keeps
+// a blank row under the list title and either side of the rule.
+const tuiStackAirRows = 14
 
 func (a *Application) tuiPoolColumnBody(state *tuiState, g tuiGeometry, plan tuiLayoutPlan) []string {
 	lines := []string{frameRow("", g, a.p)}
@@ -165,31 +180,78 @@ func (a *Application) tuiPoolColumnBody(state *tuiState, g tuiGeometry, plan tui
 	if avail <= 0 {
 		return fitBodyLines(lines, g, a.p)
 	}
-	list := a.tuiAccountRowsSpaced(state, g.contentWidth, 1000, plan.listLines, false)
+	list := a.tuiAccountRowsMeasure(state, g.contentWidth, 1000, plan.listLines, false)
+	_, _, hasSelected := state.selectedAccount()
+	// The three rows of air (under the title, either side of the rule) come
+	// before big digits, but never at the cost of a pool: they are taken only
+	// when the gauges, in whatever form fits, still show every pool whole.
+	air := g.bodyRows >= tuiStackAirRows
+	if air && hasSelected {
+		minList := minInt(len(list), plan.listLines*2)
+		airy := a.tuiFitPlan(state, g.contentWidth, maxInt(1, avail-4-minList), plan)
+		air = len(a.tuiGaugeDetail(state, g.contentWidth, 0, airy)) <= avail-4-minInt(len(list), plan.listLines*3)
+	}
+	if air {
+		lines = append(lines, frameRow("", g, a.p))
+		avail--
+	}
+	ruleRows := 1
+	if air {
+		ruleRows = 3 // a blank row, the rule, a blank row
+	}
 	if len(list) == 0 {
 		list = a.tuiEmptyListRows(state, g.contentWidth, avail)
 	}
-	_, _, hasSelected := state.selectedAccount()
 	var detail []string
 	if hasSelected {
 		minList := minInt(len(list), plan.listLines*2)
-		plan = a.tuiFitPlan(state, g.contentWidth, maxInt(1, avail-1-minList), plan)
-		detail = a.tuiGaugeDetail(state, g.contentWidth, 0, plan)
+		fitted := a.tuiFitPlan(state, g.contentWidth, maxInt(1, avail-ruleRows-minList), plan)
+		detail = a.tuiGaugeDetail(state, g.contentWidth, 0, fitted)
 	}
 	listBudget, detailBudget := len(list), 0
 	if len(detail) > 0 {
-		// One rule separates the list from the detail.
-		room := avail - 1
+		// A rule separates the list from the detail.
+		room := avail - ruleRows
 		minList := minInt(len(list), plan.listLines*3)
 		detailBudget = minInt(len(detail), maxInt(0, room-minList))
 		listBudget = maxInt(1, room-detailBudget)
 		if detailBudget == 0 {
 			listBudget = avail
+		} else {
+			// The rule sits under the list as it would be drawn, and the
+			// user's offset moves it from there, as far as it changes what is
+			// shown: up until the gauges show whole (but never under one
+			// account), down until the whole list shows (but never over the
+			// last three gauge rows). What does not fit scrolls.
+			natural := listBudget
+			if shown := a.tuiAccountRowsMeasure(state, g.contentWidth, listBudget, plan.listLines, true); len(shown) > 0 {
+				natural = minInt(listBudget, len(shown))
+			}
+			whole := len(a.tuiAccountRowsMeasure(state, g.contentWidth, 1000, plan.listLines, true))
+			lo := minInt(natural, maxInt(maxInt(1, plan.listLines), room-len(detail)))
+			hi := maxInt(natural, minInt(whole, room-minInt(len(detail), 3)))
+			listBudget = maxInt(lo, minInt(hi, natural+state.stackOffset))
+			state.stackOffset = listBudget - natural
+			detailBudget = room - listBudget
+			state.stackRuleBase = len(lines) + natural + ruleRows/2
+			// A smaller detail picks the richest form that still fits, and
+			// scrolls when even that is too tall.
+			fitted := a.tuiFitPlan(state, g.contentWidth, detailBudget, plan)
+			if detailBudget < len(detail) {
+				detail = a.tuiGaugeDetail(state, g.contentWidth, 0, fitted)
+			}
+			detail = a.tuiScrollDetail(state, detail, detailBudget, g.contentWidth, func(width int) []string {
+				return a.tuiGaugeDetail(state, width, 0, fitted)
+			})
 		}
 	}
-	if shown := a.tuiAccountRowsFor(state, g.contentWidth, listBudget, plan.listLines); len(shown) > 0 {
+	if shown, hits := a.tuiAccountRowsHits(state, g.contentWidth, listBudget, plan.listLines, true); len(shown) > 0 {
 		list = shown
+		state.listHits, state.listFirstRow = hits, len(lines)
+		state.addAccountHits(hits, state.bodyTop+len(lines), 2, 2+g.contentWidth)
 	}
+	listEnd := len(lines) + listBudget
+	state.addScrollHits("list", state.bodyTop+len(lines), state.bodyTop+minInt(listEnd, len(lines)+len(list)), 0, g.frameWidth, 1+g.contentWidth)
 	for i, row := range list {
 		if i >= listBudget || len(lines) >= g.bodyRows {
 			break
@@ -197,7 +259,23 @@ func (a *Application) tuiPoolColumnBody(state *tuiState, g tuiGeometry, plan tui
 		lines = append(lines, frameRow(row, g, a.p))
 	}
 	if detailBudget > 0 && len(lines) < g.bodyRows {
-		lines = append(lines, a.tuiSeparator(g))
+		for len(lines) < listEnd {
+			lines = append(lines, frameRow("", g, a.p)) // the list ends above a lowered rule
+		}
+		if air {
+			lines = append(lines, frameRow("", g, a.p))
+		}
+		state.stackRule = len(lines)
+		state.addHit(tuiHit{kind: hitRule, top: state.bodyTop + len(lines), bottom: state.bodyTop + len(lines) + 1, left: 0, right: g.frameWidth})
+		rule := a.tuiSeparator(g)
+		if lit := a.tuiGripColor(state, hitRule); lit != "" {
+			rule = strings.Replace(rule, a.p.Track, lit, 1)
+		}
+		lines = append(lines, rule)
+		if air {
+			lines = append(lines, frameRow("", g, a.p))
+		}
+		state.addScrollHits("detail", state.bodyTop+len(lines), state.bodyTop+len(lines)+detailBudget, 0, g.frameWidth, 1+g.contentWidth)
 		for i, row := range detail {
 			if i >= detailBudget || len(lines) >= g.bodyRows {
 				break
@@ -206,4 +284,18 @@ func (a *Application) tuiPoolColumnBody(state *tuiState, g tuiGeometry, plan tui
 		}
 	}
 	return fitBodyLines(lines, g, a.p)
+}
+
+// tuiGripColor is the colour of the divider or rule when it is not quiet:
+// the action colour while dragged, the text gray under the pointer.
+func (a *Application) tuiGripColor(state *tuiState, kind tuiHitKind) string {
+	switch {
+	case a.p.Track == "" || state == nil:
+		return ""
+	case state.dragging:
+		return a.p.Orange
+	case state.hover.kind == kind:
+		return a.p.Gray
+	}
+	return ""
 }
