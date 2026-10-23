@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -193,5 +194,36 @@ func TestModelQuotaLinesListQuotaBearingModelsAndTheirGroups(t *testing.T) {
 	}
 	if strings.Contains(got, "no-quota") || strings.Contains(got, "displayName") {
 		t.Fatalf("unexpected content:\n%s", got)
+	}
+}
+
+func TestQuotaDiagnosticsDescribeAnIneligibleAccountWithoutSecrets(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, `{"error":{"code":403,"message":"user@example.com must verify","status":"PERMISSION_DENIED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"VALIDATION_REQUIRED","metadata":{"validation_url":"https://accounts.google.com/signin/continue?secret=abc","uiMessage":"Verify your account to continue."}}]}}`)
+	}))
+	defer server.Close()
+	var diagnostics bytes.Buffer
+	httpService := NewHTTPService(io.Discard)
+	httpService.cloudAPI = server.URL + "/"
+	quota := NewQuotaService(httpService, nil)
+	quota.SetDiagnostics(&diagnostics)
+	account := Account{"email": "user@example.com", "token_data": tokenBlob(t, "user@example.com", true, "r", time.Now().Add(time.Hour))}
+	_, err := quota.Fetch(context.Background(), account)
+	var ineligible *eligibilityError
+	if !errors.As(err, &ineligible) {
+		t.Fatalf("err = %v", err)
+	}
+	got := diagnostics.String()
+	for _, want := range []string{"loadCodeAssist HTTP 403", "VALIDATION_REQUIRED", "validation_url host accounts.google.com"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("diagnostics miss %q:\n%s", want, got)
+		}
+	}
+	for _, secret := range []string{"user@example.com", "secret=abc", "/signin/continue"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("diagnostics leak %q:\n%s", secret, got)
+		}
 	}
 }

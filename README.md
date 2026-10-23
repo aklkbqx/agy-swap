@@ -30,24 +30,24 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex
 ```
 
-With Go (the module requires Go 1.27.2; with the default `GOTOOLCHAIN=auto` an older go command downloads it first):
+With Go (the module requires Go 1.27.3; with the default `GOTOOLCHAIN=auto` an older go command downloads it first):
 
 ```bash
 go install github.com/aklkbqx/agy-swap/v2/cmd/agy-swap@latest
 ```
 
-`go install` builds with Go 1.27.2 or newer, the version that carries the standard-library security fixes. Published binaries use the same floor.
+`go install` builds with Go 1.27.3 or newer, the version that carries the standard-library security fixes. Published binaries use the same floor.
 
 Pre-built binaries for `darwin/amd64`, `darwin/arm64`, `linux/amd64`, `linux/arm64`, `windows/amd64`, and `windows/arm64`, with checksums, are on [GitHub Releases](https://github.com/aklkbqx/agy-swap/releases). The [install page](https://agy-swap.aklkbqx.com/install.html) shows one command at a time for your operating system.
 
 ### Build from source
 
-Requirements: Go 1.27.2 or later. macOS source builds require Xcode Command Line Tools and `CGO_ENABLED=1` for Keychain writes.
+Requirements: Go 1.27.3 or later. macOS source builds require Xcode Command Line Tools and `CGO_ENABLED=1` for Keychain writes.
 
 ```bash
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-go build -trimpath -ldflags "-s -w -X main.version=2.13.1 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.14.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ./agy-swap version
 ```
 
@@ -75,7 +75,7 @@ Run `agy-swap` with no arguments to open the terminal UI:
 agy-swap
 ```
 
-Each account shows a status word and two meters: Gem (Gemini) and C/G (Claude and GPT). The status word says what the account can be used for right now: `READY`, `LOW` (a pool is at 30% or less), `GEMINI ONLY` or `CLAUDE/GPT ONLY` (the other pool is used up), `LIMITED` (both are used up), or `NO TOKEN`. Each meter shows the tighter of that pool's weekly and 5-hour limit. The selected account gets a gauge panel per pool with both limits, when each resets, and, for a used-up pool, when it is back. Green means more than 30% is left, yellow 30% or less, red 10% or less; every state also has a word.
+Each account shows a status word and two meters: Gem (Gemini) and C/G (Claude and GPT). The status word says what the account can be used for right now: `READY`, `LOW` (a pool is at 30% or less), `GEMINI ONLY` or `CLAUDE/GPT ONLY` (the other pool is used up), `LIMITED` (both are used up), `NO TOKEN`, or `VERIFY` (Google wants the account verified before Antigravity can use it). Each meter shows the tighter of that pool's weekly and 5-hour limit. The selected account gets a gauge panel per pool with both limits, when each resets, and, for a used-up pool, when it is back. Green means more than 30% is left, yellow 30% or less, red 10% or less; every state also has a word.
 
 The layout follows your terminal size:
 
@@ -97,6 +97,7 @@ A terminal cannot change its font, so on a large window the dashboard scales wha
 | `/` | Filter accounts by name or email |
 | `Ctrl-K` or `:` | Open the command palette |
 | `r` | Refresh quota in the background |
+| `w` | Open Google's verification page for an account marked `VERIFY` |
 | `p` / `h` / `s` | Open Profiles, History, or Settings |
 | `o` / `b` / `v` | Open Doctor, Backup, or the quota overview |
 | `a` | Add a Google account through the browser sign-in |
@@ -119,6 +120,7 @@ Every TUI action is also a command, so you can script it.
 | `next` | Refresh, then switch to the next account with quota left |
 | `status` | Show the active account |
 | `limits` | Show quota for every account |
+| `verify` | Open Google's verification page for an account that needs it |
 | `profile` / `bind` | Define profiles and bind directories to them |
 | `recommend` | Explain which account is safest to use now |
 | `run now` | Launch the configured CLI with the right account |

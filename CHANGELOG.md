@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.14.0
+
+### Features
+
+- An account that Google wants verified before Antigravity can use it now shows `VERIFY`, in the TUI and in `list`, instead of staying pending. The state is saved with the account and clears after a successful refresh.
+- `w` in the TUI and the new `agy-swap verify <account>` command open Google's verification page in the system browser, so there is no long link to copy. The CLI also prints the link on a line of its own. Only `https` pages on google.com are opened.
+- `add` checks the new account once after saving it. When Google wants it verified, it says so, prints the link and offers to open it.
+
+### Fixes
+
+- TUI: after adding an account, the quota refreshes at once.
+- TUI: an account that needs verification no longer says "Needs re-auth" or suggests `agy-swap add`, which did not help.
+- `AGY_SWAP_QUOTA_DEBUG=1` describes Google's account check (field names, reason codes and link hosts only).
+
+### Security
+
+- Builds require Go 1.27.3, which fixes GO-2026-6809 (crypto/x509 now distrusts compromised intermediate certificates). `go.mod` declares `go 1.27.3`, so `go install` uses it too.
+
 ## 2.13.1
 
 ### Fixes

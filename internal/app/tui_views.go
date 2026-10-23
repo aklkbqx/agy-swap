@@ -21,6 +21,12 @@ type tuiAction struct {
 
 func tuiActions(state *tuiState) []tuiAction {
 	hasAccounts := state != nil && state.accounts != nil && state.accounts.Len() > 0
+	needsVerification := false
+	if hasAccounts {
+		if _, account, ok := state.selectedAccount(); ok {
+			_, needsVerification = accountEligibility(account)
+		}
+	}
 	return []tuiAction{
 		{ID: "dashboard", Label: "Dashboard", Description: "Return to the account dashboard", Shortcut: "g", Section: "Navigate", Enabled: true},
 		{ID: "quota", Label: "Quota overview", Description: "Inspect usage and reset windows", Shortcut: "v", Section: "Navigate", Enabled: hasAccounts},
@@ -39,6 +45,7 @@ func tuiActions(state *tuiState) []tuiAction {
 		{ID: "add-account", Label: "Add account", Description: "Sign in and save another account", Shortcut: "a", Section: "Accounts", Enabled: true},
 		{ID: "switch-account", Label: "Switch selected account", Description: "Make the selected account active", Shortcut: "enter", Section: "Accounts", Enabled: hasAccounts},
 		{ID: "next-account", Label: "Choose next available", Description: "Pick the next healthy account", Shortcut: "n", Section: "Accounts", Enabled: hasAccounts},
+		{ID: "verify", Label: "Open verification page", Description: "Open Google's page for an account that needs verification", Shortcut: "w", Section: "Accounts", Enabled: needsVerification},
 		{ID: "refresh", Label: "Refresh quota", Description: "Fetch fresh usage from the provider", Shortcut: "r", Section: "Accounts", Enabled: hasAccounts},
 		{ID: "edit-tags", Label: "Edit account tags", Description: "Add searchable labels to the selected account", Shortcut: "e", Section: "Accounts", Enabled: hasAccounts},
 		{ID: "toggle-tier", Label: "Toggle manual tier", Description: "Set or clear a local tier override", Shortcut: "t", Section: "Accounts", Enabled: hasAccounts},

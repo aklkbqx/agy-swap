@@ -43,7 +43,7 @@ func TestRepositoryGoDirectiveEnforcesTheSecurityFloor(t *testing.T) {
 			directive = "go" + fields[1]
 		}
 	}
-	if version.Compare(directive, "go1.27.2") < 0 {
+	if version.Compare(directive, "go1.27.3") < 0 {
 		t.Fatalf("go directive %q lets go install build with a vulnerable toolchain", directive)
 	}
 }
@@ -70,8 +70,8 @@ func TestRepositoryReleaseFloor(t *testing.T) {
 	if module != "github.com/aklkbqx/agy-swap/v2" {
 		t.Fatalf("module path %q cannot resolve v2 tags with go install", module)
 	}
-	if version.Compare(toolchain, "go1.27.2") < 0 {
-		t.Fatalf("toolchain floor %s predates the Go 1.27.2 security fixes", toolchain)
+	if version.Compare(toolchain, "go1.27.3") < 0 {
+		t.Fatalf("toolchain floor %s predates the Go 1.27.3 security fixes", toolchain)
 	}
 }
 
