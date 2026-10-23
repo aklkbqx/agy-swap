@@ -30,7 +30,6 @@ func tuiActions(state *tuiState) []tuiAction {
 	}
 	return []tuiAction{
 		{ID: "dashboard", Label: "Dashboard", Description: "Return to the account dashboard", Shortcut: "g", Section: "Navigate", Enabled: true},
-		{ID: "quota", Label: "Quota overview", Description: "Inspect usage and reset windows", Shortcut: "v", Section: "Navigate", Enabled: hasAccounts},
 		{ID: "profiles", Label: "Profiles", Description: "Create and manage named account profiles", Shortcut: "p", Section: "Navigate", Enabled: true},
 		{ID: "history", Label: "History", Description: "Review account switches and quota events", Shortcut: "h", Section: "Navigate", Enabled: true},
 		{ID: "settings", Label: "Settings", Description: "Edit policy, notifications, and retention", Shortcut: "s", Section: "Navigate", Enabled: true},
@@ -228,6 +227,8 @@ func (s *tuiState) formKey(key string) (submit, cancel bool) {
 func (a *Application) tuiPaletteLines(state *tuiState, width int) []string {
 	items := state.paletteActions()
 	lines := []string{"ACTION PALETTE", "", a.p.Cyan + ":" + tuiText(state.paletteQuery) + "▌" + a.p.Reset, ""}
+	// paletteRows is the action each line runs when clicked, -1 for none.
+	state.paletteRows = []int{-1, -1, -1, -1}
 	if len(items) == 0 {
 		return append(lines, a.p.Gray+"No matching actions"+a.p.Reset)
 	}
@@ -241,6 +242,7 @@ func (a *Application) tuiPaletteLines(state *tuiState, width int) []string {
 		item := items[index]
 		if item.Section != lastSection {
 			lines = append(lines, a.p.Gray+tuiText(item.Section)+a.p.Reset)
+			state.paletteRows = append(state.paletteRows, -1)
 			lastSection = item.Section
 		}
 		marker := "  "
@@ -257,6 +259,11 @@ func (a *Application) tuiPaletteLines(state *tuiState, width int) []string {
 		}
 		lines = append(lines, marker+color+tuiText(item.Label)+a.p.Reset+shortcut)
 		lines = append(lines, "   "+a.p.Gray+tuiText(item.Description)+a.p.Reset)
+		if item.Enabled {
+			state.paletteRows = append(state.paletteRows, index, index)
+		} else {
+			state.paletteRows = append(state.paletteRows, -1, -1)
+		}
 	}
 	lines = append(lines, "", a.p.Gray+"↑↓ Move  Enter Run  Type Filter  Esc Close"+a.p.Reset)
 	for i := range lines {
@@ -302,8 +309,14 @@ func (a *Application) tuiFormLines(state *tuiState, width int) []string {
 func (a *Application) tuiViewBody(state *tuiState, width, height int) []string {
 	g := newTUIGeometry(width, height+8)
 	g.bodyRows = maxInt(1, height)
-	rows := a.tuiViewRows(state, g.contentWidth, g.bodyRows)
-	framed := make([]string, 0, len(rows))
+	// A row of air above and below the content, like the dashboard's, matches
+	// the two columns either side.
+	rows := a.tuiViewRows(state, g.contentWidth, maxInt(1, g.bodyRows-2))
+	if len(rows) > g.bodyRows-2 {
+		rows = rows[:maxInt(0, g.bodyRows-2)]
+	}
+	framed := make([]string, 0, len(rows)+1)
+	framed = append(framed, frameRow("", g, a.p))
 	for _, row := range rows {
 		framed = append(framed, frameRow(row, g, a.p))
 	}
@@ -320,8 +333,6 @@ func (a *Application) tuiViewRows(state *tuiState, width, height int) []string {
 	remaining := maxInt(1, height-len(rows))
 	var content []string
 	switch state.view {
-	case tuiViewQuota:
-		content = a.tuiQuotaViewRows(state, width, remaining)
 	case tuiViewProfiles:
 		content = a.tuiProfileViewRows(state, width, remaining)
 	case tuiViewHistory:
@@ -338,8 +349,6 @@ func (a *Application) tuiViewRows(state *tuiState, width, height int) []string {
 
 func tuiViewTitle(view tuiView) string {
 	switch view {
-	case tuiViewQuota:
-		return "QUOTA OVERVIEW"
 	case tuiViewProfiles:
 		return "PROFILES"
 	case tuiViewHistory:
@@ -357,8 +366,6 @@ func tuiViewTitle(view tuiView) string {
 
 func tuiViewSubtitle(view tuiView) string {
 	switch view {
-	case tuiViewQuota:
-		return "See remaining capacity and reset windows for every saved account."
 	case tuiViewProfiles:
 		return "Profiles make repeatable account selection simple."
 	case tuiViewHistory:
@@ -372,29 +379,6 @@ func tuiViewSubtitle(view tuiView) string {
 	default:
 		return ""
 	}
-}
-
-func (a *Application) tuiQuotaViewRows(state *tuiState, width, height int) []string {
-	if state.accounts == nil || state.accounts.Len() == 0 {
-		return []string{a.p.Yellow + "No accounts yet." + a.p.Reset + "  Press a to add one."}
-	}
-	table := a.tuiOverviewRows(state, width, height)
-	if len(table) == 0 {
-		return []string{a.p.Gray + "No matching accounts" + a.p.Reset + " · press / to clear search"}
-	}
-	rows := table
-	// With rows to spare the selected account's gauges follow the table.
-	if _, _, ok := state.selectedAccount(); ok && height-len(rows) >= 8 {
-		plan := tuiLayoutPlan{arrangement: arrStacked, listLines: 1, panels: panelsStack, digits: digitsNone}
-		if width >= 90 {
-			plan.panels = panelsSide
-		}
-		budget := height - len(rows) - 1
-		plan = a.tuiFitPlan(state, width, budget, plan)
-		rows = append(rows, "")
-		rows = append(rows, a.tuiGaugeDetail(state, width, budget, plan)...)
-	}
-	return rows
 }
 
 func (a *Application) tuiProfileViewRows(state *tuiState, width, height int) []string {

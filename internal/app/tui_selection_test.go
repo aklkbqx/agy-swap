@@ -35,10 +35,6 @@ func TestTheSelectedBlockCarriesAnAccentBarOnEveryLine(t *testing.T) {
 	if !strings.HasPrefix(one[0], tuiSelectionBar) {
 		t.Fatalf("one-line row = %q", one[0])
 	}
-	overview := a.tuiOverviewRows(state, 100, 10)
-	if !strings.HasPrefix(overview[2], tuiSelectionBar) || strings.Contains(overview[1], tuiSelectionBar) {
-		t.Fatalf("overview rows = %q", overview)
-	}
 }
 
 // The surfaces are one ramp of cool grays from the black body up: bars and
@@ -135,11 +131,6 @@ func TestTheActiveAccountIsMarkedInBlueNotTheQuotaGreen(t *testing.T) {
 	other := a.tuiAccountBlock(a.tuiAccountView(state, "beta@example.invalid", poolNow), state, 70, 2)
 	if strings.Contains(other[0], "ACTIVE") || strings.Contains(other[0], "\x1b[34m") {
 		t.Fatalf("inactive identity line = %q", other[0])
-	}
-	overview := a.tuiOverviewRows(state, 100, 10)
-	overviewIdentity, _, _ := strings.Cut(overview[1], ready)
-	if !strings.Contains(overview[1], "\x1b[34m●\x1b[0m") || strings.Contains(overviewIdentity, "\x1b[32m") {
-		t.Fatalf("overview active row = %q", overview[1])
 	}
 	if header := a.tuiActiveLine(state, 98); !strings.Contains(header, "\x1b[34m●\x1b[0m") || strings.Contains(header, "\x1b[32m●") {
 		t.Fatalf("header = %q", header)

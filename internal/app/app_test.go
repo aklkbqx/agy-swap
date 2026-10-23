@@ -94,7 +94,7 @@ func TestTokenIdentityMatchesTargetAccount(t *testing.T) {
 }
 
 func TestNormalizedReleaseTag(t *testing.T) {
-	for input, want := range map[string]string{"2.16.0": "v2.16.0", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} { //nolint:gocritic // the padded key tests trimming
+	for input, want := range map[string]string{"2.17.0": "v2.17.0", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} { //nolint:gocritic // the padded key tests trimming
 		if got := normalizedReleaseTag(input); got != want {
 			t.Fatalf("%q normalized to %q, want %q", input, got, want)
 		}
@@ -473,25 +473,6 @@ func TestTUINarrowQuotaValueWithoutResetOrDue(t *testing.T) {
 	}
 }
 
-func TestTUIQuotaOverviewNamesAccountsWithoutTheEmailAndKeepsStatusAtNarrowWidth(t *testing.T) {
-	accounts := NewAccounts()
-	account := quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(50*time.Hour))
-	account["name"] = "Alpha Tester"
-	accounts.Set("user@example.com", account)
-	a := &Application{Version: "test", p: makePalette(false), color: false}
-	state := newTUIState(accounts, "user@example.com")
-	state.view = tuiViewQuota
-
-	narrow := a.tuiQuotaViewRows(state, 36, 12)
-	if !strings.Contains(narrow[0], "Alpha Tester") || !strings.Contains(narrow[0], "READY") || strings.Contains(narrow[0], "user@example.com") {
-		t.Fatalf("narrow overview row = %q", narrow[0])
-	}
-	wide := a.tuiQuotaViewRows(state, 100, 12)
-	if !strings.Contains(wide[0], "ACCOUNT") || !strings.Contains(wide[1], "Alpha Tester") || !strings.Contains(wide[1], "READY") {
-		t.Fatalf("wide overview = %q", wide[:2])
-	}
-}
-
 func TestTUICompactTallViewportKeepsSelectedDetail(t *testing.T) {
 	accounts := NewAccounts()
 	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
@@ -636,7 +617,7 @@ func TestTUIOverlayKeepsFrameGeometry(t *testing.T) {
 func TestTUISuccessToastKeepsFrameGeometryAndExpires(t *testing.T) {
 	accounts := NewAccounts()
 	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
-	a := &Application{Version: "2.16.0", p: makePalette(false), color: false}
+	a := &Application{Version: "2.17.0", p: makePalette(false), color: false}
 	state := newTUIState(accounts, "user@example.com")
 	state.showToast("Switched to user@example.com", "success")
 
@@ -673,7 +654,7 @@ func TestTUIViewsPaletteFormsAndJobsKeepFrameGeometry(t *testing.T) {
 	state.doctorHealthy = true
 	state.backupPath = "backup.json"
 
-	views := []tuiView{tuiViewDashboard, tuiViewQuota, tuiViewProfiles, tuiViewHistory, tuiViewSettings, tuiViewDoctor, tuiViewBackup}
+	views := []tuiView{tuiViewDashboard, tuiViewProfiles, tuiViewHistory, tuiViewSettings, tuiViewDoctor, tuiViewBackup}
 	for _, view := range views {
 		state.view = view
 		state.mode = tuiBrowse
@@ -1205,7 +1186,7 @@ func TestExtendedSettingsAliasesAndEncryptedBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	a := &Application{Version: "2.16.0", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
+	a := &Application{Version: "2.17.0", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
 	if code := a.Run(context.Background(), []string{"config", "set", "policy.min_remaining_pct", "25"}); code != 0 {
 		t.Fatalf("config set code=%d err=%s", code, errOut.String())
 	}
@@ -1364,8 +1345,8 @@ func TestTerminalKeysAndDisplayWidth(t *testing.T) {
 		"\x1b[<0;45;12M":  "mouse:down:45:12",
 		"\x1b[<32;48;12M": "mouse:drag:48:12",
 		"\x1b[<0;48;12m":  "mouse:up:48:12",
-		"\x1b[<64;48;12M": "wheel-up",
-		"\x1b[<65;48;12M": "wheel-down",
+		"\x1b[<64;48;12M": "wheel-up:48:12",
+		"\x1b[<65;48;12M": "wheel-down:48:12",
 	}
 	for input, want := range cases {
 		if got := readTerminalKey(bytes.NewBufferString(input)); got != want {
@@ -1736,13 +1717,13 @@ func TestAccountRowSelection(t *testing.T) {
 }
 
 func TestTUIDisplayVersionDev(t *testing.T) {
-	appDev := &Application{Version: "2.16.0", BuildID: "dev", p: makePalette(false)}
+	appDev := &Application{Version: "2.17.0", BuildID: "dev", p: makePalette(false)}
 	linesDev := appDev.tuiTopLines(newTUIState(NewAccounts(), ""), 80)
 	if !strings.Contains(strings.Join(linesDev, "\n"), "v"+appDev.Version+"-dev") {
 		t.Fatalf("TUI header missing dev tag: %q", linesDev)
 	}
 
-	appRel := &Application{Version: "2.16.0", BuildID: "release-v2.16.0", p: makePalette(false)}
+	appRel := &Application{Version: "2.17.0", BuildID: "release-v2.17.0", p: makePalette(false)}
 	linesRel := appRel.tuiTopLines(newTUIState(NewAccounts(), ""), 80)
 	if !strings.Contains(strings.Join(linesRel, "\n"), "v"+appRel.Version) || strings.Contains(strings.Join(linesRel, "\n"), "v"+appRel.Version+"-") {
 		t.Fatalf("TUI header should not have dev tag for release: %q", linesRel)

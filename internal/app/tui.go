@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -64,8 +63,16 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		return a.storeError(err)
 	}
 	raw := true
-	enterScreen := func() { fmt.Fprint(a.Out, "\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[H") }
-	leaveScreen := func() { fmt.Fprint(a.Out, "\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?1049l\x1b[?25h") }
+	// The mouse reports buttons, drags and, for hover, every move (1003).
+	mouseOn, mouseOff := "\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h", "\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l"
+	if !tuiMouseEnabled() {
+		mouseOn, mouseOff = "", ""
+	}
+	enterScreen := func() { fmt.Fprint(a.Out, "\x1b[?1049h\x1b[?25l"+mouseOn+"\x1b[H") }
+	if mouseOn != "" && tuiPointerShapes() {
+		mouseOff = "\x1b]22;default\x1b\\" + mouseOff // give the pointer back as it was
+	}
+	leaveScreen := func() { fmt.Fprint(a.Out, mouseOff+"\x1b[?1049l\x1b[?25h") }
 	enterScreen()
 	defer func() {
 		if raw {
@@ -78,17 +85,20 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	state.startedAt = time.Now() // the screen wipes in once
 	state.vault = a.vault
 	state.active = a.activeHint(accounts, current)
-	var initialSplitOffset int
+	var initialSplitOffset, initialStackOffset int
 	if initialSettings, err := a.loadSettings(); err == nil {
 		state.settings = initialSettings
 		state.settingsLoaded = true
 		state.splitOffset = initialSettings.UI.SplitOffset
 		initialSplitOffset = initialSettings.UI.SplitOffset
+		state.stackOffset = initialSettings.UI.StackOffset
+		initialStackOffset = initialSettings.UI.StackOffset
 	}
 	defer func() {
-		if state.splitOffset != initialSplitOffset && a.store != nil {
+		if (state.splitOffset != initialSplitOffset || state.stackOffset != initialStackOffset) && a.store != nil {
 			if s, err := a.loadSettings(); err == nil {
 				s.UI.SplitOffset = state.splitOffset
+				s.UI.StackOffset = state.stackOffset
 				_ = a.store.SaveSettings(s)
 			}
 		}
@@ -166,7 +176,9 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	// on the timer, after adding an account) shows nothing unless it fails;
 	// only a refresh the user asked for shows its progress and result.
 	refreshQuiet := false
-	startRefresh := func(force, quiet bool) {
+	// startRefreshFor reads the quota of these accounts (every account when
+	// emails is nil, none when it is empty: then it only reloads the store).
+	startRefreshFor := func(emails []string, force, quiet bool) {
 		if refreshing {
 			return
 		}
@@ -184,7 +196,12 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			fresh, loadErr := a.store.Load(!a.demo)
 			errs := map[string]string{}
 			if loadErr == nil && fresh.Len() > 0 && !a.demo {
-				errs = a.quota.Refresh(workerCtx, fresh, force, nil)
+				switch {
+				case emails == nil:
+					errs = a.quota.Refresh(workerCtx, fresh, force, nil)
+				case len(emails) > 0:
+					errs = a.quota.RefreshEmails(workerCtx, fresh, emails)
+				}
 			}
 			if loadErr != nil {
 				errs["store"] = loadErr.Error()
@@ -195,6 +212,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			}
 		}()
 	}
+	startRefresh := func(force, quiet bool) { startRefreshFor(nil, force, quiet) }
 	invalidateRefresh := func() {
 		// Mutating actions must invalidate an in-flight snapshot. Otherwise a
 		// slower quota response could repaint accounts that were just changed.
@@ -240,8 +258,20 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	defer resizeTicker.Stop()
 	credentialTicker := time.NewTicker(1500 * time.Millisecond)
 	defer credentialTicker.Stop()
-	quotaTicker := time.NewTicker(tuiAutoRefresh)
-	defer quotaTicker.Stop()
+	// Every second the sync timer reads the accounts that are due (see
+	// quotaDueAt), repaints when the minute turns so countdowns move, and
+	// notices Antigravity's activity and other agy-swap processes.
+	syncTicker := time.NewTicker(time.Second)
+	defer syncTicker.Stop()
+	activity := newTUIActivity(nil)
+	if a.store != nil {
+		activity = newTUIActivity(a.store.scanner)
+	}
+	accountsWatch := &fileWatch{path: a.paths.Accounts}
+	accountsWatch.changed()
+	tried := map[string]time.Time{}
+	var activityPolled time.Time
+	lastMinute := time.Now().Minute()
 	defer func() {
 		if frameTimer != nil {
 			frameTimer.Stop()
@@ -249,6 +279,10 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	}()
 	a.renderTUI(state, outFile)
 	var draggingSplit bool
+	// draggingThumb names the scroll view whose thumb is being dragged, and
+	// thumbGrab and thumbTop where the thumb was caught and where its view starts.
+	var draggingThumb string
+	var thumbGrab, thumbTop int
 	var lastClickTime time.Time
 	var lastClickCol, lastClickRow int
 	startActiveResolve()
@@ -601,8 +635,6 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		switch id {
 		case "dashboard":
 			setView(tuiViewDashboard)
-		case "quota":
-			setView(tuiViewQuota)
 		case "profiles":
 			setView(tuiViewProfiles)
 		case "history":
@@ -688,10 +720,10 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			a.beginTUIForm(state, "backup-verify")
 		case "split-widen":
 			state.adjustSplit(4)
-			state.message, state.messageType = fmt.Sprintf("Split offset: %+d", state.splitOffset), "info"
+			state.message, state.messageType = state.splitMessage(), "info"
 		case "split-narrow":
 			state.adjustSplit(-4)
-			state.message, state.messageType = fmt.Sprintf("Split offset: %+d", state.splitOffset), "info"
+			state.message, state.messageType = state.splitMessage(), "info"
 		case "split-reset":
 			state.resetSplit()
 			state.message, state.messageType = "Split reset to default", "info"
@@ -727,9 +759,31 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 				startActiveResolve()
 				a.renderTUI(state, outFile)
 			}
-		case <-quotaTicker.C:
-			if !refreshing {
-				startRefresh(false, true)
+		case now := <-syncTicker.C:
+			if now.Minute() != lastMinute {
+				lastMinute = now.Minute()
+				a.renderTUI(state, outFile)
+			}
+			if refreshing || a.demo || a.quota == nil {
+				continue
+			}
+			if accountsWatch.changed() {
+				startRefreshFor([]string{}, false, true) // another process changed the accounts
+				continue
+			}
+			if now.Sub(activityPolled) >= tuiActivityPoll {
+				activity.poll(now)
+				activityPolled = now
+			}
+			busy := activity.due(now)
+			if due := state.dueEmails(now, tried, a.quota.BackoffUntil, busy); len(due) > 0 {
+				for _, email := range due {
+					tried[email] = now
+				}
+				if busy {
+					activity.read = now
+				}
+				startRefreshFor(due, false, true)
 			}
 		case <-frameC:
 			now := time.Now()
@@ -746,6 +800,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 				}
 				refreshing = false
 				state.refreshing = false
+				accountsWatch.changed() // this refresh's own save is not another process
 				state.setAccounts(value.accounts)
 				state.quotaErrors = value.quotaErrors
 				if message, kind, animate := refreshNotice(refreshQuiet, value.quotaErrors); message != "" {
@@ -796,6 +851,49 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 				armFrame()
 			case tuiKeyEvent:
 				key := strings.ToLower(value.key)
+				if dir, wheelCol, wheelRow := wheelEvent(key); dir != 0 {
+					// The wheel scrolls the view under the pointer when it does not
+					// all fit; otherwise it moves the selection, as it always has.
+					line, x := state.pointerAt(wheelCol, wheelRow)
+					scrolled := false
+					if hit, ok := state.hitAt(line, x, hitScroll, hitScrollbar); ok && wheelRow > 0 {
+						scrolled = state.scrollBy(hit.key, 3*dir)
+					}
+					if !scrolled {
+						switch {
+						case state.mode == tuiPalette:
+							state.movePalette(dir)
+						case state.mode != tuiBrowse:
+						case state.view == tuiViewProfiles:
+							state.moveProfile(dir)
+						case state.view == tuiViewHistory:
+							state.moveHistory(dir)
+						default:
+							state.move(dir)
+						}
+					}
+					a.renderTUI(state, outFile)
+					armFrame()
+					continue
+				}
+				if strings.HasPrefix(key, "mouse:") {
+					if a.tuiPointer(state, key, &tuiPointerState{
+						dragging: &draggingSplit, thumb: &draggingThumb, grab: &thumbGrab, thumbTop: &thumbTop,
+						lastTime: &lastClickTime, lastCol: &lastClickCol, lastRow: &lastClickRow,
+						press: func(k string) {
+							select {
+							case events <- tuiKeyEvent{key: k}:
+							default:
+							}
+						},
+						confirmSwitch: confirmSwitch,
+						shape:         func(shape string) { fmt.Fprint(outFile, "\x1b]22;"+shape+"\x1b\\") },
+					}) {
+						a.renderTUI(state, outFile)
+						armFrame()
+					}
+					continue
+				}
 				state.keyFlash, state.keyFlashAt = key, time.Now()
 				if state.mode == tuiSearch {
 					searchKey(value.key)
@@ -841,7 +939,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 							if saveErr := a.store.SaveSettings(defaultSettings()); saveErr != nil {
 								state.message, state.messageType = saveErr.Error(), "error"
 							} else {
-								state.splitOffset = 0
+								state.splitOffset, state.stackOffset = 0, 0
 								state.message, state.messageType = "Settings reset", "success"
 								a.beginTUIView(state, tuiViewSettings)
 							}
@@ -909,101 +1007,6 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					continue
 				}
 
-				if key == "wheel-up" {
-					if state.mode == tuiBrowse {
-						switch state.view {
-						case tuiViewProfiles:
-							state.moveProfile(-1)
-						case tuiViewHistory:
-							state.moveHistory(-1)
-						default:
-							state.move(-1)
-						}
-						a.renderTUI(state, outFile)
-						armFrame()
-					}
-					continue
-				}
-				if key == "wheel-down" {
-					if state.mode == tuiBrowse {
-						switch state.view {
-						case tuiViewProfiles:
-							state.moveProfile(1)
-						case tuiViewHistory:
-							state.moveHistory(1)
-						default:
-							state.move(1)
-						}
-						a.renderTUI(state, outFile)
-						armFrame()
-					}
-					continue
-				}
-				if strings.HasPrefix(key, "mouse:") {
-					parts := strings.Split(key, ":")
-					if len(parts) == 4 && state.mode == tuiBrowse {
-						action := parts[1]
-						col, _ := strconv.Atoi(parts[2])
-						row, _ := strconv.Atoi(parts[3])
-						col = state.frameColumn(col)
-
-						if baseLeft, _, _, dividerCol, ok := state.wideSplitBounds(); ok && state.view == tuiViewDashboard {
-							switch action {
-							case "down":
-								if col >= dividerCol-1 && col <= dividerCol+1 && row >= 3 && row <= state.height-2 {
-									if time.Since(lastClickTime) < 350*time.Millisecond && absInt(col-lastClickCol) <= 2 && absInt(row-lastClickRow) <= 1 {
-										state.resetSplit()
-										state.message, state.messageType = "Split reset to default", "info"
-										draggingSplit, state.dragging = false, false
-									} else {
-										draggingSplit, state.dragging = true, true
-										state.message, state.messageType = fmt.Sprintf("Split offset: %+d (drag or [/], = resets)", state.splitOffset), "info"
-									}
-									lastClickTime = time.Now()
-									lastClickCol, lastClickRow = col, row
-									a.renderTUI(state, outFile)
-									armFrame()
-									continue
-								}
-								if col >= 2 && col < dividerCol {
-									// Rows are 1-based on the terminal; the renderer recorded
-									// which account each list row belongs to.
-									if hit := row - 1 - state.bodyTop - state.listFirstRow; hit >= 0 && hit < len(state.listHits) && state.listHits[hit] != "" {
-										clickedEmail := state.listHits[hit]
-										if strings.EqualFold(clickedEmail, state.selectedEmail) && time.Since(lastClickTime) < 350*time.Millisecond {
-											confirmSwitch()
-										} else {
-											state.selectedEmail = clickedEmail
-											state.beginAnimation("focus", 140*time.Millisecond)
-										}
-									}
-								}
-								lastClickTime = time.Now()
-								lastClickCol, lastClickRow = col, row
-								a.renderTUI(state, outFile)
-								armFrame()
-								continue
-							case "drag":
-								if draggingSplit {
-									state.setSplit(col - 5 - baseLeft)
-									state.message, state.messageType = fmt.Sprintf("Split offset: %+d (drag or [/], = resets)", state.splitOffset), "info"
-									a.renderTUI(state, outFile)
-									armFrame()
-									continue
-								}
-							case "up":
-								if draggingSplit {
-									draggingSplit, state.dragging = false, false
-									a.renderTUI(state, outFile)
-									armFrame()
-									continue
-								}
-							}
-						}
-					}
-					continue
-				}
-
 				switch key {
 				case "q", "esc", "ctrl-c", "ctrl-d":
 					finish()
@@ -1020,7 +1023,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 						state.moveProfile(-1)
 					case tuiViewHistory:
 						state.moveHistory(-1)
-					case tuiViewDashboard, tuiViewQuota:
+					case tuiViewDashboard:
 						state.move(-1)
 					}
 				case "down", "j":
@@ -1029,7 +1032,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 						state.moveProfile(1)
 					case tuiViewHistory:
 						state.moveHistory(1)
-					case tuiViewDashboard, tuiViewQuota:
+					case tuiViewDashboard:
 						state.move(1)
 					}
 				case "page-up":
@@ -1072,7 +1075,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					switch state.view {
 					case tuiViewDoctor:
 						startDoctor(false)
-					case tuiViewDashboard, tuiViewQuota:
+					case tuiViewDashboard:
 						state.message, state.messageType = "Refreshing quota…", "info"
 						startRefresh(true, false)
 					}
@@ -1085,7 +1088,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 				case "d", "delete", "backspace":
 					if state.view == tuiViewProfiles && len(state.profileNames) > 0 {
 						openConfirm("profile-remove", selectedProfile())
-					} else if (state.view == tuiViewDashboard || state.view == tuiViewQuota) && state.mode == tuiBrowse {
+					} else if state.view == tuiViewDashboard && state.mode == tuiBrowse {
 						if email, account, ok := state.selectedAccount(); ok {
 							state.openDialog(confirmDialog("delete", email, tuiText(firstString(account["name"], email))))
 						}
@@ -1102,7 +1105,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					suspend(func() int { return a.cmdLogout(ctx) })
 				case "enter":
 					switch state.view {
-					case tuiViewDashboard, tuiViewQuota:
+					case tuiViewDashboard:
 						confirmSwitch()
 					case tuiViewProfiles:
 						if len(state.profileNames) > 0 {
@@ -1134,14 +1137,12 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 						setView(tuiViewDashboard)
 					}
 				case "w":
-					if state.view == tuiViewDashboard || state.view == tuiViewQuota {
+					if state.view == tuiViewDashboard {
 						a.tuiVerifySelected(ctx, state)
 					}
 				case "v":
 					if state.view == tuiViewBackup {
 						a.beginTUIForm(state, "backup-verify")
-					} else {
-						setView(tuiViewQuota)
 					}
 				case "x":
 					if state.view == tuiViewBackup {
@@ -1161,7 +1162,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 						if len(state.profileNames) > 0 {
 							a.beginTUIForm(state, "profile-edit")
 						}
-					case tuiViewDashboard, tuiViewQuota:
+					case tuiViewDashboard:
 						a.beginTUIForm(state, "tags")
 					}
 				case "c":
@@ -1176,16 +1177,16 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					openConfirm("update", "")
 				case "]", ">", "+", "alt-right", "alt-f":
 					state.adjustSplit(2)
-					state.message, state.messageType = fmt.Sprintf("Split offset: %+d (drag or [/], = resets)", state.splitOffset), "info"
+					state.message, state.messageType = state.splitMessage(), "info"
 				case "}", "ctrl-right":
 					state.adjustSplit(6)
-					state.message, state.messageType = fmt.Sprintf("Split offset: %+d (drag or [/], = resets)", state.splitOffset), "info"
+					state.message, state.messageType = state.splitMessage(), "info"
 				case "[", "<", "-", "alt-left", "alt-b":
 					state.adjustSplit(-2)
-					state.message, state.messageType = fmt.Sprintf("Split offset: %+d (drag or [/], = resets)", state.splitOffset), "info"
+					state.message, state.messageType = state.splitMessage(), "info"
 				case "{", "ctrl-left":
 					state.adjustSplit(-6)
-					state.message, state.messageType = fmt.Sprintf("Split offset: %+d (drag or [/], = resets)", state.splitOffset), "info"
+					state.message, state.messageType = state.splitMessage(), "info"
 				case "=":
 					state.resetSplit()
 					state.message, state.messageType = "Split reset to default", "info"

@@ -38,7 +38,6 @@ type tuiView uint8
 
 const (
 	tuiViewDashboard tuiView = iota
-	tuiViewQuota
 	tuiViewProfiles
 	tuiViewHistory
 	tuiViewSettings
@@ -134,19 +133,35 @@ type tuiState struct {
 	settings       AppSettings
 	settingsLoaded bool
 	splitOffset    int
-	listHits       []string // email per list row of the last wide dashboard, "" for dividers and markers
-	listFirstRow   int      // body index of the first list row
-	bodyTop        int      // line index of the first body line in the last frame
-	bodySplit      int      // column of the list/detail divider in the last dashboard body, 0 when single-column
-	profileNames   []string
-	profileIndex   int
-	history        []historyEvent
-	historyIndex   int
-	doctorChecks   []doctorCheck
-	doctorHealthy  bool
-	backupPath     string
-	quitRequested  bool
-	vault          AccountVault
+	// stackOffset moves the rule between list and detail on a stacked
+	// dashboard, in rows from where it would sit; stackRule and stackRuleBase
+	// are the body rows of the rule as drawn and with no offset, -1 for none.
+	stackOffset int
+	// scrolls are the scroll views by key ("list", "detail") and bandEmail
+	// the account the selection band last covered. hits are the pointer
+	// targets of the last frame, hover the one under the pointer and shape
+	// the pointer shape last asked of the terminal.
+	scrolls       map[string]*tuiScroll
+	bandEmail     string
+	hits          []tuiHit
+	paletteRows   []int
+	hover         tuiHit
+	shape         string
+	stackRule     int
+	stackRuleBase int
+	listHits      []string // email per list row of the last wide dashboard, "" for dividers and markers
+	listFirstRow  int      // body index of the first list row
+	bodyTop       int      // line index of the first body line in the last frame
+	bodySplit     int      // column of the list/detail divider in the last dashboard body, 0 when single-column
+	profileNames  []string
+	profileIndex  int
+	history       []historyEvent
+	historyIndex  int
+	doctorChecks  []doctorCheck
+	doctorHealthy bool
+	backupPath    string
+	quitRequested bool
+	vault         AccountVault
 }
 
 func newTUIState(accounts *Accounts, current string) *tuiState {
@@ -156,6 +171,8 @@ func newTUIState(accounts *Accounts, current string) *tuiState {
 		quotaErrors:   map[string]string{},
 		messageType:   "info",
 		motionEnabled: tuiMotionEnabled(),
+		stackRule:     -1,
+		stackRuleBase: -1,
 	}
 	state.active = localActiveEmail(accounts, current)
 	state.clampSelection()
@@ -411,8 +428,37 @@ func (s *tuiState) moveHistory(delta int) {
 	s.beginAnimation("focus", 140*time.Millisecond)
 }
 
+// adjustSplit widens (delta > 0) or narrows the list. On a stacked dashboard
+// it grows or shrinks the list by half as many rows, a row being about two
+// columns tall.
 func (s *tuiState) adjustSplit(delta int) {
+	if s.stacked() {
+		s.stackOffset += delta / 2
+		return
+	}
 	s.setSplit(s.splitOffset + delta)
+}
+
+// stacked says the last dashboard drawn put the list above the detail.
+func (s *tuiState) stacked() bool {
+	_, _, _, _, wide := s.wideSplitBounds()
+	return !wide && s.view == tuiViewDashboard && s.stackRule > 0 // the body opens on a blank row
+}
+
+// dragStackRule moves the stacked rule to a terminal row; the next frame
+// clamps it to the rows the list and detail allow.
+func (s *tuiState) dragStackRule(row int) {
+	if s.stackRuleBase > 0 {
+		s.stackOffset = row - 1 - s.bodyTop - s.stackRuleBase
+	}
+}
+
+// splitMessage reports the divider or rule position after a change.
+func (s *tuiState) splitMessage() string {
+	if s.stacked() {
+		return fmt.Sprintf("List height: %+d rows (drag or [/], = resets)", s.stackOffset)
+	}
+	return fmt.Sprintf("Split offset: %+d (drag or [/], = resets)", s.splitOffset)
 }
 
 // setSplit stores an offset from the default list width. On a known wide
@@ -427,6 +473,10 @@ func (s *tuiState) setSplit(offset int) {
 }
 
 func (s *tuiState) resetSplit() {
+	if s.stacked() {
+		s.stackOffset = 0
+		return
+	}
 	s.splitOffset = 0
 }
 
