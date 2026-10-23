@@ -30,7 +30,7 @@ purposeful, with reduced-motion support.
 
 ### Dashboard model (v2.13)
 
-- An account is judged by what it can be used for now, not by one summary number. Every account has up to two model pools (Gemini, Claude/GPT), each with a weekly and an optional 5-hour limit; the row shows a status word and one meter per pool, and the selected account gets one gauge panel per pool.
+- An account is judged by what it can be used for now, not by one summary number. Every account has the shared model pools (Gemini, Claude/GPT), each with a weekly and an optional 5-hour limit, and some Pro accounts add a weekly Argon pool. The row shows a status word and one meter per shared pool; the selected account gets one gauge panel per pool, two to a row when they sit side by side; the quota overview adds an Argon column when any listed account has one. Status words judge the shared pools only.
 - The status words are `READY`, `LOW`, `GEMINI ONLY`, `CLAUDE/GPT ONLY`, `LIMITED`, `NO TOKEN`. Color never stands alone: every state has a word, and filled chips become `[ WORD ]` without color.
 - Thresholds are shared by the list, the gauges and the CLI: more than 30% is green, 30% or less is yellow, 10% or less is red.
 - A used-up pool says when it is back. A 5-hour limit that waits for the weekly limit reads "paused until weekly resets" and never draws a full bar.

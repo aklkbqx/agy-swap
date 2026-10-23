@@ -159,7 +159,7 @@ func normalizeSettings(s AppSettings) (AppSettings, error) {
 			return AppSettings{}, errors.New("profiles require a name and account")
 		}
 		profile.Account = normalizeEmail(profile.Account)
-		if profile.Family != "" && !oneOf(profile.Family, "claude", "gemini", "gpt") {
+		if profile.Family != "" && !isQuotaFamily(profile.Family) {
 			return AppSettings{}, fmt.Errorf("profile %s has invalid family", name)
 		}
 		if profile.Policy == "" {

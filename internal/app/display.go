@@ -180,18 +180,11 @@ func quotaWait(account Account, now time.Time, family string) (time.Duration, bo
 	if len(groups) == 0 {
 		return 0, false
 	}
-	groupID := ""
-	switch family {
-	case "gemini":
-		groupID = "gemini"
-	case "claude", "gpt":
-		groupID = "third_party"
-	}
 	matched := false
 	var maxWait time.Duration
 	for _, raw := range groups {
 		group := getMap(raw)
-		if groupID != "" && getString(group, "id") != groupID {
+		if !poolInFamily(account, getString(group, "id"), family) {
 			continue
 		}
 		matched = true
@@ -272,9 +265,11 @@ func quotaGroupHealths(account Account) []quotaGroupHealth {
 
 func quotaGroupLabel(group map[string]any) string {
 	switch strings.ToLower(cleanText(getString(group, "id"))) {
-	case "gemini":
+	case poolGemini:
 		return "Gemini"
-	case "third_party":
+	case poolArgon:
+		return "Argon"
+	case poolThirdParty:
 		return "Claude/GPT"
 	}
 	name := cleanText(getString(group, "name"))
