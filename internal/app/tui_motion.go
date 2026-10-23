@@ -80,6 +80,15 @@ func (s *tuiState) follow(key string, target float64, dur time.Duration, now tim
 	return tween.at(now)
 }
 
+// settle puts a tween at value with no motion, for a change the eye should
+// not follow.
+func (s *tuiState) settle(key string, value float64) {
+	if s.tweens == nil {
+		s.tweens = map[string]*tuiTween{}
+	}
+	s.tweens[key] = &tuiTween{from: value, to: value}
+}
+
 // tweenPools eases each pool's numbers toward their values, under keys that
 // start with scope. Only the drawn numbers move: a pool's state, and so its
 // colour and the account's status word, follow the real value at once.

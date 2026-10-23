@@ -78,6 +78,9 @@ type TargetConfig struct {
 
 type UIConfig struct {
 	SplitOffset int `json:"split_offset,omitempty"`
+	// StackOffset is how many rows the stacked dashboard's list grows (or
+	// shrinks, when negative) from its default height.
+	StackOffset int `json:"stack_offset,omitempty"`
 }
 
 func defaultSettings() AppSettings {
@@ -147,6 +150,9 @@ func normalizeSettings(s AppSettings) (AppSettings, error) {
 	}
 	if s.UI.SplitOffset < -40 || s.UI.SplitOffset > 40 {
 		s.UI.SplitOffset = 0
+	}
+	if s.UI.StackOffset < -40 || s.UI.StackOffset > 40 {
+		s.UI.StackOffset = 0
 	}
 	if s.History.RetentionDays < 1 || s.History.RetentionDays > 3650 {
 		return AppSettings{}, errors.New("history retention_days must be between 1 and 3650")
