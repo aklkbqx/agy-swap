@@ -22,10 +22,19 @@ func credentialContext(parent context.Context, timeout time.Duration) (context.C
 // The agy-swap vault uses keychainSet instead and never this binary.
 var securityBinary = "/usr/bin/security"
 
+// geminiSecurityArgs builds the security(1) call for an action. "set" updates
+// the existing item in place and keeps its access list: adding -A there makes
+// security replace the list, and macOS asks for the keychain password on every
+// such change. Only "create" opens a new item to every application with -A, so
+// Antigravity can read it. "exists" reads attributes only, which never prompts.
 func geminiSecurityArgs(action, token string) []string {
 	switch action {
 	case "set":
-		return []string{"add-generic-password", "-U", "-a", "antigravity", "-s", "gemini", "-w", token, "-A"}
+		return []string{"add-generic-password", "-U", "-a", "antigravity", "-s", "gemini", "-w", token}
+	case "create":
+		return []string{"add-generic-password", "-a", "antigravity", "-s", "gemini", "-w", token, "-A"}
+	case "exists":
+		return []string{"find-generic-password", "-a", "antigravity", "-s", "gemini"}
 	case "get":
 		return []string{"find-generic-password", "-a", "antigravity", "-s", "gemini", "-w"}
 	case "delete":
@@ -76,7 +85,11 @@ func platformCredentialSet(parent context.Context, token string) bool {
 		if token == "" {
 			return false
 		}
-		_, err := runGeminiSecurity(ctx, geminiSecurityArgs("set", token))
+		action := "create"
+		if _, err := runGeminiSecurity(ctx, geminiSecurityArgs("exists", "")); err == nil {
+			action = "set"
+		}
+		_, err := runGeminiSecurity(ctx, geminiSecurityArgs(action, token))
 		return err == nil
 	case "linux":
 		command = exec.CommandContext(ctx, "secret-tool", "store", "--label=gemini", "service", "gemini", "username", "antigravity")
