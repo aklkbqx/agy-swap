@@ -232,7 +232,7 @@ func (a *Application) Run(ctx context.Context, argv []string) int {
 
 func (a *Application) printUsage(w io.Writer) {
 	fmt.Fprintln(w, `usage: agy-swap [-h] [-v] [--add] [--token -] [--list] [--next]
-                [--family {claude,gemini,gpt}] [--switch-to ACCOUNT]
+                [--family {claude,gemini,gpt,argon}] [--switch-to ACCOUNT]
                 [--switch] [--remove ACCOUNT] [--status] [--logout]
                 [--verbose]
                 {add,list,limits,logout,next,switch,remove,status,update,version,limit,
@@ -337,7 +337,7 @@ func parseCLI(argv []string) (cliArgs, error) {
 			if err != nil {
 				return result, err
 			}
-			if !oneOf(value, "claude", "gemini", "gpt") {
+			if !isQuotaFamily(value) {
 				return result, fmt.Errorf("invalid family %q", value)
 			}
 			result.family = value
@@ -346,7 +346,7 @@ func parseCLI(argv []string) (cliArgs, error) {
 			if err != nil {
 				return result, err
 			}
-			if !oneOf(value, "claude", "gemini", "gpt") {
+			if !isQuotaFamily(value) {
 				return result, fmt.Errorf("invalid group %q", value)
 			}
 			result.group = value
@@ -857,7 +857,7 @@ func resolveTarget(target string, accounts *Accounts) (string, error) {
 func accountCooldown(account Account, now time.Time, family string) (time.Duration, bool) {
 	maxWait, found := quotaWait(account, now, family)
 	for _, limit := range activeLimits(account, now) {
-		if family == "" || getString(limit.Limit, "family") == "" || quotaFamilyMatches(getString(limit.Limit, "family"), family) {
+		if limitFamily := getString(limit.Limit, "family"); limitFamily == "" || familiesOverlap(account, limitFamily, family) {
 			found = true
 			if limit.Remaining > maxWait {
 				maxWait = limit.Remaining

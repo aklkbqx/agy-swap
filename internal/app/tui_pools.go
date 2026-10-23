@@ -4,9 +4,10 @@ import (
 	"time"
 )
 
-// The pool model behind the dashboard: each account has up to two model pools
-// (Gemini, Claude/GPT), each with a weekly and an optional 5-hour limit. These
-// functions only read the saved quota snapshot; they draw nothing.
+// The pool model behind the dashboard: each account has the shared model pools
+// (Gemini, Claude/GPT) and, on some Pro accounts, a weekly Argon pool; each pool has a weekly
+// and an optional 5-hour limit. These functions only read the saved quota
+// snapshot; they draw nothing.
 
 // Thresholds match the quota bars and the CLI list: green above 30%, yellow at
 // 30% or less, red at 10% or less.
@@ -51,7 +52,8 @@ type poolView struct {
 	limitingWindow string
 	state          poolState
 	// paused: the weekly limit is used up and Google reports no active 5-hour
-	// limit, so the 5-hour limit waits for the weekly reset.
+	// limit, so the 5-hour limit waits for the weekly reset. Weekly-only pools
+	// (Argon) are never paused.
 	paused bool
 	// backIn is how long until a used-up pool has quota again, 0 otherwise.
 	backIn time.Duration
@@ -60,12 +62,6 @@ type poolView struct {
 }
 
 func poolLabel(id, name string) string {
-	switch id {
-	case "gemini":
-		return "Gemini"
-	case "third_party":
-		return "Claude/GPT"
-	}
 	return quotaGroupLabel(map[string]any{"id": id, "name": name})
 }
 
@@ -103,7 +99,8 @@ func poolViews(account Account, now time.Time) []poolView {
 			view.limiting, view.limitingWindow = view.fiveHour, "5h"
 		}
 		view.state = poolStateFor(view.limiting.fraction)
-		view.paused = view.weekly.present && view.weekly.fraction <= 0 && !view.fiveHour.present
+		// Argon is weekly only, so it has no 5-hour limit to pause.
+		view.paused = view.weekly.present && view.weekly.fraction <= 0 && !view.fiveHour.present && view.id != poolArgon
 		if view.state == poolUsedUp {
 			if left := view.limiting.resetAt.Sub(now); left > 0 {
 				view.backIn = left
@@ -154,10 +151,21 @@ func (s tuiAccountStatus) String() string {
 	return "…"
 }
 
-// accountStatusFor says what an account can be used for right now.
+// accountStatusFor says what an account can be used for right now. The words
+// are about the shared Gemini and Claude/GPT pools; a used-up Argon pool shows
+// in its own meter without benching the account.
 func accountStatusFor(pools []poolView, needsToken bool) tuiAccountStatus {
 	if needsToken {
 		return statusNoToken
+	}
+	shared := make([]poolView, 0, len(pools))
+	for _, pool := range pools {
+		if oneOf(pool.id, poolGemini, poolThirdParty) {
+			shared = append(shared, pool)
+		}
+	}
+	if len(shared) > 0 {
+		pools = shared
 	}
 	if len(pools) == 0 {
 		return statusPending

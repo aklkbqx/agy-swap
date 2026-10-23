@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.15.0
+
+### Features
+
+- Gemini 4 Argon: Google gives some Pro accounts a weekly Argon pool of their own. agy-swap now reads it, keeps it apart from the Gemini pool, and shows it in `list`, `limits`, its own TUI gauge panel and a new Argon column in the quota overview. `--family argon` (in `next`, `recommend`, `limit --group`, profiles and the policy setting) picks accounts by Argon quota; on an account without one (Ultra counts Argon against the Gemini pool), it reads the Gemini pool.
+- A used-up Argon pool does not bench an account: the status word, plain `next` and `recommend` still judge the shared Gemini and Claude/GPT pools.
+- Quota pools and limit windows that Google adds later (for example a daily or monthly limit) are kept and listed instead of being dropped.
+- `AGY_SWAP_USER_AGENT` overrides the client string sent to Google, for the case where a future Antigravity release changes which pools Google reports.
+
+### Fixes
+
+- The Gemini weekly limit was missing for many accounts (#50): Google only reports the Gemini and Argon pools to a recent Antigravity client, and agy-swap now identifies as one.
+- TUI: with three pools side by side, the third panel was not drawn; panels now sit two to a row.
+- The Gemini quota read from the model list (when Google's summary leaves Gemini out) no longer takes the Argon models' quota.
+
 ## 2.14.0
 
 ### Features

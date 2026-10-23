@@ -611,7 +611,7 @@ func (a *Application) beginTUIForm(state *tuiState, kind string) {
 		form.Fields = []tuiFormField{
 			{Key: "name", Label: "Name", Value: name, Help: "Letters, numbers, dots, dashes, or underscores."},
 			{Key: "account", Label: "Account", Value: account, Help: "Email, alias, or another saved profile."},
-			{Key: "family", Label: "Family", Value: family, Options: []string{"", "claude", "gemini", "gpt"}},
+			{Key: "family", Label: "Family", Value: family, Options: append([]string{""}, quotaFamilies...)},
 			{Key: "threshold", Label: "Notify %", Value: threshold, Help: "Optional 0–100 threshold; leave blank for default."},
 		}
 	case "tags":
@@ -628,7 +628,7 @@ func (a *Application) beginTUIForm(state *tuiState, kind string) {
 		form.Description = "Use arrows for choices, then Enter to save."
 		form.Fields = []tuiFormField{
 			{Key: "policy.name", Label: "Policy", Value: settings.Policy.Name, Options: []string{"sticky", "balanced", "round-robin"}},
-			{Key: "policy.prefer_family", Label: "Family", Value: family, Options: []string{"", "claude", "gemini", "gpt"}},
+			{Key: "policy.prefer_family", Label: "Family", Value: family, Options: append([]string{""}, quotaFamilies...)},
 			{Key: "policy.min_remaining_pct", Label: "Min %", Value: strconv.Itoa(settings.Policy.MinRemainingPct)},
 			{Key: "policy.allow_apply", Label: "Auto apply", Value: onOff(settings.Policy.AllowApply), Options: []string{"off", "on"}},
 			{Key: "notifications.enabled", Label: "Notify", Value: onOff(settings.Notifications.Enabled), Options: []string{"off", "on"}},

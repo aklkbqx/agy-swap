@@ -25,11 +25,11 @@ func TestQuotaGroupsFromSummaryExplainsEveryDroppedBucket(t *testing.T) {
 	summary := summaryGroups(
 		map[string]any{"displayName": "Gemini Models", "buckets": []any{
 			map[string]any{"bucketId": "gemini-weekly", "displayName": "Weekly", "window": "weekly", "remainingFraction": 0.4, "resetTime": "2030-01-01T00:00:00Z"},
-			map[string]any{"bucketId": "gemini-daily", "displayName": "Daily", "window": "daily", "remainingFraction": 0.9, "resetTime": "2030-01-01T00:00:00Z"},
+			map[string]any{"bucketId": "gemini-day", "displayName": "Daily", "window": "1 day", "remainingFraction": 0.9, "resetTime": "2030-01-01T00:00:00Z"},
 			map[string]any{"bucketId": "gemini-5h", "displayName": "Five Hour", "window": "5h", "remainingFraction": 1.0},
 		}},
 		map[string]any{"displayName": "Mystery", "buckets": []any{
-			map[string]any{"bucketId": "models-flash-weekly", "displayName": "Weekly", "window": "weekly", "remainingFraction": 0.5, "resetTime": "2030-01-01T00:00:00Z"},
+			map[string]any{"bucketId": "Models Flash!", "displayName": "Weekly", "window": "weekly", "remainingFraction": 0.5, "resetTime": "2030-01-01T00:00:00Z"},
 		}},
 	)
 	groups, notes := quotaGroupsFromSummary(summary)
@@ -41,9 +41,9 @@ func TestQuotaGroupsFromSummaryExplainsEveryDroppedBucket(t *testing.T) {
 	}
 	report := strings.Join(notes, "\n")
 	for _, want := range []string{
-		`bucket "gemini-daily" window "daily": skipped, window is not weekly or 5h`,
+		`bucket "gemini-day" window "1 day": skipped, window is not a plain name`,
 		`bucket "gemini-5h" window "5h": skipped, no reset time`,
-		`bucket "models-flash-weekly" window "weekly": group dropped, bucket id has no gemini- or 3p- prefix`,
+		`bucket "Models Flash!" window "weekly": group dropped, bucket id gives no pool name`,
 		`bucket "gemini-weekly" window "weekly": kept as gemini`,
 	} {
 		if !strings.Contains(report, want) {
@@ -80,7 +80,7 @@ func TestQuotaFetchPrintsDiagnosticsWhenAskedAndNeverTheToken(t *testing.T) {
 	var loud bytes.Buffer
 	run(&loud)
 	out := loud.String()
-	if !strings.Contains(out, `bucket "gemini-monthly" window "monthly": skipped, window is not weekly or 5h`) || !strings.Contains(out, "quota: summary\n") {
+	if !strings.Contains(out, `bucket "gemini-monthly" window "monthly": kept as gemini`) || !strings.Contains(out, "quota: summary\n") {
 		t.Fatalf("diagnostics = %q", out)
 	}
 	for _, secret := range []string{"user@example.com", "Bearer", "token_data", "access"} {

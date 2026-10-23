@@ -127,7 +127,7 @@ func parseExtended(argv []string) (string, extendedOptions, []string, error) {
 			if err != nil {
 				return "", opts, nil, err
 			}
-			if value != "" && !oneOf(value, "claude", "gemini", "gpt") {
+			if value != "" && !isQuotaFamily(value) {
 				return "", opts, nil, fmt.Errorf("invalid family %q", value)
 			}
 			opts.Family = value
@@ -532,7 +532,7 @@ func setConfigValue(settings *AppSettings, key, value string) error {
 	case "policy.name":
 		settings.Policy.Name = value
 	case "policy.prefer_family":
-		if value != "" && !oneOf(value, "claude", "gemini", "gpt") {
+		if value != "" && !isQuotaFamily(value) {
 			return errors.New("invalid policy family")
 		}
 		settings.Policy.PreferFamily = value
@@ -975,22 +975,12 @@ type recommendation struct {
 	Reasons   []string `json:"reasons"`
 }
 
-func quotaFamilyMatches(group, family string) bool {
-	canonical := func(value string) string {
-		if value == "claude" || value == "gpt" {
-			return "third_party"
-		}
-		return value
-	}
-	return family == "" || canonical(group) == canonical(family)
-}
-
 func accountRemaining(account Account, family string) (float64, bool, string) {
 	groups := quotaGroupHealths(account)
 	var limiting *quotaGroupHealth
 	for i := range groups {
 		group := &groups[i]
-		if !quotaFamilyMatches(group.id, family) {
+		if !poolInFamily(account, group.id, family) {
 			continue
 		}
 		if limiting == nil || group.fraction < limiting.fraction {
