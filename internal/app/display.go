@@ -308,6 +308,9 @@ func limitedQuotaGroupLabels(groups []quotaGroupHealth) []string {
 
 func accountStatus(account Account, p palette, now time.Time) string {
 	tier := tierBadge(account, p)
+	if _, ok := accountEligibility(account); ok {
+		return fmt.Sprintf("[%s] %sVerification required%s · agy-swap verify %s", tier, p.Yellow, p.Reset, getString(account, "email"))
+	}
 	groups := quotaGroupHealths(account)
 	if best, ok := bestAvailableQuotaGroup(groups); ok {
 		color := p.Green

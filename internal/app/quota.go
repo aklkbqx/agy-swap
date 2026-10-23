@@ -2,8 +2,11 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -13,16 +16,17 @@ import (
 type quotaProgress func(index, total int, account Account, state string)
 
 type QuotaService struct {
-	http  *HTTPService
-	store *Store
-	vault AccountVault
+	http         *HTTPService
+	store        *Store
+	vault        AccountVault
+	pollInterval time.Duration
 	// diagnostics, when set, receives one line per quota bucket explaining
 	// whether it was kept. It never receives tokens or account identifiers.
 	diagnostics io.Writer
 }
 
 func NewQuotaService(httpService *HTTPService, store *Store) *QuotaService {
-	return &QuotaService{http: httpService, store: store}
+	return &QuotaService{http: httpService, store: store, pollInterval: 500 * time.Millisecond}
 }
 
 func (q *QuotaService) SetVault(vault AccountVault) { q.vault = vault }
@@ -51,16 +55,30 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 		rememberTokenExpiry(account, refreshed)
 	}
 	info, err := q.http.cloudPost(ctx, access, "loadCodeAssist", map[string]any{"metadata": map[string]any{"ideType": "ANTIGRAVITY"}})
-	if err != nil {
-		return nil, err
+	if q.diagnostics != nil {
+		q.describeLoadCodeAssist(info, err)
 	}
-	project := getString(info, "cloudaicompanionProject")
+	if err != nil {
+		return nil, ineligibleOr(err)
+	}
+	if ineligible := eligibilityFromLoad(info); ineligible != nil {
+		return nil, ineligible
+	}
+	project := extractCloudProject(info["cloudaicompanionProject"])
+	var onboardedTier map[string]any
+	if project == "" {
+		var onboardErr error
+		project, onboardedTier, onboardErr = q.onboardProject(ctx, access, info)
+		if onboardErr != nil {
+			return nil, onboardErr
+		}
+	}
 	if project == "" {
 		return nil, fmt.Errorf("Google returned no Code Assist project") //nolint:staticcheck // "Google" is a proper noun
 	}
 	summary, err := q.http.cloudPost(ctx, access, "retrieveUserQuotaSummary", map[string]any{"project": project})
 	if err != nil {
-		return nil, err
+		return nil, markEligibilityPassed(ineligibleOr(err))
 	}
 	var models map[string]any
 	var modelsErr error
@@ -79,9 +97,12 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 	if tier == nil {
 		tier = getMap(info["currentTier"])
 	}
+	if tier == nil {
+		tier = onboardedTier
+	}
 	tierID := cleanText(getString(tier, "id"))
 	if tierID == "" {
-		return nil, fmt.Errorf("Google returned no account tier") //nolint:staticcheck // "Google" is a proper noun
+		return nil, markEligibilityPassed(fmt.Errorf("Google returned no account tier")) //nolint:staticcheck // "Google" is a proper noun
 	}
 	tierName := tierNames[tierID]
 	if tierName == "" {
@@ -91,7 +112,7 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 	if !hasQuotaGroup(groups, "gemini") {
 		// Google's summary can leave Gemini out. The model list still carries
 		// the Gemini quota, one value for every Gemini model of the account.
-		if list, err := loadModels(); err == nil {
+		if list, loadErr := loadModels(); loadErr == nil {
 			if gemini := geminiGroupFromModels(list, time.Now()); gemini != nil {
 				groups = append([]any{gemini}, groups...)
 				notes = append(notes, "gemini: read from the model list, the summary has no Gemini group")
@@ -103,9 +124,67 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 		fmt.Fprint(q.diagnostics, "quota: summary\n  "+strings.Join(notes, "\n  ")+"\n")
 	}
 	if len(groups) == 0 {
-		return nil, fmt.Errorf("Google returned no quota groups") //nolint:staticcheck // "Google" is a proper noun
+		return nil, markEligibilityPassed(fmt.Errorf("Google returned no quota groups")) //nolint:staticcheck // "Google" is a proper noun
 	}
-	return normalizeQuotaSnapshot(map[string]any{"observed_at": isoTime(time.Now()), "tier": map[string]any{"id": tierID, "name": tierName}, "groups": groups}, getString(account, "email"))
+	snapshot, err := normalizeQuotaSnapshot(map[string]any{"observed_at": isoTime(time.Now()), "tier": map[string]any{"id": tierID, "name": tierName}, "groups": groups}, getString(account, "email"))
+	if err != nil {
+		return nil, markEligibilityPassed(err)
+	}
+	return snapshot, nil
+}
+
+func extractCloudProject(raw any) string {
+	if s, ok := raw.(string); ok {
+		return strings.TrimSpace(s)
+	}
+	if m := getMap(raw); m != nil {
+		return strings.TrimSpace(getString(m, "id"))
+	}
+	return ""
+}
+
+func (q *QuotaService) onboardProject(ctx context.Context, access string, info map[string]any) (string, map[string]any, error) {
+	tierID := allowedTierID(info)
+	if tierID == "" {
+		return "", nil, nil
+	}
+	op, err := q.http.cloudPost(ctx, access, "onboardUser", map[string]any{"tierId": tierID, "metadata": map[string]any{"ideType": "ANTIGRAVITY"}})
+	if err != nil {
+		return "", nil, ineligibleOr(err)
+	}
+	delay := q.pollInterval
+	if delay <= 0 {
+		delay = 500 * time.Millisecond
+	}
+	for range 5 {
+		if done, _ := op["done"].(bool); done {
+			break
+		}
+		name := getString(op, "name")
+		if name == "" {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return "", nil, ctx.Err()
+		case <-time.After(delay):
+		}
+		op, err = q.http.cloudGet(ctx, access, name)
+		if err != nil {
+			return "", nil, ineligibleOr(err)
+		}
+	}
+	if opErr := getMap(op["error"]); opErr != nil {
+		if ineligible := eligibilityFromOperationError(opErr); ineligible != nil {
+			return "", nil, ineligible
+		}
+		if msg := cleanText(getString(opErr, "message")); msg != "" {
+			return "", nil, fmt.Errorf("onboardUser failed: %s", msg)
+		}
+		return "", nil, fmt.Errorf("onboardUser failed")
+	}
+	project := extractCloudProject(getMap(op["response"])["cloudaicompanionProject"])
+	return project, map[string]any{"id": tierID}, nil
 }
 
 // quotaGroupsFromSummary turns Google's quota summary into saved groups. Each
@@ -254,14 +333,15 @@ func shapeOf(value any, depth int) string {
 		sort.Strings(keys)
 		parts := make([]string, 0, len(keys))
 		for _, key := range keys {
+			safeKey := cleanText(key)
 			child := ""
 			if depth > 0 {
 				child = shapeOf(typed[key], depth-1)
 			}
 			if child != "" {
-				parts = append(parts, key+":"+child)
+				parts = append(parts, safeKey+":"+child)
 			} else {
-				parts = append(parts, key)
+				parts = append(parts, safeKey)
 			}
 		}
 		return "{" + strings.Join(parts, ", ") + "}"
@@ -277,7 +357,7 @@ func shapeOf(value any, depth int) string {
 func sortedKeys(values map[string]any) string {
 	keys := make([]string, 0, len(values))
 	for key := range values {
-		keys = append(keys, key)
+		keys = append(keys, cleanText(key))
 	}
 	sort.Strings(keys)
 	return strings.Join(keys, ", ")
@@ -295,6 +375,68 @@ func (q *QuotaService) describeModelList(models map[string]any, err error) {
 	if lines := modelQuotaLines(models); len(lines) > 0 {
 		fmt.Fprint(q.diagnostics, "quota: models\n  "+strings.Join(lines, "\n  ")+"\n")
 	}
+}
+
+// ineligibleOr turns a Google error that says the account must be verified
+// into an *eligibilityError and returns any other error unchanged.
+func ineligibleOr(err error) error {
+	var cloud *cloudError
+	if errors.As(err, &cloud) {
+		if ineligible := eligibilityFromErrorBody(cloud.Status, cloud.Body); ineligible != nil {
+			return ineligible
+		}
+	}
+	return err
+}
+
+// describeLoadCodeAssist writes the shape of Google's answer, its reason codes
+// and the hosts of any links: never a token, email, project or full link.
+func (q *QuotaService) describeLoadCodeAssist(info map[string]any, err error) {
+	var cloud *cloudError
+	if errors.As(err, &cloud) {
+		var body map[string]any
+		_ = json.Unmarshal(cloud.Body, &body)
+		lines := []string{fmt.Sprintf("loadCodeAssist HTTP %d body fields: %s", cloud.Status, shapeOf(body, 3))}
+		for _, raw := range getSlice(getMap(body["error"])["details"]) {
+			detail := getMap(raw)
+			lines = append(lines, "reason: "+cleanText(getString(detail, "reason")))
+			lines = append(lines, linkHosts(getMap(detail["metadata"]))...)
+		}
+		fmt.Fprint(q.diagnostics, "quota: "+strings.Join(lines, "\n  ")+"\n")
+		return
+	}
+	if err != nil {
+		fmt.Fprintf(q.diagnostics, "quota: loadCodeAssist failed: %v\n", err)
+		return
+	}
+	lines := []string{"loadCodeAssist fields: " + shapeOf(info, 2)}
+	for _, raw := range getSlice(info["ineligibleTiers"]) {
+		tier := getMap(raw)
+		lines = append(lines, "ineligible tier reason: "+cleanText(getString(tier, "reasonCode")))
+		lines = append(lines, linkHosts(tier)...)
+	}
+	fmt.Fprint(q.diagnostics, "quota: "+strings.Join(lines, "\n  ")+"\n")
+}
+
+// linkHosts names each link field with its host only.
+func linkHosts(fields map[string]any) []string {
+	keys := make([]string, 0, len(fields))
+	for key := range fields {
+		lower := strings.ToLower(key)
+		if strings.HasSuffix(lower, "url") || strings.HasSuffix(lower, "uri") {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	lines := make([]string, 0, len(keys))
+	for _, key := range keys {
+		host := "(unparsed)"
+		if u, err := url.Parse(getString(fields, key)); err == nil && u.Hostname() != "" {
+			host = cleanText(u.Hostname())
+		}
+		lines = append(lines, cleanText(key)+" host "+host)
+	}
+	return lines
 }
 
 func quotaInfoSummary(info map[string]any) string {
@@ -443,6 +585,17 @@ func (q *QuotaService) refreshSelected(ctx context.Context, accounts *Accounts, 
 				}
 			}
 			changed = true
+		}
+		var ineligible *eligibilityError
+		switch {
+		case errors.As(result.err, &ineligible):
+			original["eligibility"] = ineligible.record(now)
+			changed = true
+		case shouldClearEligibility(result.err):
+			if _, ok := original["eligibility"]; ok {
+				delete(original, "eligibility")
+				changed = true
+			}
 		}
 		if result.err != nil {
 			errorsByEmail[result.item.email] = result.err.Error()

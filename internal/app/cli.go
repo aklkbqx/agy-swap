@@ -35,8 +35,10 @@ type Application struct {
 	p                   palette
 	stdinTTY, stdoutTTY bool
 	loginCommand        func(context.Context) *exec.Cmd
+	openURL             func(context.Context, string) error
 	loginTimeout        time.Duration
 	loginPollInterval   time.Duration
+	inTUISuspend        bool
 }
 
 const (
@@ -213,6 +215,8 @@ func (a *Application) Run(ctx context.Context, argv []string) int {
 		code = a.cmdNext(ctx, args)
 	case "switch":
 		code = a.cmdSwitch(ctx, args)
+	case "verify":
+		code = a.cmdVerify(ctx, args)
 	case "remove":
 		code = a.cmdRemove(ctx, args)
 	case "status":
@@ -246,6 +250,7 @@ commands:
   switch    Switch to an account
   remove    Remove a saved account
   status    Show active account details
+  verify    Open Google's verification page for an account
   update    Update agy-swap to the latest version
   version   Show the installed version and build provenance
   limit     Manage a manual quota cooldown`)
@@ -274,7 +279,7 @@ func parseCLI(argv []string) (cliArgs, error) {
 	if len(argv) == 0 {
 		return result, nil
 	}
-	known := map[string]bool{"add": true, "list": true, "limits": true, "logout": true, "next": true, "switch": true, "remove": true, "status": true, "update": true, "version": true, "limit": true}
+	known := map[string]bool{"add": true, "list": true, "limits": true, "logout": true, "next": true, "switch": true, "remove": true, "status": true, "update": true, "version": true, "limit": true, "verify": true}
 	i := 0
 	if known[argv[0]] {
 		result.command = argv[0]
@@ -367,7 +372,7 @@ func parseCLI(argv []string) (cliArgs, error) {
 					return result, fmt.Errorf("unexpected argument: %s", arg)
 				}
 				result.updateCheck = true
-			case "switch", "remove":
+			case "switch", "remove", "verify":
 				if result.account != "" {
 					return result, fmt.Errorf("too many arguments")
 				}
@@ -573,6 +578,16 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 				code := a.saveTokenAccount(ctx, token)
 				if code != 0 {
 					restore()
+				} else if savedAccounts, err := a.store.Load(false); err == nil {
+					activeEmail := a.activeEmail(ctx, savedAccounts, token)
+					if _, verify := accountEligibility(savedAccounts.ByEmail[activeEmail]); verify {
+						if current != "" {
+							restore()
+							fmt.Fprintf(a.Out, "%sKept your previous active session while %s awaits Google verification.%s\n", a.p.Gray, activeEmail, a.p.Reset)
+						} else {
+							fmt.Fprintf(a.Out, "%sNote: %s is the active session, and Antigravity cannot use it until verification finishes.%s\n", a.p.Yellow, activeEmail, a.p.Reset)
+						}
+					}
 				}
 				return code
 			}
@@ -593,6 +608,16 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 				code := a.saveTokenAccount(ctx, token)
 				if code != 0 {
 					restore()
+				} else if savedAccounts, err := a.store.Load(false); err == nil {
+					activeEmail := a.activeEmail(ctx, savedAccounts, token)
+					if _, verify := accountEligibility(savedAccounts.ByEmail[activeEmail]); verify {
+						if current != "" {
+							restore()
+							fmt.Fprintf(a.Out, "%sKept your previous active session while %s awaits Google verification.%s\n", a.p.Gray, activeEmail, a.p.Reset)
+						} else {
+							fmt.Fprintf(a.Out, "%sNote: %s is the active session, and Antigravity cannot use it until verification finishes.%s\n", a.p.Yellow, activeEmail, a.p.Reset)
+						}
+					}
 				}
 				return code
 			}
@@ -660,6 +685,7 @@ func (a *Application) saveTokenAccount(ctx context.Context, token string) int {
 		a.deleteReplacedSecrets(ctx, []string{oldRef})
 	}
 	fmt.Fprintf(a.Out, "\n%s✓ Successfully saved account: %s <%s>%s [%s]\n", a.p.Green, name, email, a.p.Reset, tierBadge(accounts.ByEmail[email], a.p))
+	_, _ = a.checkNewAccount(ctx, email)
 	return 0
 }
 
@@ -703,7 +729,8 @@ func (a *Application) cmdList(ctx context.Context, args cliArgs) int {
 		}
 		fmt.Fprintf(a.Out, " %s [%d] %s %s%s%s %s<%s>%s%s\n", marker, i+1, avatar(getString(account, "name"), email, a.color), a.p.Bold, getString(account, "name"), a.p.Reset, a.p.Gray, email, a.p.Reset, activeLabel)
 		fmt.Fprintf(a.Out, "       ↳ Status: %s\n", accountStatus(account, a.p, now))
-		if len(quotaGroups(account)) > 0 {
+		_, verify := accountEligibility(account)
+		if !verify && len(quotaGroups(account)) > 0 {
 			for _, rg := range quotaGroups(account) {
 				group := getMap(rg)
 				fmt.Fprintf(a.Out, "       ↳ %s\n", getString(group, "name"))
@@ -712,7 +739,7 @@ func (a *Application) cmdList(ctx context.Context, args cliArgs) int {
 					fmt.Fprintf(a.Out, "          %-6s: %s\n", quotaBucketLabel(bucket), formatQuotaBar(bucket, a.p, now, 12))
 				}
 			}
-		} else {
+		} else if !verify {
 			for _, limit := range activeLimits(account, now) {
 				if bar := formatCooldownBar(limit.Limit, a.p, now, 12); bar != "" {
 					fmt.Fprintf(a.Out, "       ↳ %s: %s · resets in %s\n", getString(limit.Limit, "model"), bar, formatDuration(limit.Remaining.Seconds()))
@@ -859,8 +886,18 @@ func selectNext(accounts *Accounts, active, family string) (Account, int) {
 	now := time.Now()
 	for offset := 1; offset <= accounts.Len(); offset++ {
 		account := accounts.ByEmail[accounts.Order[(activeIndex+offset)%accounts.Len()]]
+		if _, verify := accountEligibility(account); verify {
+			continue
+		}
 		wait, known := accountCooldown(account, now, family)
 		list = append(list, candidate{account, wait, known})
+	}
+	if len(list) == 0 {
+		for offset := 1; offset <= accounts.Len(); offset++ {
+			account := accounts.ByEmail[accounts.Order[(activeIndex+offset)%accounts.Len()]]
+			wait, known := accountCooldown(account, now, family)
+			list = append(list, candidate{account, wait, known})
+		}
 	}
 	for _, item := range list {
 		if item.known && item.wait == 0 {
@@ -978,6 +1015,9 @@ func (a *Application) cmdSwitch(ctx context.Context, args cliArgs) int {
 	fmt.Fprintf(a.Out, "Switching to %s%s%s %s<%s>%s...\n", a.p.Bold, getString(account, "name"), a.p.Reset, a.p.Gray, email, a.p.Reset)
 	if a.applyAccount(ctx, token, email) {
 		fmt.Fprintf(a.Out, "%s✓ Successfully switched to %s.%s\n", a.p.Green, email, a.p.Reset)
+		if _, verify := accountEligibility(account); verify {
+			fmt.Fprintf(a.Out, "%s⚠ %s needs Google verification before Antigravity can use it. Run 'agy-swap verify %s'.%s\n", a.p.Yellow, email, email, a.p.Reset)
+		}
 		return 0
 	}
 	fmt.Fprintf(a.Err, "%s✕ Failed to switch account.%s\n", a.p.Red, a.p.Reset)

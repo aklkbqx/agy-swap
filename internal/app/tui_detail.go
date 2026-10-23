@@ -68,6 +68,14 @@ func (a *Application) tuiGaugeDetail(state *tuiState, width, maxRows int, plan t
 		rows = append(rows, "")
 	}
 	switch {
+	case view.verify != nil:
+		message := firstString(tuiText(view.verify.Message), "Google needs this account verified before Antigravity can use it.")
+		rows = append(rows, a.p.Yellow+"Verification required"+a.p.Reset+" · "+message)
+		if view.verify.URL != "" {
+			rows = append(rows, a.p.White+"[w] open Google's verification page in the browser, then [r] to check again"+a.p.Reset)
+		} else {
+			rows = append(rows, a.p.White+"Run 'agy' to see Google's link, then [r] to check again"+a.p.Reset)
+		}
 	case view.needsAttention:
 		rows = append(rows, a.p.Yellow+"Needs re-auth"+a.p.Reset+" · "+tuiText(view.attentionReason))
 		rows = append(rows, a.p.White+"Run 'agy-swap add' to re-authenticate or 'd' to remove"+a.p.Reset)
@@ -85,7 +93,7 @@ func (a *Application) tuiGaugeDetail(state *tuiState, width, maxRows int, plan t
 	default:
 		rows = append(rows, a.tuiPoolPanels(view.pools, now, width, plan)...)
 	}
-	if reason := tuiText(state.quotaErrors[email]); reason != "" {
+	if reason := tuiText(state.quotaErrors[email]); reason != "" && !strings.HasPrefix(reason, eligibilityErrorPrefix) {
 		rows = append(rows, a.p.Yellow+"Usage unavailable"+a.p.Reset+" · "+reason)
 	}
 	if maxRows > 0 && len(rows) > maxRows {

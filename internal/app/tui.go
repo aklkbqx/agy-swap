@@ -460,6 +460,15 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		}
 	}
 
+	runAddAccount := func() {
+		a.inTUISuspend = true
+		code := suspend(func() int { return a.addLoginFlow(ctx) })
+		a.inTUISuspend = false
+		if code == 0 {
+			startRefresh(true)
+		}
+	}
+
 	performSwitch := func() {
 		email, account, ok := state.selectedAccount()
 		if !ok {
@@ -472,7 +481,15 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			} else {
 				current = a.credentials.Current(ctx)
 				state.current, state.active = current, email
-				state.showToast("Switched to "+email, "success")
+				if ineligible, verify := accountEligibility(account); verify {
+					hint := ""
+					if ineligible.URL != "" {
+						hint = " · press w"
+					}
+					state.showToast("Switched to "+email+" · needs Google verification"+hint, "warning")
+				} else {
+					state.showToast("Switched to "+email, "success")
+				}
 			}
 			a.renderTUI(state, outFile)
 			armFrame()
@@ -496,7 +513,13 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		})
 		switch {
 		case code == 0:
-			if alreadyUsing {
+			if ineligible, verify := accountEligibility(account); verify {
+				hint := ""
+				if ineligible.URL != "" {
+					hint = " · press w"
+				}
+				state.showToast("Switched to "+email+" · needs Google verification"+hint, "warning")
+			} else if alreadyUsing {
 				state.showToast("Already using "+email, "info")
 			} else {
 				state.showToast("Switched to "+email, "success")
@@ -615,7 +638,9 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			beginConfirmAction("update", "Download and install the latest release")
 		case "add-account":
 			setView(tuiViewDashboard)
-			suspend(func() int { return a.addLoginFlow(ctx) })
+			runAddAccount()
+		case "verify":
+			a.tuiVerifySelected(ctx, state)
 		case "switch-account":
 			performSwitch()
 		case "next-account":
@@ -1064,7 +1089,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 					if state.view == tuiViewSettings {
 						a.beginTUIForm(state, "alias")
 					} else {
-						suspend(func() int { return a.addLoginFlow(ctx) })
+						runAddAccount()
 					}
 				case "d", "delete", "backspace":
 					if state.view == tuiViewProfiles && len(state.profileNames) > 0 {
@@ -1116,6 +1141,10 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 						setView(tuiViewBackup)
 					default:
 						setView(tuiViewDashboard)
+					}
+				case "w":
+					if state.view == tuiViewDashboard || state.view == tuiViewQuota {
+						a.tuiVerifySelected(ctx, state)
 					}
 				case "v":
 					if state.view == tuiViewBackup {
