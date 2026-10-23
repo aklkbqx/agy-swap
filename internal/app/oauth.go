@@ -14,6 +14,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -25,6 +26,23 @@ type HTTPService struct {
 	oauthURL    string
 	cloudAPI    string
 	userInfoURL string
+	// skew is Google's clock minus this machine's, in nanoseconds, from the
+	// Date header of the last reply.
+	skew atomic.Int64
+}
+
+// clockSkewFloor is the smallest gap between clocks worth correcting: the
+// Date header has whole seconds and a reply takes time to arrive.
+const clockSkewFloor = 5 * time.Second
+
+// clockSkew is how far Google's clock is ahead of this machine's, or zero
+// when the two agree within clockSkewFloor.
+func (h *HTTPService) clockSkew() time.Duration {
+	skew := time.Duration(h.skew.Load())
+	if skew > -clockSkewFloor && skew < clockSkewFloor {
+		return 0
+	}
+	return skew
 }
 
 func NewHTTPService(errOut io.Writer) *HTTPService {
@@ -120,6 +138,9 @@ func (h *HTTPService) jsonRequest(ctx context.Context, method, endpoint string, 
 		return nil, 0, err
 	}
 	defer func() { _ = response.Body.Close() }()
+	if date, dateErr := http.ParseTime(response.Header.Get("Date")); dateErr == nil {
+		h.skew.Store(int64(time.Until(date)))
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
 		return nil, response.StatusCode, &httpStatusError{Status: response.StatusCode, Body: body}

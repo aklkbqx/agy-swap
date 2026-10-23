@@ -47,7 +47,7 @@ Requirements: Go 1.27.3 or later. macOS source builds require Xcode Command Line
 ```bash
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-go build -trimpath -ldflags "-s -w -X main.version=2.16.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.17.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ./agy-swap version
 ```
 
@@ -75,7 +75,7 @@ Run `agy-swap` with no arguments to open the terminal UI:
 agy-swap
 ```
 
-Each account shows a status word and two meters: Gem (Gemini) and C/G (Claude and GPT). When Google gives an account a separate weekly Gemini 4 Argon pool (Pro plans), it gets its own gauge panel and a column in the quota overview, and a used-up Argon pool does not change the status word. The status word says what the account can be used for right now: `READY`, `LOW` (a pool is at 30% or less), `GEMINI ONLY` or `CLAUDE/GPT ONLY` (the other pool is used up), `LIMITED` (both are used up), `NO TOKEN`, or `VERIFY` (Google wants the account verified before Antigravity can use it). Each meter shows the tighter of that pool's weekly and 5-hour limit. The selected account gets a gauge panel per pool with both limits, when each resets, and, for a used-up pool, when it is back. Green means more than 30% is left, yellow 30% or less, red 10% or less; every state also has a word.
+Each account shows a status word and two meters: Gem (Gemini) and C/G (Claude and GPT). When Google gives an account a separate weekly Gemini 4 Argon pool (Pro plans), it gets its own gauge panel, and a used-up Argon pool does not change the status word. The status word says what the account can be used for right now: `READY`, `LOW` (a pool is at 30% or less), `GEMINI ONLY` or `CLAUDE/GPT ONLY` (the other pool is used up), `LIMITED` (both are used up), `NO TOKEN`, or `VERIFY` (Google wants the account verified before Antigravity can use it). Each meter shows the tighter of that pool's weekly and 5-hour limit. The selected account gets a gauge panel per pool with both limits, when each resets, and, for a used-up pool, when it is back. Green means more than 30% is left, yellow 30% or less, red 10% or less; every state also has a word.
 
 The layout follows your terminal size:
 
@@ -83,24 +83,24 @@ The layout follows your terminal size:
 - **Stacked (64 to 91 columns):** the list on top, the gauges below.
 - **Compact (41 to 63 columns) and narrow (40 or fewer):** one column, with the selected account's pools below the list.
 
-A terminal cannot change its font, so on a large window the dashboard scales what it draws instead, up to its 160-column width: the big digits grow up to twice their size, the bars become full-block, the list bars lengthen and the sections get a little more air, without turning the gauges into posters. When there are too few rows for big digits, the gauges become plain limit lines, down to a 28 by 12 window. Changes move briefly (the selection slides, meters ease, dialogs open from their centre); set `AGY_SWAP_REDUCED_MOTION=1` to turn motion off. Set `AGY_SWAP_ASCII=1` to draw with ASCII characters only (it is chosen for you on a Linux console, a dumb terminal or a non-UTF-8 locale; `AGY_SWAP_ASCII=0` turns it off). `AGY_SWAP_QUOTA_DEBUG=1 agy-swap list --refresh` explains how each account's quota was read. Google picks which quota pools to report from the client version agy-swap sends; if a future Antigravity release makes pools disappear again, `AGY_SWAP_USER_AGENT` overrides the client string until agy-swap is updated.
+A terminal cannot change its font, so on a large window the dashboard scales what it draws instead, up to its 160-column width: the big digits grow up to twice their size, the bars become full-block, the list bars lengthen and the sections get a little more air, without turning the gauges into posters. When there are too few rows for big digits, the gauges become plain limit lines, down to a 28 by 12 window. Changes move briefly (the selection slides, meters ease, dialogs open from their centre); set `AGY_SWAP_REDUCED_MOTION=1` to turn motion off. The dashboard keeps quota close to live on its own: it reads the account Antigravity is using every 20 seconds and the others every 2 minutes, right after a pool resets, and within about 10 seconds of Antigravity writing to its logs (it only checks the logs' sizes and times). It remembers each account's Code Assist project for 15 minutes so most reads are one request, backs off from an account Google refuses (HTTP 429 or 5xx), reloads when another agy-swap process changes the accounts, and moves reset times onto this machine's clock when it is off. Set `AGY_SWAP_ASCII=1` to draw with ASCII characters only (it is chosen for you on a Linux console, a dumb terminal or a non-UTF-8 locale; `AGY_SWAP_ASCII=0` turns it off). `AGY_SWAP_QUOTA_DEBUG=1 agy-swap list --refresh` explains how each account's quota was read. Google picks which quota pools to report from the client version agy-swap sends; if a future Antigravity release makes pools disappear again, `AGY_SWAP_USER_AGENT` overrides the client string until agy-swap is updated.
 
 | Key | Action |
 | :--- | :--- |
 | `↑` / `↓` or `j` / `k` | Move the highlight up or down |
-| `[` / `]` or `<` / `>` | Narrow or widen the account pane in wide layout |
+| `[` / `]` or `<` / `>` | Narrow or widen the account pane (side by side), or shorten or lengthen the account list (stacked) |
 | `=` | Reset the pane split |
-| Mouse | Drag the divider between the list and the gauges to resize it, double-click it to reset, click an account to select it |
+| Mouse | Hover shows what a click does. Click an account to select it and again to switch; click a key hint in the footer to press it, a dialog button to choose it, a palette row to run it, or beside a dialog to close it. Drag the divider (side by side) or the rule (stacked) to resize the list, double-click it to reset. The wheel scrolls a list or panel that does not fit (drag its bar, or click above or below the thumb to page) and otherwise moves the selection. `AGY_SWAP_MOUSE=0` turns the mouse off; kitty, foot, Ghostty and WezTerm also show a hand or resize pointer |
 | `Enter` | Switch to the highlighted account (asks first) |
 | `1` – `9` | Select an account by number; press Enter to switch |
 | `←` / `→` and `Enter` in a dialog | Choose a button and press it; `y` / `n` are shortcuts, `Esc` cancels |
 | `n` | Refresh and move to the next eligible account |
 | `/` | Filter accounts by name or email |
 | `Ctrl-K` or `:` | Open the command palette |
-| `r` | Refresh quota in the background |
+| `r` | Refresh every account's quota now |
 | `w` | Open Google's verification page for an account marked `VERIFY` |
 | `p` / `h` / `s` | Open Profiles, History, or Settings |
-| `o` / `b` / `v` | Open Doctor, Backup, or the quota overview |
+| `o` / `b` | Open Doctor or Backup |
 | `a` | Add a Google account through the browser sign-in |
 | `d` / `Delete` | Remove the account from the local store, after confirmation |
 | `e` | Edit tags, aliases, or the selected item |

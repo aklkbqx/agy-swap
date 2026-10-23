@@ -258,6 +258,7 @@ func (a *Application) tuiWipe(state *tuiState, lines []string, footerStart, widt
 // tuiFrameLines draws the frame inside the rails and reports the first footer row.
 func (a *Application) tuiFrameLines(state *tuiState, width, height int) ([]string, int) {
 	g := newTUIGeometry(width, height)
+	state.hits = state.hits[:0]
 	lines := a.tuiTopLines(state, g.innerWidth)
 	if tuiHeaderAir(g.frameHeight) {
 		lines = append(lines, a.barRow("", g))
@@ -282,6 +283,7 @@ func (a *Application) tuiFrameLines(state *tuiState, width, height int) ([]strin
 		// A modal sits on a backdrop; its status line and key hints stay lit.
 		lines = a.tuiBackdrop(lines, len(lines)-len(status)-len(footer), lerpColor(a.p.Gray, a.p.Backdrop, open))
 	}
+	a.tuiFooterHits(state, lines, footerStart+len(status)+1)
 	switch state.mode {
 	case tuiDialogOpen:
 		chosen := 0.0
@@ -289,9 +291,22 @@ func (a *Application) tuiFrameLines(state *tuiState, width, height int) ([]strin
 			// The choice slides from one button to the next.
 			chosen = state.follow("dialog:"+state.dialog.Kind, float64(state.dialog.Index), tuiMotionSlide, a.renderTime())
 		}
-		lines = a.tuiOverlayOpening(lines, a.tuiDialogLinesAt(state.dialog, chosen), g.innerWidth, g.frameHeight, open)
+		content := a.tuiDialogLinesAt(state.dialog, chosen)
+		lines = a.tuiOverlayOpening(lines, content, g.innerWidth, g.frameHeight, open)
+		if open >= 1 {
+			a.tuiDialogHits(state, g, len(content))
+		}
 	case tuiPalette:
-		lines = a.tuiOverlayOpening(lines, a.tuiPaletteLines(state, g.innerWidth), g.innerWidth, g.frameHeight, open)
+		content := a.tuiPaletteLines(state, g.innerWidth)
+		lines = a.tuiOverlayOpening(lines, content, g.innerWidth, g.frameHeight, open)
+		if open >= 1 {
+			top, left, contentWidth := tuiOverlayBox(g, len(content))
+			for k, index := range state.paletteRows {
+				if index >= 0 && k < g.frameHeight-4 {
+					state.addHit(tuiHit{kind: hitPalette, index: index, top: top + 1 + k, bottom: top + 2 + k, left: left + 1, right: left + 1 + contentWidth})
+				}
+			}
+		}
 	case tuiForm:
 		lines = a.tuiOverlayOpening(lines, a.tuiFormLines(state, g.innerWidth), g.innerWidth, g.frameHeight, open)
 	}
@@ -789,8 +804,6 @@ func (a *Application) tuiStatusLines(state *tuiState, width int) []string {
 // tuiViewHint is the status line of a screen other than the dashboard.
 func tuiViewHint(view tuiView) string {
 	switch view {
-	case tuiViewQuota:
-		return "Limits for every saved account · r refreshes · b returns"
 	case tuiViewProfiles:
 		return "A profile picks the account for a job · c creates one"
 	case tuiViewHistory:
@@ -931,10 +944,6 @@ func (a *Application) tuiFooterLines(state *tuiState, width int) []string {
 	if state.view != tuiViewDashboard {
 		footer = formatKeycaps(a.p, "[↑↓]", "Navigate", "[Enter]", "Edit", "[b]", "Dashboard", "[^K]", "Actions", "[?]", "Help")
 		switch state.view {
-		case tuiViewQuota:
-			if canVerify {
-				footer = formatKeycaps(a.p, "[↑↓]", "Navigate", "[Enter]", "Switch", "[w]", "Verify", "[b]", "Dashboard", "[^K]", "Actions", "[?]", "Help")
-			}
 		case tuiViewBackup:
 			footer = formatKeycaps(a.p, "[x]", "Export", "[i]", "Import", "[v]", "Verify", "[b]", "Dashboard", "[^K]", "Actions")
 		case tuiViewHistory:
@@ -1039,6 +1048,7 @@ func (a *Application) tuiHelpLines(width int) []string {
 		"e           Edit tags / selected item",
 		"x i v c     In managers: export, import, verify, create/clear",
 		"[ ] / + -   Resize the accounts split (drag, = resets)",
+		"Mouse       Click, drag and scroll; hover shows what a click does",
 		"u           Download and install the latest release",
 		"b           Return to dashboard",
 		"Esc / any   Close help",
@@ -1052,13 +1062,24 @@ func (a *Application) tuiHelpLines(width int) []string {
 // tuiOverlayOpening draws a dialog box over base. While it opens (open < 1)
 // only its frame and the middle of its content show, centred where the whole
 // box will sit, so it grows from its centre line.
+// tuiOverlayBox is where a dialog of n content lines sits once open: its top
+// border's frame line, its left border's column and its content width. Line
+// k of the content is at frame line top+1+k, from column left+2.
+func tuiOverlayBox(g tuiGeometry, n int) (top, left, contentWidth int) {
+	contentWidth = minInt(64, maxInt(18, g.frameWidth-10))
+	n = minInt(n, maxInt(1, g.frameHeight-4))
+	top = maxInt(1, (g.frameHeight-(n+2))/2)
+	left = maxInt(0, (g.frameWidth-(contentWidth+2))/2)
+	return top, left, contentWidth
+}
+
 func (a *Application) tuiOverlayOpening(base, overlay []string, width, height int, open float64) []string {
 	g := newTUIGeometry(width, height)
 	base = fitFrameLines(base, g, a.p)
 	if len(overlay) == 0 {
 		return base
 	}
-	contentWidth := minInt(64, maxInt(18, g.frameWidth-10))
+	_, _, contentWidth := tuiOverlayBox(g, len(overlay))
 	maxContent := maxInt(1, g.frameHeight-4)
 	if len(overlay) > maxContent {
 		overlay = append([]string(nil), overlay[:maxContent]...)
@@ -1240,4 +1261,45 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// tuiFooterHits records the key hints on the footer's middle line, each
+// pressing its key when clicked, and lights the one under the pointer.
+func (a *Application) tuiFooterHits(state *tuiState, lines []string, line int) {
+	if line < 0 || line >= len(lines) {
+		return
+	}
+	for _, chip := range a.tuiChips(lines[line]) {
+		key := chipKey(chip.label)
+		if key == "" {
+			continue
+		}
+		state.addHit(tuiHit{kind: hitChip, key: key, top: line, bottom: line + 1, left: chip.start, right: chip.end})
+		if state.hovering(hitChip, key) && a.p.Backdrop != "" {
+			lit := tuiAsBackground(a.p.Backdrop)
+			lines[line] = tintColumns(lines[line], func(col int) string {
+				if col >= chip.start && col < chip.end {
+					return lit
+				}
+				return ""
+			})
+		}
+	}
+}
+
+// tuiDialogHits records the open dialog's buttons. Each is as wide as its
+// label and four columns, two apart, on the second-last content line.
+func (a *Application) tuiDialogHits(state *tuiState, g tuiGeometry, n int) {
+	d := state.dialog
+	if d == nil || len(d.Buttons) == 0 || n < 2 || n-2 >= g.frameHeight-4 {
+		return
+	}
+	top, left, _ := tuiOverlayBox(g, n)
+	line := top + 1 + n - 2
+	col := left + 2
+	for i, button := range d.Buttons {
+		width := len(button.Label) + 4
+		state.addHit(tuiHit{kind: hitButton, key: button.Label, index: i, top: line, bottom: line + 1, left: col, right: col + width})
+		col += width + 2
+	}
 }

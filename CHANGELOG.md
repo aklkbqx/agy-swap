@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.17.0
+
+### Changes
+
+- TUI: the mouse can do what the keys do. Hover shows what a click would do (an account gets a faint tint, the divider or rule lights, a footer key lights) without moving the selection. Click a key hint in the footer to press it, a dialog button to choose it (the choice follows the pointer), a palette row to run it, or beside a dialog or the palette to close it. Under a dialog only the dialog and the key hints answer. kitty, foot, Ghostty and WezTerm show a hand over targets and a resize pointer over the divider and rule. `AGY_SWAP_MOUSE=0` turns mouse reporting off.
+- TUI: quota stays close to live. Instead of every account once a minute, the account Antigravity is using is read every 20 seconds and the others every 2 minutes, an account is read again right after one of its pools resets (an account whose shared pools are used up waits for that), and the account in use is read within about 10 seconds of Antigravity writing to its logs (only the logs' sizes and times are checked, at most one read every 10 seconds). Countdowns tick every minute. Another agy-swap process changing the accounts reloads the screen.
+- Quota reads remember each account's Code Assist project and tier for 15 minutes, so most reads are one request instead of two; any failed read forgets them. An account Google refuses (HTTP 429 or 5xx) backs off, doubling from 20 seconds to 10 minutes with jitter. Reset times are moved onto this machine's clock when it differs from Google's (from the replies' `Date` header) by 5 seconds or more.
+- TUI: a list or gauge panel taller than its room scrolls instead of hiding accounts behind "▲ 3 more": a bar at its right edge shows where you are, the mouse wheel over it scrolls it, and moving the selection brings the selected account back into view. Where everything fits, the wheel still moves the selection.
+- TUI: the rule between the list and the gauges on a narrow window moves: drag it with the mouse, or press `[` / `]` to shorten or lengthen the list, and double-click it or press `=` to reset. It moves only as far as it changes what shows, so it never opens empty space; its place is remembered like the side-by-side divider's.
+- TUI: on a narrow window a click on an account selects it and a second click switches to it, as in the side-by-side layout.
+- TUI: the quota overview page is gone; the dashboard shows the same accounts, statuses and meters. `v` now only verifies a backup on the Backup page, and Argon shows in its gauge panel.
+
+### Fixes
+
+- Quota shown in the TUI could be about two minutes old: the minute timer fired as snapshots turned a minute old and skipped them for a whole round. Snapshots a few seconds short of a minute now count as due.
+- TUI: the profiles, history, settings, health check and backup pages keep a blank row above and below their content, like the dashboard, so their title no longer sits against the header and long content stops short of the status line (#74).
+- TUI: on a narrow window, where the list sits above the gauges, the list title and the rule between list and gauges have a blank row on each side instead of touching the rows next to them (#74).
+- TUI: the selection band no longer slides onto the wrong account when the list reflows (while the rule is dragged, or the list scrolls); it slides only when the selection moves.
+
 ## 2.16.0
 
 ### Features

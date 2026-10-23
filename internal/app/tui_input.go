@@ -153,16 +153,20 @@ func decodeCSI(sequence []byte) string {
 			row, _ := strconv.Atoi(parts[2])
 			if btn&64 != 0 {
 				if btn == 64 {
-					return "wheel-up"
+					return fmt.Sprintf("wheel-up:%d:%d", col, row)
 				}
 				if btn == 65 {
-					return "wheel-down"
+					return fmt.Sprintf("wheel-down:%d:%d", col, row)
 				}
 			}
 			if final == 'm' {
 				return fmt.Sprintf("mouse:up:%d:%d", col, row)
 			}
 			if btn&32 != 0 {
+				if btn&3 == 3 {
+					// Motion with no button held: the pointer moved, for hover.
+					return fmt.Sprintf("mouse:move:%d:%d", col, row)
+				}
 				return fmt.Sprintf("mouse:drag:%d:%d", col, row)
 			}
 			if btn&3 == 0 {
