@@ -21,6 +21,12 @@ type palette struct {
 	// website frames agree; both are visible on a dark terminal, unlike
 	// DarkGray and SelectionBg.
 	Track, SelectBg string
+	// Backdrop is the one colour the screen behind a modal is redrawn in.
+	Backdrop string
+	// BarBg fills the header and footer bars; KeyBg is a key chip on them.
+	BarBg, KeyBg string
+	// PanelBg fills a quota card; BodyBg paints the body black.
+	PanelBg, BodyBg string
 }
 
 func isTrueColorSupported() bool {
@@ -57,8 +63,15 @@ func makePalette(color bool) palette {
 			Reset:       "\x1b[0m",
 			SelectionBg: "\x1b[48;2;22;27;34m",
 			TrackBg:     "\x1b[38;2;33;38;45m",
-			Track:       "\x1b[38;2;74;82;92m",
-			SelectBg:    "\x1b[48;2;48;48;48m",
+			// One ramp of cool grays over a black body: bars and cards, the
+			// selection tint, then key chips and quiet lines.
+			BodyBg:   "\x1b[48;2;10;12;16m",
+			BarBg:    "\x1b[48;2;28;33;40m",
+			PanelBg:  "\x1b[48;2;28;33;40m",
+			SelectBg: "\x1b[48;2;45;51;59m",
+			KeyBg:    "\x1b[48;2;55;62;71m",
+			Track:    "\x1b[38;2;55;62;71m",
+			Backdrop: "\x1b[38;2;84;93;104m",
 		}
 	}
 	return palette{
@@ -75,8 +88,13 @@ func makePalette(color bool) palette {
 		Reset:       "\x1b[0m",
 		SelectionBg: "\x1b[48;5;235m",
 		TrackBg:     "\x1b[38;5;236m",
-		Track:       "\x1b[38;5;240m",
+		BodyBg:      "\x1b[48;5;232m",
+		BarBg:       "\x1b[48;5;234m",
+		PanelBg:     "\x1b[48;5;234m",
 		SelectBg:    "\x1b[48;5;236m",
+		KeyBg:       "\x1b[48;5;238m",
+		Track:       "\x1b[38;5;238m",
+		Backdrop:    "\x1b[38;5;240m",
 	}
 }
 
@@ -519,6 +537,20 @@ var ansiPattern = regexp.MustCompile(`\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])`)
 
 // ansiPrefixLen recognizes the same escape grammar as ansiPattern without scanning
 // or allocating the rest of a terminal row.
+// stripEscapes is s without its escape sequences.
+func stripEscapes(s string) string {
+	var b strings.Builder
+	for len(s) > 0 {
+		if size := ansiPrefixLen(s); size > 0 {
+			s = s[size:]
+			continue
+		}
+		b.WriteByte(s[0])
+		s = s[1:]
+	}
+	return b.String()
+}
+
 func ansiPrefixLen(s string) int {
 	if len(s) < 2 || s[0] != '\x1b' {
 		return 0

@@ -124,44 +124,42 @@ func TestDashboardNeverRepeatsTheAccountList(t *testing.T) {
 	}
 }
 
-func TestTheDividerRunsDownToTheStatusRuleAtAnyHeight(t *testing.T) {
+func TestTheDividerRunsDownToTheStatusLineAtAnyHeight(t *testing.T) {
 	a, state := overviewState()
 	for _, size := range [][2]int{{100, 30}, {118, 56}, {235, 66}} {
 		lines := a.tuiLines(state, size[0], size[1])
-		col, first := -1, -1
-		for i, line := range lines {
-			runes := []rune(line)
-			if col < 0 && strings.ContainsRune(string(runes), '┬') {
-				for j, r := range runes {
-					if r == '┬' {
-						col, first = j, i
-					}
+		col := dividerColumn(t, lines)
+		first := -1
+		// The status bar's blank lead-in row ends the body.
+		last := len(lines) - 6
+		for i := 0; i <= last; i++ {
+			runes := []rune(lines[i])
+			if first < 0 {
+				if runes[col] == '│' {
+					first = i
 				}
-			}
-			if col < 0 {
 				continue
 			}
-			if runes[col] == '┴' {
-				if i < first+3 {
-					t.Fatalf("%dx%d: the divider ends too early", size[0], size[1])
-				}
-				goto joined
-			}
-			if runes[col] != '│' && i != first {
-				t.Fatalf("%dx%d: row %d breaks the divider at column %d: %q", size[0], size[1], i, col, string(runes))
+			if runes[col] != '│' {
+				t.Fatalf("%dx%d: row %d breaks the divider at column %d: %q", size[0], size[1], i, col, lines[i])
 			}
 		}
-		t.Fatalf("%dx%d: the divider never meets the status rule", size[0], size[1])
-	joined:
+		if first < 0 || last-first < 3 {
+			t.Fatalf("%dx%d: the divider runs from row %d to %d", size[0], size[1], first, last)
+		}
+		if []rune(lines[last+1])[col] == '│' {
+			t.Fatalf("%dx%d: the divider runs into the status line", size[0], size[1])
+		}
 	}
 }
 
-// dividerColumn is the 0-based column of the list/detail divider in a frame.
+// dividerColumn is the 0-based column of the list/detail divider: the first
+// vertical line on screen (the screen has no frame).
 func dividerColumn(t *testing.T, lines []string) int {
 	t.Helper()
 	for _, line := range lines {
 		for j, r := range []rune(line) {
-			if r == '┬' {
+			if r == '│' {
 				return j
 			}
 		}
@@ -177,13 +175,14 @@ func TestTheDragTargetMatchesWhereTheDividerIsDrawn(t *testing.T) {
 			state.width, state.height = width, 40
 			state.splitOffset = 0
 			state.setSplit(offset)
-			lines := a.tuiLines(state, width-2, 40)
+			lines := a.tuiScreen(state, width, 40)
 			_, _, _, dividerCol, ok := state.wideSplitBounds()
 			if !ok {
 				t.Fatalf("%d wide is not a wide layout", width)
 			}
-			// Mouse columns start at 1, string columns at 0.
-			if got := dividerColumn(t, lines); got+1 != dividerCol {
+			// Mouse columns start at 1, string columns at 0; the hit zone is
+			// counted inside the centred frame.
+			if got := state.frameColumn(dividerColumn(t, lines) + 1); got != dividerCol {
 				t.Fatalf("width %d offset %d: drawn at %d, hit zone at %d", width, offset, got+1, dividerCol)
 			}
 		}
@@ -195,9 +194,9 @@ func TestDraggingFromTheHitZoneRoundTrips(t *testing.T) {
 	state.width, state.height = 235, 66
 	base, _, _, dividerCol, _ := state.wideSplitBounds()
 	for _, target := range []int{50, 70, 90} {
-		state.setSplit(target - 4 - base)
-		lines := a.tuiLines(state, 233, 66)
-		if got := dividerColumn(t, lines) + 1; got != target {
+		state.setSplit(target - 5 - base)
+		lines := a.tuiScreen(state, 235, 66)
+		if got := state.frameColumn(dividerColumn(t, lines) + 1); got != target {
 			t.Fatalf("dragged to column %d but the divider is at %d (was %d)", target, got, dividerCol)
 		}
 	}
@@ -208,10 +207,11 @@ func TestTheSplitCanUseTheWholeRangeOfALargeWindow(t *testing.T) {
 	state.width, state.height = 235, 66
 	state.setSplit(1000)
 	_, _, max, _, _ := state.wideSplitBounds()
-	g := newTUIGeometry(233, 66)
+	frameWidth, _ := tuiFrameBox(235)
+	g := newTUIGeometry(frameWidth-2-tuiRails, 66)
 	_, _, _, left := tuiWideSplit(g.frameWidth, state.splitOffset)
-	if left != max || state.splitOffset <= 40 {
-		t.Fatalf("left=%d max=%d offset=%d: a 235-column window should allow more than +40", left, max, state.splitOffset)
+	if left != max || state.splitOffset <= 20 {
+		t.Fatalf("left=%d max=%d offset=%d: the %d-column frame should allow more than +20", left, max, state.splitOffset, frameWidth)
 	}
 	state.adjustSplit(-2)
 	_, _, _, left2 := tuiWideSplit(g.frameWidth, state.splitOffset)

@@ -50,19 +50,10 @@ func (a *Application) tuiGaugeDetail(state *tuiState, width, maxRows int, plan t
 	}
 	chip := tuiChip(a.p, a.tuiStatusColor(view.status), view.status.String())
 	rows = append(rows, rowSpread(nameLine, chip, width, a.p))
-	var facts []string
-	if reset, ok := sessionTokenReset(account); ok {
-		facts = append(facts, "Session token "+reset)
-	}
-	if age, ok := quotaAge(account, now); ok {
-		if age < time.Minute {
-			facts = append(facts, "updated just now")
-		} else {
-			facts = append(facts, "updated "+formatDuration(age.Seconds())+" ago")
-		}
-	}
-	if len(facts) > 0 && !plan.tight {
-		rows = append(rows, a.tuiSecondary(strings.Join(facts, " · ")))
+	// Quota refreshes in the background every minute, so its age is news only
+	// when refreshes have stopped landing.
+	if age, ok := quotaAge(account, now); ok && age > tuiStaleQuotaAge && !plan.tight {
+		rows = append(rows, a.p.Yellow+"updated "+formatDuration(age.Seconds())+" ago"+a.p.Reset)
 	}
 	if !plan.tight {
 		rows = append(rows, "")
@@ -91,7 +82,9 @@ func (a *Application) tuiGaugeDetail(state *tuiState, width, maxRows int, plan t
 			rows = append(rows, a.tuiSecondary("Waiting for the first refresh. Press r to refresh."))
 		}
 	default:
-		rows = append(rows, a.tuiPoolPanels(view.pools, now, width, plan)...)
+		// One set of keys for whichever account is shown, so a new selection
+		// eases from the last account's numbers.
+		rows = append(rows, a.tuiPoolPanels(state.tweenPools("detail", view.pools, now), now, width, plan)...)
 	}
 	if reason := tuiText(state.quotaErrors[email]); reason != "" && !strings.HasPrefix(reason, eligibilityErrorPrefix) {
 		rows = append(rows, a.p.Yellow+"Usage unavailable"+a.p.Reset+" · "+reason)
@@ -106,24 +99,47 @@ func (a *Application) tuiGaugeDetail(state *tuiState, width, maxRows int, plan t
 }
 
 func (a *Application) tuiPoolPanels(pools []poolView, now time.Time, width int, plan tuiLayoutPlan) []string {
+	// Solid cards that touch read as one block, so a blank row parts them.
+	// Outlined boxes (no colour) are parted by their own borders.
+	stack := func(rows, card []string) []string {
+		if len(rows) > 0 && a.p.PanelBg != "" {
+			rows = append(rows, "")
+		}
+		return append(rows, card...)
+	}
 	if plan.digits == digitsInline {
 		var rows []string
 		for _, pool := range pools {
-			rows = append(rows, tuiBox(a.p, tuiPoolInlineLines(a.p, pool, now, maxInt(8, width-4)), width, poolBorderColor(a.p, pool))...)
+			rows = stack(rows, tuiBox(a.p, tuiPoolInlineLines(a.p, pool, now, maxInt(8, width-4)), width, poolBorderColor(a.p, pool)))
 		}
 		return rows
 	}
 	// side lays the pools out two to a row; an odd last pool keeps the left half.
-	side := func(gutter int, render func(poolView, int) []string, join func(left, right []string, leftWidth, rightWidth int) []string) []string {
+	// cards says the rendered pools are cards, which are parted by a blank row.
+	side := func(gutter int, cards bool, render func(poolView, int) []string, join func(left, right []string, leftWidth, rightWidth int) []string) []string {
+		add := func(rows, more []string) []string {
+			if cards {
+				return stack(rows, more)
+			}
+			return append(rows, more...)
+		}
 		half := (width - gutter) / 2
 		var rows []string
 		for i := 0; i < len(pools); i += 2 {
 			left := render(pools[i], half)
 			if i+1 == len(pools) {
-				rows = append(rows, left...)
+				rows = add(rows, left)
 				continue
 			}
-			rows = append(rows, join(left, render(pools[i+1], width-gutter-half), half, width-gutter-half)...)
+			// Both cards get the same width. An odd column widens the gutter,
+			// so the right card still ends flush with the rest of the column.
+			right := render(pools[i+1], half)
+			if extra := width - gutter - 2*half; extra > 0 {
+				for j := range right {
+					right[j] = strings.Repeat(" ", extra) + right[j]
+				}
+			}
+			rows = add(rows, join(left, right, half, width-gutter-half))
 		}
 		return rows
 	}
@@ -139,16 +155,16 @@ func (a *Application) tuiPoolPanels(pools []poolView, now time.Time, width int, 
 			// Without digits each pool still gets its frame, which keeps the
 			// pools apart whether they sit side by side or one above the other.
 			if plan.panels == panelsSide {
-				return side(1, framed, joinFramed)
+				return side(1, true, framed, joinFramed)
 			}
 			var rows []string
 			for _, pool := range pools {
-				rows = append(rows, framed(pool, width)...)
+				rows = stack(rows, framed(pool, width))
 			}
 			return rows
 		}
 		if plan.panels == panelsSide {
-			return side(3, compact, func(left, right []string, leftWidth, rightWidth int) []string {
+			return side(3, false, compact, func(left, right []string, leftWidth, rightWidth int) []string {
 				rows := maxInt(len(left), len(right))
 				joined := make([]string, 0, rows)
 				for i := 0; i < rows; i++ {
@@ -159,7 +175,7 @@ func (a *Application) tuiPoolPanels(pools []poolView, now time.Time, width int, 
 					if i < len(right) {
 						r = right[i]
 					}
-					joined = append(joined, l+" "+a.p.DarkGray+"│"+a.p.Reset+" "+r)
+					joined = append(joined, l+" "+a.p.Track+"│"+a.p.Reset+" "+r)
 				}
 				return joined
 			})
@@ -174,11 +190,11 @@ func (a *Application) tuiPoolPanels(pools []poolView, now time.Time, width int, 
 		return tuiBox(a.p, tuiPoolPanelScaled(a.p, pool, now, maxInt(8, boxWidth-4), plan.digits, plan.scale, plan.gap, plan.thick), boxWidth, poolBorderColor(a.p, pool))
 	}
 	if plan.panels == panelsSide {
-		return side(1, box, joinFramed)
+		return side(1, true, box, joinFramed)
 	}
 	var rows []string
 	for _, pool := range pools {
-		rows = append(rows, box(pool, width)...)
+		rows = stack(rows, box(pool, width))
 	}
 	return rows
 }

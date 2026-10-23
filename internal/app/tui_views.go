@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // tuiAction is intentionally data-only. The event loop owns the side effects,
@@ -102,6 +103,7 @@ func (s *tuiState) beginPalette() {
 	s.paletteQuery = ""
 	s.paletteIndex = 0
 	s.mode = tuiPalette
+	s.modalOpenedAt = time.Now()
 }
 
 func (s *tuiState) movePalette(delta int) {
@@ -295,17 +297,6 @@ func (a *Application) tuiFormLines(state *tuiState, width int) []string {
 		lines[i] = truncateVisible(lines[i], maxInt(18, width-8), a.p)
 	}
 	return lines
-}
-
-func (a *Application) tuiConfirmActionLines(state *tuiState, width int) []string {
-	return []string{
-		a.p.Bold + tuiText(firstString(state.confirmTitle, "Confirm action")) + a.p.Reset,
-		"",
-		"This action may change local configuration or data.",
-		"",
-		a.p.Yellow + "[y] Confirm    [n] Cancel    [Esc] Back" + a.p.Reset,
-		" ",
-	}
 }
 
 func (a *Application) tuiViewBody(state *tuiState, width, height int) []string {
@@ -545,6 +536,9 @@ func onOff(value bool) string {
 }
 
 func (a *Application) beginTUIView(state *tuiState, view tuiView) {
+	if state.view != view {
+		state.viewChangedAt = time.Now() // the body wipes in
+	}
 	state.view = view
 	state.mode = tuiBrowse
 	state.form = nil
@@ -595,6 +589,7 @@ func (a *Application) beginTUIForm(state *tuiState, kind string) {
 		state.settingsLoaded = true
 	}
 	form := &tuiFormState{Kind: kind, PreviousView: state.view}
+	state.modalOpenedAt = time.Now()
 	switch kind {
 	case "profile-create", "profile-edit":
 		name, account, family, threshold := "", state.active, "", ""

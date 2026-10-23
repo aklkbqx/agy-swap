@@ -11,7 +11,7 @@ func TestLayoutPlanFollowsWidthForArrangementAndSpaceForGaugeDetail(t *testing.T
 		{"wide with room", 120, 30, tuiLayoutPlan{arrangement: arrWide, listLines: 2, panels: panelsSide, digits: digitsFive}},
 		{"wide but short", 120, 22, tuiLayoutPlan{arrangement: arrWide, listLines: 2, panels: panelsSide, digits: digitsThree}},
 		{"wide and very short", 120, 18, tuiLayoutPlan{arrangement: arrWide, listLines: 2, panels: panelsSide, digits: digitsNone}},
-		{"wide tight stacks the panels", 96, 28, tuiLayoutPlan{arrangement: arrWide, listLines: 2, panels: panelsStack, digits: digitsThree}},
+		{"wide tight stacks the panels with digits beside the bars", 96, 28, tuiLayoutPlan{arrangement: arrWide, listLines: 2, panels: panelsStack, digits: digitsInline}},
 		{"wide tight and short drops the digits", 96, 22, tuiLayoutPlan{arrangement: arrWide, listLines: 2, panels: panelsStack, digits: digitsNone}},
 		{"stacked with room", 80, 30, tuiLayoutPlan{arrangement: arrStacked, listLines: 2, panels: panelsSide, digits: digitsThree}},
 		{"stacked at the classic 80x24", 80, 24, tuiLayoutPlan{arrangement: arrStacked, listLines: 1, panels: panelsStack, digits: digitsNone}},
@@ -52,6 +52,16 @@ func TestLayoutPlanNeverFailsForAnySize(t *testing.T) {
 			if plan.listLines != 1 && plan.listLines != 2 {
 				t.Fatalf("%dx%d: listLines = %d", width, height, plan.listLines)
 			}
+		}
+	}
+}
+
+// From the height where the header gets its extra row of air, the body still
+// has the 22 rows the richest layout asks for.
+func TestHeaderAirLeavesTheRichestLayoutItsRows(t *testing.T) {
+	for height := tuiHeaderAirMinHeight; height <= 80; height++ {
+		if rows := tuiBodyRowsFor(height); rows < 22 {
+			t.Fatalf("height %d leaves %d body rows", height, rows)
 		}
 	}
 }

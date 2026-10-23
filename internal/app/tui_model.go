@@ -2,21 +2,36 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"time"
 )
+
+// tuiStaleQuotaAge is how old quota numbers get before the detail says so:
+// five missed background refreshes.
+const tuiStaleQuotaAge = 5 * tuiAutoRefresh
+
+// refreshNotice is what a finished refresh tells the user. A quiet refresh
+// says nothing unless something failed.
+func refreshNotice(quiet bool, errs map[string]string) (message, kind string, animate bool) {
+	if len(errs) > 0 {
+		return fmt.Sprintf("Usage refresh completed with %d warning(s)", len(errs)), "warning", !quiet
+	}
+	if quiet {
+		return "", "", false
+	}
+	return "Usage refreshed", "success", true
+}
 
 type tuiMode uint8
 
 const (
 	tuiBrowse tuiMode = iota
 	tuiSearch
-	tuiHelp
-	tuiConfirmDelete
 	tuiPalette
 	tuiForm
-	tuiConfirmAction
+	tuiDialogOpen // a question or the help screen, see tuiDialog
 )
 
 type tuiView uint8
@@ -79,9 +94,7 @@ type tuiState struct {
 	searchPrevious string
 	mode           tuiMode
 	view           tuiView
-	confirmEmail   string
-	confirmAction  string
-	confirmTitle   string
+	dialog         *tuiDialog
 	paletteQuery   string
 	paletteIndex   int
 	form           *tuiFormState
@@ -96,6 +109,26 @@ type tuiState struct {
 	width          int
 	height         int
 	motionEnabled  bool
+	// Motion: tweens by key, and when each one-off effect began.
+	tweens          map[string]*tuiTween
+	startedAt       time.Time
+	viewChangedAt   time.Time
+	modalOpenedAt   time.Time
+	toastShownAt    time.Time
+	activeChangedAt time.Time
+	prevActive      string
+	keyFlash        string
+	keyFlashAt      time.Time
+	statusSeen      map[string]tuiAccountStatus
+	statusChangedAt map[string]time.Time
+	dragging        bool
+	// refreshStartedAt is when a refresh the user asked for began; ambient
+	// says the active dot breathes, which keeps slow frames coming.
+	refreshStartedAt time.Time
+	ambient          bool
+	// The last painted frame, so a redraw rewrites only changed rows.
+	lastFrame      []string
+	lastFrameWidth int
 	animation      tuiAnimation
 	job            *tuiJobState
 	settings       AppSettings
@@ -248,7 +281,8 @@ func (s *tuiState) showToast(message, kind string) {
 	}
 	s.toast = message
 	s.toastType = kind
-	s.toastUntil = time.Now().Add(tuiToastDuration)
+	s.toastShownAt = time.Now()
+	s.toastUntil = s.toastShownAt.Add(tuiToastDuration)
 	// A toast replaces the generic action result in the status row. Keeping
 	// both visible makes a successful switch look like two separate results.
 	s.message = ""
@@ -400,12 +434,14 @@ func (s *tuiState) wideSplitBounds() (baseLeft, minLeft, maxLeft, dividerCol int
 	if s == nil {
 		return 0, 0, 0, 0, false
 	}
-	g := newTUIGeometry(s.width-2, s.height)
-	if tuiLayoutPlanFor(g.frameWidth, g.frameHeight).arrangement != arrWide {
+	frameWidth, _ := tuiFrameBox(s.width)
+	g := newTUIGeometry(frameWidth-2-tuiRails, s.height)
+	if tuiLayoutPlanFor(g.frameWidth+tuiRails, g.frameHeight).arrangement != arrWide {
 		return 0, 0, 0, 0, false
 	}
 	baseLeft, minLeft, maxLeft, leftWidth := tuiWideSplit(g.frameWidth, s.splitOffset)
-	return baseLeft, minLeft, maxLeft, leftWidth + 4, true
+	// Mouse columns start at 1: two edge columns, the list, two of air, then the divider.
+	return baseLeft, minLeft, maxLeft, leftWidth + 5, true
 }
 
 func absInt(n int) int {

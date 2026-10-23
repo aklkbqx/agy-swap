@@ -37,11 +37,12 @@ func TestAccountBlockTwoLinesShowsStatusWordAndBothPoolMeters(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("lines = %q", lines)
 	}
-	if !strings.Contains(lines[0], "❯") || !strings.Contains(lines[0], "Beta User") || !strings.HasSuffix(strings.TrimRight(lines[0], " "), "GEMINI ONLY") {
+	if !strings.Contains(lines[0], tuiSelectionBar) || !strings.Contains(lines[0], "Beta User") || !strings.HasSuffix(strings.TrimRight(lines[0], " "), "GEMINI ONLY") {
 		t.Fatalf("identity line = %q", lines[0])
 	}
-	gem := "Gem " + renderMeter(meterHalf, 0.36, 13, "", "", "") + "  36%"
-	cg := "C/G " + renderMeter(meterHalf, 0, 13, "", "", "") + "   0%"
+	// The block keeps its last column empty, so 49 columns are drawn on.
+	gem := "Gem " + renderMeter(meterHalf, 0.36, 12, "", "", "") + "  36%"
+	cg := "C/G " + renderMeter(meterHalf, 0, 12, "", "", "") + "   0%"
 	if !strings.Contains(lines[1], gem) || !strings.Contains(lines[1], cg) {
 		t.Fatalf("meter line = %q, want %q and %q", lines[1], gem, cg)
 	}
@@ -78,7 +79,7 @@ func TestAccountBlockShowsADashForAPoolTheAccountDoesNotHave(t *testing.T) {
 	}, "c@example.invalid")
 	view := a.tuiAccountView(state, "c@example.invalid", poolNow)
 	lines := a.tuiAccountBlock(view, state, 50, 2)
-	if !strings.Contains(lines[1], "Gem "+strings.Repeat("▂", 13)+"    —") {
+	if !strings.Contains(lines[1], "Gem "+strings.Repeat("▂", 12)+"    —") {
 		t.Fatalf("meter line = %q", lines[1])
 	}
 }
