@@ -218,11 +218,16 @@ func (a *Application) cmdHistoryStats(opts extendedOptions) int {
 	return 0
 }
 
+// snapshotMinimum is the tightest shared pool (see familyPools), so a used-up
+// Argon pool does not read as an empty account.
 func snapshotMinimum(account Account) (float64, string, time.Time, bool) {
 	groups := quotaGroupHealths(account)
 	var best *quotaGroupHealth
 	for i := range groups {
 		group := &groups[i]
+		if !poolInFamily(account, group.id, "") {
+			continue
+		}
 		if best == nil || group.fraction < best.fraction {
 			best = group
 		}

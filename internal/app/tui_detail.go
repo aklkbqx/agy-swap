@@ -113,21 +113,33 @@ func (a *Application) tuiPoolPanels(pools []poolView, now time.Time, width int, 
 		}
 		return rows
 	}
+	// side lays the pools out two to a row; an odd last pool keeps the left half.
+	side := func(gutter int, render func(poolView, int) []string, join func(left, right []string, leftWidth, rightWidth int) []string) []string {
+		half := (width - gutter) / 2
+		var rows []string
+		for i := 0; i < len(pools); i += 2 {
+			left := render(pools[i], half)
+			if i+1 == len(pools) {
+				rows = append(rows, left...)
+				continue
+			}
+			rows = append(rows, join(left, render(pools[i+1], width-gutter-half), half, width-gutter-half)...)
+		}
+		return rows
+	}
+	joinFramed := func(left, right []string, leftWidth, rightWidth int) []string {
+		return joinBoxes(left, right, leftWidth, rightWidth, a.p)
+	}
 	if plan.digits == digitsNone {
 		compact := func(pool poolView, boxWidth int) []string { return tuiPoolCompactLines(a.p, pool, now, boxWidth) }
 		framed := func(pool poolView, boxWidth int) []string {
 			return tuiBox(a.p, compact(pool, maxInt(8, boxWidth-4)), boxWidth, poolBorderColor(a.p, pool))
 		}
 		if !plan.tight {
-			// Without digits each pool still gets its frame, which keeps the two
+			// Without digits each pool still gets its frame, which keeps the
 			// pools apart whether they sit side by side or one above the other.
 			if plan.panels == panelsSide {
-				half := (width - 1) / 2
-				left := framed(pools[0], half)
-				if len(pools) == 1 {
-					return left
-				}
-				return joinBoxes(left, framed(pools[1], width-1-half), half, width-1-half, a.p)
+				return side(1, framed, joinFramed)
 			}
 			var rows []string
 			for _, pool := range pools {
@@ -136,25 +148,21 @@ func (a *Application) tuiPoolPanels(pools []poolView, now time.Time, width int, 
 			return rows
 		}
 		if plan.panels == panelsSide {
-			half := (width - 3) / 2
-			left := compact(pools[0], half)
-			if len(pools) == 1 {
-				return left
-			}
-			right := compact(pools[1], width-3-half)
-			rows := maxInt(len(left), len(right))
-			joined := make([]string, 0, rows)
-			for i := 0; i < rows; i++ {
-				l, r := strings.Repeat(" ", half), strings.Repeat(" ", width-3-half)
-				if i < len(left) {
-					l = left[i]
+			return side(3, compact, func(left, right []string, leftWidth, rightWidth int) []string {
+				rows := maxInt(len(left), len(right))
+				joined := make([]string, 0, rows)
+				for i := 0; i < rows; i++ {
+					l, r := strings.Repeat(" ", leftWidth), strings.Repeat(" ", rightWidth)
+					if i < len(left) {
+						l = left[i]
+					}
+					if i < len(right) {
+						r = right[i]
+					}
+					joined = append(joined, l+" "+a.p.DarkGray+"│"+a.p.Reset+" "+r)
 				}
-				if i < len(right) {
-					r = right[i]
-				}
-				joined = append(joined, l+" "+a.p.DarkGray+"│"+a.p.Reset+" "+r)
-			}
-			return joined
+				return joined
+			})
 		}
 		var rows []string
 		for _, pool := range pools {
@@ -166,12 +174,7 @@ func (a *Application) tuiPoolPanels(pools []poolView, now time.Time, width int, 
 		return tuiBox(a.p, tuiPoolPanelScaled(a.p, pool, now, maxInt(8, boxWidth-4), plan.digits, plan.scale, plan.gap, plan.thick), boxWidth, poolBorderColor(a.p, pool))
 	}
 	if plan.panels == panelsSide {
-		half := (width - 1) / 2
-		left := box(pools[0], half)
-		if len(pools) == 1 {
-			return left
-		}
-		return joinBoxes(left, box(pools[1], width-1-half), half, width-1-half, a.p)
+		return side(1, box, joinFramed)
 	}
 	var rows []string
 	for _, pool := range pools {

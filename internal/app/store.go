@@ -196,7 +196,7 @@ func normalizeQuotaLimits(account Account, email string) error {
 		model := cleanText(getString(limit, "model"))
 		family := getString(limit, "family")
 		source := getString(limit, "source")
-		if model == "" || !oneOf(family, "claude", "gemini", "gpt") || !oneOf(source, "log", "manual") {
+		if model == "" || !isQuotaFamily(family) || !oneOf(source, "log", "manual") {
 			return fmt.Errorf("invalid quota metadata for %s", email)
 		}
 		resetAt, err1 := parseUTC(getString(limit, "reset_at"))
@@ -244,7 +244,7 @@ func normalizeQuotaSnapshot(raw any, email string) (map[string]any, error) {
 		group := getMap(rawGroup)
 		groupID, name := getString(group, "id"), cleanText(getString(group, "name"))
 		bucketsRaw := getSlice(group["buckets"])
-		if !oneOf(groupID, "gemini", "third_party") || name == "" || len(bucketsRaw) == 0 {
+		if !validQuotaID(groupID) || name == "" || len(bucketsRaw) == 0 {
 			return nil, fmt.Errorf("invalid quota group for %s", email)
 		}
 		buckets := make([]any, 0, minInt(len(bucketsRaw), 8))
@@ -254,7 +254,7 @@ func normalizeQuotaSnapshot(raw any, email string) (map[string]any, error) {
 			id, bucketName := cleanText(getString(bucket, "id")), cleanText(getString(bucket, "name"))
 			fraction, validFraction := getFloat(bucket["remaining_fraction"])
 			reset, resetErr := parseUTC(getString(bucket, "reset_at"))
-			if !oneOf(window, "weekly", "5h") || id == "" || bucketName == "" || !validFraction || fraction < 0 || fraction > 1 || resetErr != nil {
+			if !validQuotaWindow(window) || id == "" || bucketName == "" || !validFraction || fraction < 0 || fraction > 1 || resetErr != nil {
 				return nil, fmt.Errorf("invalid quota bucket for %s", email)
 			}
 			buckets = append(buckets, map[string]any{"id": id, "name": bucketName, "window": window, "remaining_fraction": fraction, "reset_at": isoTime(reset)})

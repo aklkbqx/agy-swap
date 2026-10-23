@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -39,28 +40,36 @@ func NewDemo(version string, in io.Reader, out, errOut io.Writer, options DemoOp
 		email, name string
 		gemini      []any // weekly, then 5-hour
 		claude      []any // weekly, then 5-hour (absent while the weekly limit is used up)
+		argon       []any // weekly only, on Pro; Ultra counts Argon against Gemini
+		tier        string
 	}{
 		{"alpha@example.invalid", "Alpha User",
 			[]any{bucket("gemini-weekly", "Weekly", "weekly", 0.86, 123*hour), bucket("gemini-5h", "5-Hour", "5h", 0.97, 4*hour+12*time.Minute)},
-			[]any{bucket("3p-weekly", "Weekly", "weekly", 1, 123*hour), bucket("3p-5h", "5-Hour", "5h", 1, 4*hour+12*time.Minute)}},
+			[]any{bucket("3p-weekly", "Weekly", "weekly", 1, 123*hour), bucket("3p-5h", "5-Hour", "5h", 1, 4*hour+12*time.Minute)},
+			[]any{bucket("gemini-argon-wtu-weekly", "Weekly", "weekly", 0.88, 123*hour)}, "Pro"},
 		{"beta@example.invalid", "Beta User",
 			[]any{bucket("gemini-weekly", "Weekly", "weekly", 0.43, 16*hour), bucket("gemini-5h", "5-Hour", "5h", 0.93, 4*hour+41*time.Minute)},
-			[]any{bucket("3p-weekly", "Weekly", "weekly", 0, 22*hour+43*time.Minute)}},
+			[]any{bucket("3p-weekly", "Weekly", "weekly", 0, 22*hour+43*time.Minute)}, nil, "Ultra"},
 		{"gamma@example.invalid", "Gamma User",
 			[]any{bucket("gemini-weekly", "Weekly", "weekly", 0.09, 54*hour), bucket("gemini-5h", "5-Hour", "5h", 0.4, 2*hour+5*time.Minute)},
-			[]any{bucket("3p-weekly", "Weekly", "weekly", 0.41, 73*hour), bucket("3p-5h", "5-Hour", "5h", 1, 2*hour+5*time.Minute)}},
+			[]any{bucket("3p-weekly", "Weekly", "weekly", 0.41, 73*hour), bucket("3p-5h", "5-Hour", "5h", 1, 2*hour+5*time.Minute)},
+			[]any{bucket("gemini-argon-wtu-weekly", "Weekly", "weekly", 0, 54*hour)}, "Pro"},
 	} {
 		token := demoToken(fixture.email)
+		groups := []any{
+			map[string]any{"id": "gemini", "name": "Gemini Models", "buckets": fixture.gemini},
+			map[string]any{"id": "third_party", "name": "Claude and GPT Models", "buckets": fixture.claude},
+		}
+		if fixture.argon != nil {
+			groups = append(groups, map[string]any{"id": "argon", "name": "Gemini 4 Argon", "buckets": fixture.argon})
+		}
 		accounts.Set(fixture.email, Account{
 			"email": fixture.email, "name": fixture.name,
 			"token_data": token, "token_hash": hashToken(token),
 			"quota_snapshot": map[string]any{
 				"observed_at": now.Format(time.RFC3339),
-				"tier":        map[string]any{"id": "pro-tier", "name": "Pro"},
-				"groups": []any{
-					map[string]any{"id": "gemini", "name": "Gemini Models", "buckets": fixture.gemini},
-					map[string]any{"id": "third_party", "name": "Claude and GPT Models", "buckets": fixture.claude},
-				},
+				"tier":        map[string]any{"id": strings.ToLower(fixture.tier) + "-tier", "name": fixture.tier},
+				"groups":      groups,
 			},
 		})
 	}
