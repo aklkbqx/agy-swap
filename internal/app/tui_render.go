@@ -35,6 +35,7 @@ type tuiAccountView struct {
 	attentionReason string
 	pools           []poolView
 	status          tuiAccountStatus
+	verify          *eligibilityError
 }
 
 type tuiLayout uint8
@@ -294,6 +295,13 @@ func (a *Application) tuiAccountView(state *tuiState, email string, now time.Tim
 			}
 		}
 	}
+	if ineligible, ok := accountEligibility(account); ok && view.status != statusNoToken {
+		view.verify = ineligible
+		view.status = statusVerify
+		view.needsAttention = false
+		view.health = "Needs Google verification"
+		view.tone = tuiHealthWarning
+	}
 	return view
 }
 
@@ -406,9 +414,20 @@ func (a *Application) tuiDetailTableLines(state *tuiState, width, maxRows int) [
 	labelWidth := maxInt(12, minInt(22, width/3))
 	statusStr := accountStatus(account, a.p, now)
 	var actionStr string
-	if needs, reason := state.accountNeedsAttention(email); needs {
+	ineligible, needsVerification := accountEligibility(account)
+	if needs, reason := state.accountNeedsAttention(email); needs && !needsVerification {
 		statusStr = a.p.Yellow + "[Needs Re-auth]" + a.p.Reset + " · " + reason
 		actionStr = "Run 'agy-swap add' to re-authenticate or 'd' to remove"
+	}
+	if needsVerification {
+		statusStr = a.p.Yellow + "Verification required" + a.p.Reset
+		if ineligible.Message != "" {
+			statusStr += " · " + tuiText(ineligible.Message)
+		}
+		actionStr = "Run 'agy' to see Google's link, then press r"
+		if ineligible.URL != "" {
+			actionStr = "[w] open Google's verification page in the browser, then press r"
+		}
 	}
 	rows := []string{
 		a.tuiSectionTitle("SELECTED ACCOUNT"),
@@ -443,7 +462,7 @@ func (a *Application) tuiDetailTableLines(state *tuiState, width, maxRows int) [
 	if reset, ok := sessionTokenReset(account); ok {
 		rows = append(rows, tuiDetailKV("SESSION TOKEN", reset, width, labelWidth, a.p))
 	}
-	if reason := tuiText(state.quotaErrors[email]); reason != "" {
+	if reason := tuiText(state.quotaErrors[email]); reason != "" && !strings.HasPrefix(reason, eligibilityErrorPrefix) {
 		rows = append(rows, tuiDetailKV("USAGE", a.p.Yellow+"Unavailable"+a.p.Reset+" · "+reason, width, labelWidth, a.p))
 	}
 	if len(rows) > maxRows {
@@ -630,14 +649,32 @@ func formatKeycaps(p palette, pairs ...string) string {
 
 func (a *Application) tuiFooterLines(state *tuiState, width int) []string {
 	g := newTUIGeometry(width, 12)
+	canVerify := false
+	if state != nil && state.accounts != nil {
+		if _, account, ok := state.selectedAccount(); ok {
+			if ineligible, ok := accountEligibility(account); ok && ineligible.URL != "" {
+				canVerify = true
+			}
+		}
+	}
 	hints := []keyHint{{"[↑↓]", "Move", 4}, {"[Enter]", "Switch", 5}, {"[^K]", "Actions", 2}, {"[?]", "Help", 3}, {"[q]", "Quit", 4}}
+	if canVerify {
+		hints = []keyHint{{"[↑↓]", "Move", 4}, {"[Enter]", "Switch", 5}, {"[w]", "Verify", 5}, {"[^K]", "Actions", 2}, {"[?]", "Help", 3}, {"[q]", "Quit", 4}}
+	}
 	if state.view == tuiViewDashboard && g.layout == tuiLayoutWide {
 		hints = []keyHint{{"[↑↓]", "Move", 4}, {"[Enter]", "Switch", 5}, {"[[]/[]]", "Resize", 1}, {"[^K]", "Actions", 2}, {"[?]", "Help", 3}, {"[q]", "Quit", 4}}
+		if canVerify {
+			hints = []keyHint{{"[↑↓]", "Move", 4}, {"[Enter]", "Switch", 5}, {"[w]", "Verify", 5}, {"[[]/[]]", "Resize", 1}, {"[^K]", "Actions", 2}, {"[?]", "Help", 3}, {"[q]", "Quit", 4}}
+		}
 	}
 	footer := a.fitKeycaps(hints, g.contentWidth)
 	if state.view != tuiViewDashboard {
 		footer = formatKeycaps(a.p, "[↑↓]", "Navigate", "[Enter]", "Edit", "[b]", "Dashboard", "[^K]", "Actions", "[?]", "Help")
 		switch state.view {
+		case tuiViewQuota:
+			if canVerify {
+				footer = formatKeycaps(a.p, "[↑↓]", "Navigate", "[Enter]", "Switch", "[w]", "Verify", "[b]", "Dashboard", "[^K]", "Actions", "[?]", "Help")
+			}
 		case tuiViewBackup:
 			footer = formatKeycaps(a.p, "[x]", "Export", "[i]", "Import", "[v]", "Verify", "[b]", "Dashboard", "[^K]", "Actions")
 		case tuiViewHistory:
@@ -732,6 +769,7 @@ func (a *Application) tuiHelpLines(width int) []string {
 		"Ctrl-K / :  Open action palette",
 		"p h s o b   Profiles, history, settings, doctor, backup",
 		"r           Refresh quota",
+		"w           Open Google's verification page (VERIFY)",
 		"n           Refresh, then pick the next account",
 		"a           Add account        d  Delete account",
 		"t           Toggle manual tier  l  Log out",

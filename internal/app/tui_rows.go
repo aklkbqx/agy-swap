@@ -94,7 +94,7 @@ func (a *Application) tuiAccountBlock(view tuiAccountView, state *tuiState, widt
 	}
 	if lines == 1 {
 		right := word
-		if len(view.pools) > 0 && width >= 46 {
+		if len(view.pools) > 0 && view.status != statusVerify && view.status != statusNoToken && view.status != statusAttention && width >= 46 {
 			barWidth := 4
 			right = word + "  " + a.tuiPoolMeters(view.pools, labelsShort, barWidth)
 		}
@@ -108,6 +108,12 @@ func (a *Application) tuiAccountBlock(view tuiAccountView, state *tuiState, widt
 	first := rowSpread(left, word, width, a.p)
 	second := "    "
 	switch {
+	case view.status == statusVerify:
+		hint := " · run agy for link"
+		if view.verify != nil && view.verify.URL != "" {
+			hint = " · press w"
+		}
+		second += a.p.Yellow + "needs Google verification" + a.p.Reset + a.p.Gray + hint + a.p.Reset
 	case len(view.pools) > 0 && view.status != statusNoToken && view.status != statusAttention:
 		switch {
 		case width < 40:

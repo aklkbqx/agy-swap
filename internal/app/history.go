@@ -385,8 +385,12 @@ func (a *Application) watchOnce(ctx context.Context, opts extendedOptions) (map[
 			continue
 		}
 		account := accounts.ByEmail[email]
+		_, needsVerify := accountEligibility(account)
 		remaining, group, reset, known := snapshotMinimum(account)
 		summary := map[string]any{"email": email, "remaining_pct": remaining, "group": group, "known": known}
+		if needsVerify {
+			summary["verify_required"] = true
+		}
 		if known {
 			summary["reset_at"] = isoTime(reset)
 		}
@@ -395,7 +399,7 @@ func (a *Application) watchOnce(ctx context.Context, opts extendedOptions) (map[
 		if opts.Threshold >= 0 {
 			threshold = opts.Threshold
 		}
-		if known {
+		if known && !needsVerify {
 			previous, previouslyKnown := state.Last[key]
 			if settings.Notifications.Enabled && settings.Notifications.Reset && previouslyKnown && previous <= float64(threshold) && remaining > float64(threshold) {
 				a.notifyIfDue(&state, key+":reset", "agy-swap quota reset", fmt.Sprintf("%s: %s is %.1f%% available again", email, group, remaining), time.Duration(settings.Notifications.CooldownSeconds)*time.Second)
@@ -408,14 +412,14 @@ func (a *Application) watchOnce(ctx context.Context, opts extendedOptions) (map[
 		}
 		if failure := failures[email]; failure != "" {
 			summary["error"] = failure
-			if settings.Notifications.Enabled && settings.Notifications.AuthFailure && (strings.Contains(failure, "401") || strings.Contains(strings.ToLower(failure), "auth")) {
+			if settings.Notifications.Enabled && settings.Notifications.AuthFailure && !strings.HasPrefix(failure, eligibilityErrorPrefix) && (strings.Contains(failure, "401") || strings.Contains(strings.ToLower(failure), "oauth") || strings.Contains(strings.ToLower(failure), "token") || strings.Contains(strings.ToLower(failure), "auth")) {
 				a.notifyIfDue(&state, email+":auth", "agy-swap authentication", email+": "+failure, time.Duration(settings.Notifications.CooldownSeconds)*time.Second)
 			}
 		}
-		if known {
+		if known && !needsVerify {
 			_ = a.appendHistory("quota", email, map[string]any{"remaining_pct": remaining, "group": group, "reset_at": isoTime(reset)})
 		}
-		if settings.Notifications.Enabled && known && remaining <= float64(threshold) {
+		if settings.Notifications.Enabled && known && !needsVerify && remaining <= float64(threshold) {
 			a.notifyIfDue(&state, key+":low", "agy-swap quota warning", fmt.Sprintf("%s: %.1f%% remaining", email, remaining), time.Duration(settings.Notifications.CooldownSeconds)*time.Second)
 		}
 		summaries = append(summaries, summary)

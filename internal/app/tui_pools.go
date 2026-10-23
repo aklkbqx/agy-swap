@@ -129,6 +129,7 @@ const (
 	statusLimited
 	statusNoToken
 	statusAttention
+	statusVerify
 )
 
 func (s tuiAccountStatus) String() string {
@@ -147,6 +148,8 @@ func (s tuiAccountStatus) String() string {
 		return "NO TOKEN"
 	case statusAttention:
 		return "ATTENTION"
+	case statusVerify:
+		return "VERIFY"
 	}
 	return "…"
 }

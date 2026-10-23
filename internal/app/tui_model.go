@@ -130,11 +130,6 @@ func newTUIState(accounts *Accounts, current string) *tuiState {
 }
 
 func (s *tuiState) accountNeedsAttention(email string) (bool, string) {
-	if s.quotaErrors != nil {
-		if errStr, ok := s.quotaErrors[email]; ok && errStr != "" {
-			return true, errStr
-		}
-	}
 	if s.accounts != nil && s.vault != nil {
 		if account, ok := s.accounts.ByEmail[email]; ok {
 			ref := getString(account, "secret_ref")
@@ -147,6 +142,16 @@ func (s *tuiState) accountNeedsAttention(email string) (bool, string) {
 			if ref == "" && tokenData == "" {
 				return true, "account has no saved token"
 			}
+		}
+	}
+	if s.quotaErrors != nil {
+		if errStr, ok := s.quotaErrors[email]; ok && errStr != "" {
+			return true, errStr
+		}
+	}
+	if s.accounts != nil {
+		if ineligible, ok := accountEligibility(s.accounts.ByEmail[email]); ok {
+			return true, ineligible.Error()
 		}
 	}
 	return false, ""
