@@ -134,10 +134,7 @@ func (a *Application) tuiOverviewRows(state *tuiState, width, maxRows int) []str
 	}
 	for _, email := range emails[start:end] {
 		view := a.tuiAccountView(state, email, now)
-		name := a.tuiIdentity(view.name)
-		if view.selected {
-			name = a.p.Bold + a.p.White + view.name + a.p.Reset
-		}
+		name, _ := a.tuiActiveName(view)
 		status := a.tuiStatusColor(view.status) + a.p.Bold + view.status.String() + a.p.Reset
 		line := a.tuiSelectionMarker(view, state) + a.tuiActiveMarker(view) + " " +
 			fitVisible(name, nameWidth-1, a.p) + " " + fitVisible(status, statusWidth, a.p)

@@ -44,8 +44,10 @@ func TestEveryTerminalSizeProducesAnExactFrame(t *testing.T) {
 						t.Fatalf("%d accounts, %dx%d: row %d is broken: %q", count, width, height, i, line)
 					}
 				}
-				if first, last := []rune(lines[0]), []rune(lines[height-1]); first[0] != '╭' || last[len(last)-1] != '╯' {
-					t.Fatalf("%d accounts, %dx%d: frame corners are %q ... %q", count, width, height, lines[0], lines[height-1])
+				for _, edge := range []string{lines[0], lines[height-1]} {
+					if strings.ContainsAny(edge, "╭╮╰╯") {
+						t.Fatalf("%d accounts, %dx%d: the frame is back: %q", count, width, height, edge)
+					}
 				}
 			}
 		}
@@ -75,7 +77,7 @@ func TestSelectedAccountStaysVisibleWithManyAccounts(t *testing.T) {
 		for _, index := range []int{0, 14, 29} {
 			state.selectedEmail = fmt.Sprintf("user%02d@example.invalid", index)
 			text := strings.Join(a.tuiLines(state, size[0]-2, size[1]), "\n")
-			if !strings.Contains(text, fmt.Sprintf("User %02d", index)) || !strings.Contains(text, "❯") {
+			if !strings.Contains(text, fmt.Sprintf("User %02d", index)) || !strings.Contains(text, tuiSelectionBar) {
 				t.Fatalf("%dx%d: selected account %d is not visible:\n%s", size[0], size[1], index, text)
 			}
 		}

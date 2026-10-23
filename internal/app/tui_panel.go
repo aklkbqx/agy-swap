@@ -204,8 +204,23 @@ func tuiPoolInlineLines(p palette, pool poolView, now time.Time, width int) []st
 
 // tuiBox wraps lines in a rounded border of exactly width columns. Each line
 // is fitted to the inside (width-4: border and one space on each side).
+// tuiBox groups a panel's lines. With colour it is a solid card: the panel
+// colour behind everything and the state colour as a bar down its left edge.
+// Without colour an outline is the only way to group, so it keeps one.
 func tuiBox(p palette, lines []string, width int, borderColor string) []string {
 	inner := maxInt(1, width-4)
+	if p.PanelBg != "" {
+		if borderColor == "" {
+			borderColor = p.Track
+		}
+		edge := borderColor + p.PanelBg + "▌" + p.Reset + p.PanelBg
+		card := []string{edge + strings.Repeat(" ", width-1) + p.Reset}
+		for _, line := range lines {
+			content := strings.ReplaceAll(fitVisible(line, inner, p), p.Reset, p.Reset+p.PanelBg)
+			card = append(card, edge+" "+content+"  "+p.Reset)
+		}
+		return append(card, edge+strings.Repeat(" ", width-1)+p.Reset)
+	}
 	if borderColor == "" {
 		borderColor = p.DarkGray
 	}

@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 type meterLabels uint8
@@ -61,30 +62,31 @@ func (a *Application) tuiPoolMeters(pools []poolView, labels meterLabels, barWid
 // tuiAccountBlock is one account in the list: an identity line with the status
 // word on the right, then (in two-line mode) the pool meters.
 func (a *Application) tuiAccountBlock(view tuiAccountView, state *tuiState, width, lines int) []string {
-	width = maxInt(1, width)
-	tag := ""
-	if width >= 40 {
-		// Tags are user labels, so they stay quiet unless the row is selected.
-		label := avatar(view.name, view.email, false)
-		tag = " " + a.p.Gray + label + a.p.Reset
-		if view.selected {
-			tag = " " + view.avatar
-		}
-	}
-	name := a.tuiIdentity(view.name)
-	if view.selected {
-		name = a.p.Bold + a.p.White + view.name + a.p.Reset
+	// The last column stays empty: air on the right inside the selection tint.
+	full := maxInt(1, width)
+	width = maxInt(1, full-1)
+	tag := "" // the name says who it is; initials would only repeat it
+	name, activeWord := a.tuiActiveName(view)
+	if activeWord != "" {
+		name += " " + activeWord
 	}
 	left := a.tuiSelectionMarker(view, state) + " " + a.tuiActiveMarker(view) + tag + " " + name
 	if width >= 64 && lines == 2 {
 		left += " " + a.tuiSecondary("<"+view.email+">")
 	}
 	word := a.tuiStatusColor(view.status) + a.p.Bold + view.status.String() + a.p.Reset
+	if view.statusFlash && a.p.BodyBg != "" {
+		// A status that just changed shows once on its own colour.
+		word = tuiAsBackground(a.tuiStatusColor(view.status)) + tuiAsForeground(a.p.BodyBg) + a.p.Bold + view.status.String() + a.p.Reset
+	}
 	if view.status == statusNoToken {
 		word = a.p.Yellow + a.p.Bold + "⚠ NO TOKEN" + a.p.Reset
 	}
 	highlight := func(rows []string) []string {
-		if !view.selected || a.p.SelectBg == "" {
+		for i, row := range rows {
+			rows[i] = fitVisible(row, width, a.p) + strings.Repeat(" ", full-width)
+		}
+		if !view.selected || a.p.SelectBg == "" || view.banded {
 			return rows
 		}
 		for i, row := range rows {
@@ -103,10 +105,15 @@ func (a *Application) tuiAccountBlock(view tuiAccountView, state *tuiState, widt
 			// The tag is the first thing to give way to a full name.
 			left = a.tuiSelectionMarker(view, state) + " " + a.tuiActiveMarker(view) + " " + name
 		}
+		if visibleWidth(left) > room && activeWord != "" {
+			// Then the word ACTIVE; the green name and dot still say it.
+			plain, _ := a.tuiActiveName(view)
+			left = a.tuiSelectionMarker(view, state) + " " + a.tuiActiveMarker(view) + " " + plain
+		}
 		return highlight([]string{fitVisible(fitVisible(left, room, a.p)+" "+right, width, a.p)})
 	}
 	first := rowSpread(left, word, width, a.p)
-	second := "    "
+	second := a.tuiSelectionGutter(view) + "   "
 	switch {
 	case view.status == statusVerify:
 		hint := " · run agy for link"
@@ -179,9 +186,13 @@ func (a *Application) tuiAccountRowsHits(state *tuiState, width, maxRows, listLi
 		lines    []string
 	}
 	var blocks []block
+	// With a tint to draw, the selection is a band laid over the rows after
+	// they are placed, so it can slide from one account to the next.
+	banded := a.p.SelectBg != ""
 	add := func(group []string) {
 		for _, email := range group {
 			view := a.tuiAccountView(state, email, now)
+			view.banded = banded
 			blocks = append(blocks, block{email: email, lines: a.tuiAccountBlock(view, state, width, listLines)})
 		}
 	}
@@ -206,15 +217,22 @@ func (a *Application) tuiAccountRowsHits(state *tuiState, width, maxRows, listLi
 		}
 		if total+accountsShown-1 <= maxRows {
 			// One blank row is enough air; more makes the list read as scattered.
-			const gap = 1
+			// With two rows more to spare, the selected account gets a row of
+			// padding above and below inside its tint; the blank rows that part
+			// it from its neighbours stay outside as margin.
+			padded := a.p.SelectBg != "" && total+accountsShown-1+2 <= maxRows
+			isSelected := func(b block) bool {
+				return padded && !b.isHeader && strings.EqualFold(b.email, state.selectedEmail)
+			}
 			spaced := make([]block, 0, len(blocks)*2)
 			for i, b := range blocks {
+				if isSelected(b) {
+					pad := strings.Repeat(" ", width) // the band tints it
+					b.lines = append(append([]string{pad}, b.lines...), pad)
+				}
 				spaced = append(spaced, b)
 				if !b.isHeader && i+1 < len(blocks) {
-					spaced = append(spaced, block{isHeader: true, lines: make([]string, gap)})
-					for j := range spaced[len(spaced)-1].lines {
-						spaced[len(spaced)-1].lines[j] = strings.Repeat(" ", width)
-					}
+					spaced = append(spaced, block{isHeader: true, lines: []string{strings.Repeat(" ", width)}})
 				}
 			}
 			blocks = spaced
@@ -290,7 +308,39 @@ func (a *Application) tuiAccountRowsHits(state *tuiState, width, maxRows, listLi
 	if len(rows) > maxRows {
 		rows, hits = rows[:maxRows], hits[:maxRows]
 	}
+	if banded {
+		a.tuiSelectionBand(state, rows, hits, width, now)
+	}
 	return rows, hits
+}
+
+// tuiSelectionBand tints the selected account's rows and draws the selection
+// bar down them. When the selection moves, the band slides from the rows it
+// covered to the new ones instead of jumping.
+func (a *Application) tuiSelectionBand(state *tuiState, rows, hits []string, width int, now time.Time) {
+	top, height := -1, 0
+	for i, email := range hits {
+		if email != "" && strings.EqualFold(email, state.selectedEmail) {
+			if top < 0 {
+				top = i
+			}
+			height++
+		}
+	}
+	if top < 0 {
+		return
+	}
+	at := int(state.follow("selection", float64(top), tuiMotionSlide, now) + 0.5)
+	for i := max(0, at); i < min(len(rows), at+height); i++ {
+		rows[i] = a.tuiBandRow(rows[i], width)
+	}
+}
+
+// tuiBandRow is one row under the selection band: the tint behind it and the
+// selection bar in its first column.
+func (a *Application) tuiBandRow(row string, width int) string {
+	rest := strings.ReplaceAll(visibleSpan(row, 1, width), a.p.Reset, a.p.Reset+a.p.SelectBg)
+	return a.p.SelectBg + a.p.Orange + tuiSelectionBar + a.p.Reset + a.p.SelectBg + rest + a.p.Reset
 }
 
 func pick2(condition bool, yes, no int) int {
