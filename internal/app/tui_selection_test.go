@@ -42,6 +42,7 @@ func TestTheSelectedBlockCarriesAnAccentBarOnEveryLine(t *testing.T) {
 // clear step lighter than the one below it.
 func TestTheGraysAreOneRampAboveABlackBody(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
+	t.Setenv("TERM", "xterm-256color")
 	t.Setenv("COLORTERM", "truecolor")
 	p := makePalette(true)
 	rgb := func(code string) [3]int {

@@ -77,10 +77,18 @@ func writerTerminal(writer io.Writer) bool {
 }
 
 func (a *Application) newLoginCommand(ctx context.Context) *exec.Cmd {
+	var cmd *exec.Cmd
 	if a.loginCommand != nil {
-		return a.loginCommand(ctx)
+		cmd = a.loginCommand(ctx)
+	} else {
+		cmd = exec.CommandContext(ctx, "agy")
 	}
-	return exec.CommandContext(ctx, "agy")
+	if len(cmd.Env) == 0 {
+		cmd.Env = append(os.Environ(), "AGY_SWAP_SKIP_SYNC=1", "WSL_INTEROP=1")
+	} else {
+		cmd.Env = append(cmd.Env, "AGY_SWAP_SKIP_SYNC=1", "WSL_INTEROP=1")
+	}
+	return cmd
 }
 
 func (a *Application) loginWaitTimeout() time.Duration {
@@ -152,7 +160,12 @@ func (a *Application) Run(ctx context.Context, argv []string) int {
 	if len(argv) > 0 && argv[0] == "__update-finalize" {
 		return a.runUpdateFinalizer(ctx, argv[1:])
 	}
+	if len(argv) > 0 && (argv[0] == "--sync-session" || argv[0] == "session-sync" || argv[0] == "__session-sync") {
+		a.reconcileActiveSession(ctx)
+		return 0
+	}
 	if isExtendedCommand(argv) {
+		a.reconcileActiveSession(ctx)
 		return a.runExtended(ctx, argv)
 	}
 	args, err := parseCLI(argv)
@@ -172,6 +185,7 @@ func (a *Application) Run(ctx context.Context, argv []string) int {
 		a.printUsage(a.Out)
 		return 0
 	}
+	a.reconcileActiveSession(ctx)
 	command := args.command
 	switch {
 	case args.legacyAdd || args.token != "":
@@ -486,7 +500,11 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 	}
 	defer func() { _ = lock.Close() }()
 	current := a.credentials.Current(ctx)
-	backupSecure := a.credentials.Secure(ctx)
+	fileSession := a.credentials.useFileSessionStore()
+	backupSecure := ""
+	if !fileSession {
+		backupSecure = a.credentials.Secure(ctx)
+	}
 	snapshot, err := snapshotFiles(a.credentials.sessionFilePaths(true)...)
 	if err != nil {
 		return a.storeError(err)
@@ -494,6 +512,10 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 	restore := func() {
 		if !restoreFiles(snapshot) {
 			fmt.Fprintln(a.Err, "Session file rollback failed; restore from your local backup")
+		}
+		if fileSession {
+			a.credentials.ensureKeyringBypassMarker()
+			return
 		}
 		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
@@ -782,6 +804,29 @@ func (a *Application) activeEmail(ctx context.Context, accounts *Accounts, curre
 			}
 		}
 	}
+	currentRefresh := tokenRefreshToken(current)
+	currentRefreshHash := hashToken(currentRefresh)
+	if currentRefresh != "" {
+		matchedEmail := ""
+		for _, email := range accounts.Order {
+			acc := accounts.ByEmail[email]
+			if token, err := a.accountToken(ctx, acc); err == nil && tokenRefreshToken(token) == currentRefresh {
+				if matchedEmail != "" && !strings.EqualFold(matchedEmail, email) {
+					matchedEmail = ""
+					break
+				}
+				matchedEmail = email
+			}
+		}
+		if matchedEmail != "" {
+			acc := accounts.ByEmail[matchedEmail]
+			if getString(acc, "refresh_hash") == "" && currentRefreshHash != "" {
+				acc["refresh_hash"] = currentRefreshHash
+				_ = a.store.Save(accounts)
+			}
+			return matchedEmail
+		}
+	}
 	inner := tokenObject(decodeToken(current))
 	if inner != nil {
 		if info := a.http.userInfo(ctx, getString(inner, "access_token")); info != nil {
@@ -819,8 +864,32 @@ func localActiveEmail(accounts *Accounts, current string) string {
 				return email
 			}
 		}
+		return claimed
 	}
-	return claimed
+	currentRefresh := tokenRefreshToken(current)
+	currentRefreshHash := hashToken(currentRefresh)
+	if currentRefresh != "" {
+		matchedEmail := ""
+		for _, email := range accounts.Order {
+			acc := accounts.ByEmail[email]
+			matched := false
+			if currentRefreshHash != "" && getString(acc, "refresh_hash") == currentRefreshHash {
+				matched = true
+			} else if stored := getString(acc, "token_data"); stored != "" && tokenRefreshToken(stored) == currentRefresh {
+				matched = true
+			}
+			if matched {
+				if matchedEmail != "" && !strings.EqualFold(matchedEmail, email) {
+					return ""
+				}
+				matchedEmail = email
+			}
+		}
+		if matchedEmail != "" {
+			return matchedEmail
+		}
+	}
+	return ""
 }
 
 func resolveTarget(target string, accounts *Accounts) (string, error) {
