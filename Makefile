@@ -1,4 +1,4 @@
-VERSION ?= 2.17.0
+VERSION ?= 2.17.1
 BUILD_ID ?= dev
 GOCACHE ?= /tmp/agy-swap-go-cache
 TARGET_DIR ?= $(HOME)/.local/bin
@@ -36,6 +36,7 @@ build:
 install: build
 	mkdir -p $(TARGET_DIR)
 	install -m 755 ./agy-swap $(TARGET_DIR)/agy-swap
+	@$(TARGET_DIR)/agy-swap --sync-session >/dev/null 2>&1 || true
 	@$(TARGET_DIR)/agy-swap --version
 
 bump:

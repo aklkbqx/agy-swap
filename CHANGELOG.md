@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.17.1
+
+### Fixes
+
+- macOS & Linux: switching accounts, clearing the active session, and logging in a new account no longer call `/usr/bin/security` or prompt for the login keychain password (#79). `agy-swap` maintains `~/.gemini/antigravity-cli/cache/antigravity-keyring-unavailable` and configures the `~/.local/bin/agy` launcher so Antigravity's `CompositeTokenStorage` (`shouldBypassKeyring`) and `agy-swap` both use the `0600` file-backed session store (`antigravity-oauth-token`) directly instead of reading stale Keychain items.
+- Multi-workspace sessions: a background `agy` process refreshing its OAuth token in another folder no longer switches newly opened workspaces away from the active account chosen in `agy-swap` (#79). `agy-swap --sync-session` (and automatic startup reconciliation) harvests refreshed tokens into the account vault by matching `refresh_token` and restores the active account selected in `google_accounts.json`.
+- Launcher guard: when `~/.local/bin/agy` is present, `agy-swap` automatically wraps or upgrades the launcher to run `agy-swap --sync-session` before and after `agy` with zero manual configuration (#79).
+
 ## 2.17.0
 
 ### Changes

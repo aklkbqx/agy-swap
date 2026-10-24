@@ -14,6 +14,14 @@ func acquireFileLock(path string) (*fileLock, error) {
 	return &fileLock{inner: lock}, nil
 }
 
+func tryAcquireFileLock(path string) (*fileLock, error) {
+	lock, err := store.TryAcquireFileLock(path)
+	if err != nil {
+		return nil, err
+	}
+	return &fileLock{inner: lock}, nil
+}
+
 func (l *fileLock) Close() error {
 	if l == nil || l.inner == nil {
 		return nil

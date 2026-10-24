@@ -267,6 +267,11 @@ func hashToken(token string) string {
 }
 
 func rememberTokenExpiry(account Account, token string) {
+	if refresh := tokenRefreshToken(token); refresh != "" {
+		account["refresh_hash"] = hashToken(refresh)
+	} else {
+		delete(account, "refresh_hash")
+	}
 	inner := tokenObject(decodeToken(token))
 	if inner == nil {
 		delete(account, "access_expires_at")
@@ -356,8 +361,8 @@ func (a *Application) deleteReplacedSecrets(ctx context.Context, refs []string) 
 }
 
 func captureSecretFields(account Account) map[string]any {
-	saved := make(map[string]any, 4)
-	for _, key := range []string{"secret_ref", "token_hash", "token_data", "access_expires_at"} {
+	saved := make(map[string]any, 5)
+	for _, key := range []string{"secret_ref", "token_hash", "refresh_hash", "token_data", "access_expires_at"} {
 		if value, ok := account[key]; ok {
 			saved[key] = value
 		}
@@ -366,7 +371,7 @@ func captureSecretFields(account Account) map[string]any {
 }
 
 func restoreSecretFields(account Account, saved map[string]any) {
-	for _, key := range []string{"secret_ref", "token_hash", "token_data", "access_expires_at"} {
+	for _, key := range []string{"secret_ref", "token_hash", "refresh_hash", "token_data", "access_expires_at"} {
 		if value, ok := saved[key]; ok {
 			account[key] = value
 			continue
