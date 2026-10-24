@@ -1218,6 +1218,9 @@ func (a *Application) activeHint(accounts *Accounts, current string) string {
 	if local != "" || current == "" || a.credentials == nil {
 		return local
 	}
+	if matched := matchAccountByToken(context.Background(), accounts, a.vault, current); matched != "" {
+		return matched
+	}
 	candidate := a.credentials.StoredActiveEmail()
 	for _, email := range accounts.Order {
 		if strings.EqualFold(email, candidate) {

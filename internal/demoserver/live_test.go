@@ -52,6 +52,17 @@ func TestLiveNativeTUISwitchAndCleanup(t *testing.T) {
 		t.Fatal(writeErr)
 	}
 	seen = ""
+	for !strings.Contains(seen, "Switch to Beta User") {
+		_, data, readErr := conn.Read(ctx)
+		if readErr != nil {
+			t.Fatalf("native switch confirm frame: %v, output=%q", readErr, seen)
+		}
+		seen += string(data)
+	}
+	if writeErr := conn.Write(ctx, websocket.MessageBinary, []byte("\r")); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	seen = ""
 	for !strings.Contains(seen, "Switched to beta@example.invalid") {
 		_, data, readErr := conn.Read(ctx)
 		if readErr != nil {
