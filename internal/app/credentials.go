@@ -6,6 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
 )
 
 type CredentialBackend interface {
@@ -40,9 +44,53 @@ func NewCredentials(paths Paths) *Credentials {
 
 func (c *Credentials) Secure(ctx context.Context) string { return c.backend.Get(ctx) }
 
+func (c *Credentials) useFileSessionStore() bool {
+	if c == nil || runtime.GOOS == "windows" {
+		return false
+	}
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("AGY_SWAP_SESSION_STORE")))
+	if mode == "keychain" || mode == "os" {
+		return false
+	}
+	_, isOS := c.backend.(osCredentialBackend)
+	return isOS
+}
+
+func (c *Credentials) keyringMarkerPath() string {
+	if c == nil || c.paths.OAuthToken == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(c.paths.OAuthToken), "cache", "antigravity-keyring-unavailable")
+}
+
+// ensureKeyringBypassMarker maintains the antigravity-keyring-unavailable
+// marker with a far-future modification timestamp so Antigravity's
+// CompositeTokenStorage uses antigravity-oauth-token directly without invoking
+// /usr/bin/security or triggering macOS Keychain password dialogs.
+func (c *Credentials) ensureKeyringBypassMarker() {
+	if !c.useFileSessionStore() {
+		return
+	}
+	marker := c.keyringMarkerPath()
+	if marker == "" {
+		return
+	}
+	if err := ensurePrivateDir(filepath.Dir(marker)); err != nil {
+		return
+	}
+	if _, err := os.Stat(marker); err != nil {
+		_ = os.WriteFile(marker, []byte("file-session\n"), 0o600)
+	}
+	future := time.Now().Add(10 * 365 * 24 * time.Hour)
+	_ = os.Chtimes(marker, future, future)
+}
+
 func (c *Credentials) Current(ctx context.Context) string {
 	if token := c.readOAuthToken(); token != "" {
 		return token
+	}
+	if c.useFileSessionStore() {
+		return ""
 	}
 	return c.Secure(ctx)
 }
@@ -178,6 +226,10 @@ func (c *Credentials) applyUnlocked(ctx context.Context, tokenData, email string
 	if !tokenMatchesEmail(tokenData, email) {
 		return false
 	}
+	if c.useFileSessionStore() {
+		c.ensureKeyringBypassMarker()
+		return c.writeOAuthFiles(tokenData, email)
+	}
 	prepared := tokenData
 	requireSecure := false
 	if preparer, ok := c.backend.(sessionPreparer); ok {
@@ -247,6 +299,11 @@ func (c *Credentials) deleteOAuthFiles() bool {
 }
 
 func (c *Credentials) clearUnlocked(ctx context.Context) bool {
+	if c.useFileSessionStore() {
+		ok := c.deleteOAuthFiles()
+		c.ensureKeyringBypassMarker()
+		return ok && c.readOAuthToken() == ""
+	}
 	_ = c.Delete(ctx)
 	_ = c.deleteOAuthFiles()
 	return c.Secure(ctx) == "" && c.readOAuthToken() == ""

@@ -27,6 +27,23 @@ func AcquireFileLock(path string) (FileLock, error) {
 	return &posixFileLock{file: file}, nil
 }
 
+// TryAcquireFileLock attempts to obtain an exclusive non-blocking POSIX advisory lock.
+func TryAcquireFileLock(path string) (FileLock, error) {
+	if err := EnsurePrivateDir(filepathDir(path)); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	_ = file.Chmod(0o600)
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return &posixFileLock{file: file}, nil
+}
+
 func (l *posixFileLock) Close() error {
 	_ = unix.Flock(int(l.file.Fd()), unix.LOCK_UN)
 	return l.file.Close()

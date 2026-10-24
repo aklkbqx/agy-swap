@@ -31,6 +31,23 @@ func AcquireFileLock(path string) (FileLock, error) {
 	return lock, nil
 }
 
+// TryAcquireFileLock attempts to obtain an exclusive non-blocking file lock on Windows.
+func TryAcquireFileLock(path string) (FileLock, error) {
+	if err := EnsurePrivateDir(filepath.Dir(path)); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	lock := &winFileLock{file: file}
+	if err := windows.LockFileEx(windows.Handle(file.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &lock.overlapped); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return lock, nil
+}
+
 func (l *winFileLock) Close() error {
 	_ = windows.UnlockFileEx(windows.Handle(l.file.Fd()), 0, 1, 0, &l.overlapped)
 	return l.file.Close()
