@@ -426,6 +426,85 @@ func TestTheDialogButtonSlidesBetweenChoices(t *testing.T) {
 	}
 }
 
+func TestFrameIntervalRunsAtSixtyFPS(t *testing.T) {
+	if tuiFrameInterval > 16*time.Millisecond {
+		t.Fatalf("tuiFrameInterval = %v, want <= 16ms (~60 FPS)", tuiFrameInterval)
+	}
+	if frames := int(tuiMotionSlide / tuiFrameInterval); frames < 9 {
+		t.Fatalf("tuiMotionSlide (%v) at %v yields only %d frames, want >= 9", tuiMotionSlide, tuiFrameInterval, frames)
+	}
+}
+
+func TestTruecolorSelectionBandAntiAliasesFractionalRows(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("COLORTERM", "truecolor")
+	a, state := listApp()
+	a.p = makePalette(true)
+	render := func(d time.Duration) []string {
+		a.renderClock = func() time.Time { return poolNow.Add(d) }
+		return a.tuiAccountRowsSpaced(state, 60, 30, 2, true)
+	}
+	render(0)
+	state.selectedEmail = "c@example.invalid"
+	render(0)
+	mid := render(tuiMotionSlide / 7)
+	hasBlendedRow := false
+	for _, row := range mid {
+		if strings.HasPrefix(row, "\x1b[48;2;") && !strings.HasPrefix(row, a.p.SelectBg) && !strings.HasPrefix(row, a.p.BodyBg) {
+			hasBlendedRow = true
+			break
+		}
+	}
+	if !hasBlendedRow {
+		t.Fatalf("expected fractional edge row to blend between BodyBg and SelectBg during slide:\n%q", mid)
+	}
+}
+
+func TestTruecolorDialogSlidingButtonsAntiAliasFractionalColumns(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("COLORTERM", "truecolor")
+	a, state := listApp()
+	a.p = makePalette(true)
+	state.openDialog(confirmDialog("switch", "b@example.invalid", "Beta User"))
+	state.modalOpenedAt = time.Time{}
+	a.renderClock = func() time.Time { return poolNow }
+	a.tuiLines(state, 98, 30)
+	state.dialogKey("right")
+	hasBlendedCell := false
+	for step := 1; step <= 7; step++ {
+		d := time.Duration(step) * tuiMotionSlide / 8
+		a.renderClock = func() time.Time { return poolNow.Add(d) }
+		for _, line := range a.tuiLines(state, 98, 30) {
+			if strings.Contains(stripEscapes(line), "Cancel") && strings.Contains(stripEscapes(line), "Switch") {
+				for _, bg := range cellBackgrounds(line) {
+					if strings.HasPrefix(bg, "\x1b[48;2;") && bg != a.p.SelectBg && bg != a.p.BodyBg && bg != a.p.PanelBg {
+						hasBlendedCell = true
+					}
+				}
+			}
+		}
+	}
+	if !hasBlendedCell {
+		t.Fatal("expected sliding dialog button pill to anti-alias fractional boundary columns in truecolor")
+	}
+}
+
+func TestTruecolorMeterBlendsFractionalLeadingCell(t *testing.T) {
+	fill := "\x1b[38;2;52;211;153m"
+	track := "\x1b[38;2;55;62;71m"
+	bar := renderMeter(meterHalf, 0.33, 10, fill, track, "\x1b[0m")
+	// 0.33 of 10 cells is 3.3 cells: 3 full cells in fill, 1 fractional cell in a blended truecolor, 6 rail cells in track.
+	if got := visibleWidth(bar); got != 10 {
+		t.Fatalf("visibleWidth = %d, want 10", got)
+	}
+	stripped := strings.ReplaceAll(strings.ReplaceAll(bar, fill, ""), track, "")
+	if !strings.Contains(stripped, "\x1b[38;2;") {
+		t.Fatalf("expected fractional leading cell to use a blended truecolor code between track and fill: %q", bar)
+	}
+}
+
 // cellBackgrounds is the background code each column is drawn on.
 func cellBackgrounds(line string) []string {
 	var cells []string

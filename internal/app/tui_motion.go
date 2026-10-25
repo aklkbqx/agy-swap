@@ -14,7 +14,7 @@ import (
 // AGY_SWAP_REDUCED_MOTION=1 draws every end state at once.
 
 const (
-	tuiFrameInterval = 33 * time.Millisecond // about 30 frames a second while moving
+	tuiFrameInterval = 16 * time.Millisecond // about 60 frames a second while moving
 	tuiMotionSlide   = 150 * time.Millisecond
 	tuiMotionMeter   = 240 * time.Millisecond
 	tuiMotionModal   = 160 * time.Millisecond
@@ -28,7 +28,7 @@ const (
 	tuiCaretBlink    = 530 * time.Millisecond
 	tuiRefreshSweep  = 1100 * time.Millisecond // one pass of the light while a refresh runs
 	tuiBreathPeriod  = 3 * time.Second         // one breath of the active dot
-	tuiAmbientFrame  = 100 * time.Millisecond  // frames while only the dot breathes
+	tuiAmbientFrame  = 50 * time.Millisecond   // frames while only the dot breathes
 )
 
 type tuiTween struct {
@@ -198,20 +198,22 @@ func (a *Application) tuiRefreshSweep(state *tuiState, lines []string, width int
 		return lines
 	}
 	elapsed := max(0, now.Sub(state.refreshStartedAt))
-	levels := []float64{0.25, 0.6, 1, 0.6, 0.25}
-	shades := make([]string, len(levels))
-	for i, level := range levels {
-		shades[i] = lerpColor(a.p.BodyBg, a.p.KeyBg, level)
-	}
-	span := width + len(lines)/2 + len(levels)
-	head := int(float64(elapsed%tuiRefreshSweep)/float64(tuiRefreshSweep)*float64(span)) - len(levels)
+	const halfRadius = 3.0
+	span := float64(width) + float64(len(lines))*0.5 + 2*halfRadius
+	head := (float64(elapsed%tuiRefreshSweep)/float64(tuiRefreshSweep))*span - halfRadius
 	for i, line := range lines {
-		start := head - i/2
+		center := head - float64(i)*0.5
+		peakCol := int(math.Round(center))
 		lines[i] = tintColumns(line, func(col int) string {
-			if k := col - start; k >= 0 && k < len(shades) {
-				return shades[k]
+			if col == peakCol {
+				return a.p.KeyBg
 			}
-			return ""
+			dist := math.Abs(float64(col) - center)
+			if dist >= halfRadius {
+				return ""
+			}
+			level := 0.5 * (1 + math.Cos(math.Pi*dist/halfRadius))
+			return lerpColor(a.p.BodyBg, a.p.KeyBg, level)
 		})
 	}
 	return lines

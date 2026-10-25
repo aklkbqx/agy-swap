@@ -171,7 +171,19 @@ func (a *Application) tuiSlidingButtons(d *tuiDialog, chosen float64) string {
 	frac := chosen - float64(lo)
 	from := float64(starts[lo]) + float64(starts[hi]-starts[lo])*frac
 	to := from + float64(widths[lo]) + float64(widths[hi]-widths[lo])*frac
+	baseBg := a.p.BodyBg
+	truecolor := baseBg != "" && lerpColor(baseBg, a.p.SelectBg, 0.5) != a.p.SelectBg
 	return tintColumns(strings.Join(parts, "  "), func(c int) string {
+		if truecolor {
+			overlap := min(to, float64(c+1)) - max(from, float64(c))
+			if overlap >= 0.99 {
+				return a.p.SelectBg
+			}
+			if overlap > 0.01 {
+				return lerpColor(baseBg, a.p.SelectBg, overlap)
+			}
+			return ""
+		}
 		if float64(c) >= from-0.5 && float64(c) < to-0.5 {
 			return a.p.SelectBg
 		}

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // pointerRig drives tuiPointer the way the TUI loop does and records the keys
@@ -225,5 +226,69 @@ func TestTheMouseCanBeTurnedOff(t *testing.T) {
 	t.Setenv("AGY_SWAP_MOUSE", "")
 	if !tuiMouseEnabled() {
 		t.Fatal("the mouse is on by default")
+	}
+}
+
+func activeBgAtCol(line string, targetCol int) string {
+	col, bg := 0, ""
+	for len(line) > 0 {
+		if size := ansiPrefixLen(line); size > 0 {
+			code := line[:size]
+			switch {
+			case code == "\x1b[0m" || code == "\x1b[m" || code == "\x1b[49m":
+				bg = ""
+			case strings.HasPrefix(code, "\x1b[48;") || (len(code) == 5 && strings.HasPrefix(code, "\x1b[4")):
+				bg = code
+			}
+			line = line[size:]
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(line)
+		if col == targetCol {
+			return bg
+		}
+		col += terminalRuneWidth(r)
+		line = line[size:]
+	}
+	return bg
+}
+
+func TestHoverHasTopBottomAndRightPaddingWithoutOverflowingIntoDivider(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("COLORTERM", "truecolor")
+	r := wideRig()
+	r.a.p = makePalette(true)
+	r.draw()
+	leftWidth := r.state.bodySplit - 4
+	bodyEnd := r.state.bodyTop + newTUIGeometry(r.state.width-2-tuiRails, r.state.height).bodyRows
+	for _, email := range []string{"a@example.invalid", "c@example.invalid"} {
+		hit := r.find(t, hitAccount, email)
+		r.at("move", hit.top, hit.left+3)
+		lines := r.draw()
+		var hovered []int
+		for i := r.state.bodyTop; i < bodyEnd; i++ {
+			if strings.Contains(lines[i], "\x1b[49m") {
+				t.Fatalf("row %d for %s leaked default background \\x1b[49m into body line: %q", i, email, lines[i])
+			}
+			if activeBgAtCol(lines[i], 3) == r.a.p.BarBg {
+				hovered = append(hovered, i)
+				if got := activeBgAtCol(lines[i], 3+leftWidth-1); got != r.a.p.BarBg {
+					t.Fatalf("row %d for %s missing BarBg at right edge of card: got %q", i, email, got)
+				}
+				plain := []rune(stripEscapes(lines[i]))
+				if plain[3+leftWidth-1] != ' ' || plain[3+leftWidth-2] != ' ' {
+					t.Fatalf("row %d for %s missing 2 columns of right padding inside hover box: %q", i, email, string(plain[3:3+leftWidth]))
+				}
+			}
+			for gapCol := 3 + leftWidth; gapCol <= 3+leftWidth+2; gapCol++ {
+				if got := activeBgAtCol(lines[i], gapCol); got != r.a.p.BodyBg {
+					t.Fatalf("row %d col %d for %s overflowed background %q into divider gap (want BodyBg %q)", i, gapCol, email, got, r.a.p.BodyBg)
+				}
+			}
+		}
+		if len(hovered) != 4 || hovered[3]-hovered[0] != 3 {
+			t.Fatalf("hovered rows for %s = %v, want 4 contiguous rows (top pad, 2 lines, bottom pad)", email, hovered)
+		}
 	}
 }

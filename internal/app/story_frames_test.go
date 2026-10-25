@@ -13,8 +13,9 @@ import (
 )
 
 type storyFrameSet struct {
-	Version string                         `json:"version"`
-	Frames  map[string]map[string][]string `json:"frames"`
+	Version     string                         `json:"version"`
+	Frames      map[string]map[string][]string `json:"frames"`
+	Transitions map[string]map[string][]string `json:"transitions,omitempty"`
 }
 
 func TestSiteStoryFramesTerminalEnvironment(t *testing.T) {
@@ -78,9 +79,21 @@ func TestSiteStoryFrames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	frames := storyFrameSet{Version: manifest.Version, Frames: map[string]map[string][]string{}}
+	frames := storyFrameSet{
+		Version:     manifest.Version,
+		Frames:      map[string]map[string][]string{},
+		Transitions: map[string]map[string][]string{},
+	}
+	transitionOffsets := []time.Duration{
+		16 * time.Millisecond,
+		48 * time.Millisecond,
+		90 * time.Millisecond,
+		140 * time.Millisecond,
+		195 * time.Millisecond,
+	}
 	for _, scene := range []string{"hero", "accounts", "quota", "switch"} {
 		frames.Frames[scene] = map[string][]string{}
+		frames.Transitions[scene] = map[string][]string{}
 		for layout, size := range map[string]struct{ width, height int }{
 			"desktop": {120, 34},
 			"tablet":  {80, 24},
@@ -88,6 +101,7 @@ func TestSiteStoryFrames(t *testing.T) {
 			"mobile":  {48, 24},
 			"narrow":  {40, 24},
 		} {
+			application.renderClock = func() time.Time { return clock }
 			state := newTUIState(accounts, application.credentials.Current(context.Background()))
 			state.motionEnabled = false
 			switch scene {
@@ -113,6 +127,50 @@ func TestSiteStoryFrames(t *testing.T) {
 				}
 			}
 			frames.Frames[scene][layout] = lines
+
+			// Build deterministic transition diff patches from the preceding beat.
+			animState := newTUIState(accounts, application.credentials.Current(context.Background()))
+			animState.motionEnabled = true
+			animState.startedAt = time.Time{}
+			switch scene {
+			case "hero":
+				animState.selectedEmail = "beta@example.invalid"
+			case "accounts":
+				animState.selectedEmail = "alpha@example.invalid"
+			case "quota":
+				animState.selectedEmail = "beta@example.invalid"
+			case "switch":
+				animState.selectedEmail = "gamma@example.invalid"
+			}
+			application.renderClock = func() time.Time { return clock }
+			_ = application.tuiLines(animState, size.width-2, size.height)
+			switch scene {
+			case "hero":
+				animState.selectedEmail = "alpha@example.invalid"
+			case "accounts":
+				animState.selectedEmail = "beta@example.invalid"
+			case "quota":
+				animState.selectedEmail = "gamma@example.invalid"
+			case "switch":
+				animState.selectedEmail = "beta@example.invalid"
+				animState.active = "beta@example.invalid"
+				animState.showToast("Switched to beta@example.invalid", "success")
+				animState.toastShownAt = clock
+				animState.toastUntil = time.Time{}
+			}
+			// Prime tweens at t=0 before sampling the 60fps ease steps.
+			application.renderClock = func() time.Time { return clock }
+			prev := application.tuiLines(animState, size.width-2, size.height)
+			patches := make([]string, 0, len(transitionOffsets)+1)
+			patches = append(patches, tuiPaintDiff(lines, prev, size.width))
+			for _, d := range transitionOffsets[:len(transitionOffsets)-1] {
+				application.renderClock = func() time.Time { return clock.Add(d) }
+				stepLines := application.tuiLines(animState, size.width-2, size.height)
+				patches = append(patches, tuiPaintDiff(prev, stepLines, size.width))
+				prev = stepLines
+			}
+			patches = append(patches, tuiPaintDiff(prev, lines, size.width))
+			frames.Transitions[scene][layout] = patches
 		}
 	}
 	data, err := json.MarshalIndent(frames, "", "  ")

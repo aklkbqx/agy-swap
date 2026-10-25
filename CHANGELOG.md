@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.17.2
+
+### Changes
+
+- TUI: motion runs at 60 FPS (`16ms` per frame while moving, `50ms` while idle) instead of 30 FPS (`33ms`), doubling the frame count of selection slides, meter sweeps, modal openings, toasts, and view transitions while stopping the timer immediately once settled (#82).
+- TUI: truecolor sub-cell anti-aliasing (`lerpColor`) blends fractional edge rows of the selection band (`tuiSelectionBand` / `tuiBandRowAlpha`), fractional boundary columns of sliding dialog buttons (`tuiSlidingButtons`), the leading half-cell of quota meters (`renderMeter`), and the continuous cosine light wave during manual refreshes (`tuiRefreshSweep`) so motion glides smoothly across the character grid instead of snapping by whole rows or columns (#82).
+- Site: the pinned story terminal exports multi-frame ANSI diff transition sequences (`transitions` in `tui-story-frames.json`) and plays them in `TuiStoryFrame` when a beat becomes active, while honouring `prefers-reduced-motion` (#82).
+
+### Fixes
+
+- TUI: hovering an unselected account now tints a full 4-row card (1 top padding row, 2 content rows, 1 bottom padding row) with 2 columns of right padding (`tuiHoverRow`), and body rows replace `\x1b[49m` with `BodyBg` so the hover highlight never leaks the terminal default background into the divider gap (#82).
+
 ## 2.17.1
 
 ### Fixes
