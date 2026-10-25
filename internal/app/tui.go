@@ -233,7 +233,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			}
 			return
 		}
-		interval := 80 * time.Millisecond
+		interval := 50 * time.Millisecond
 		switch {
 		case moving:
 			interval = tuiFrameInterval

@@ -34,6 +34,36 @@ func renderMeter(style meterStyle, fraction float64, width int, fill, track, res
 	if style == meterLine {
 		full, halves, rail = "━", "╸", "─"
 	}
+	if fill != "" && track != "" && lerpColor(track, fill, 0.5) != fill {
+		exact := fraction * float64(width)
+		whole := int(math.Floor(exact))
+		rem := exact - float64(whole)
+		if rem >= 0.995 && whole < width {
+			whole, rem = whole+1, 0
+		}
+		var b strings.Builder
+		if whole > 0 {
+			b.WriteString(fill)
+			b.WriteString(strings.Repeat(full, whole))
+		}
+		used := whole
+		if rem > 0.005 && used < width {
+			if rem < 0.5 {
+				b.WriteString(lerpColor(track, fill, 0.35+rem*1.3))
+				b.WriteString(halves)
+			} else {
+				b.WriteString(lerpColor(track, fill, rem))
+				b.WriteString(full)
+			}
+			used++
+		}
+		if rest := width - used; rest > 0 {
+			b.WriteString(track)
+			b.WriteString(strings.Repeat(rail, rest))
+		}
+		b.WriteString(reset)
+		return b.String()
+	}
 	cells := int(math.Round(fraction * float64(width) * 2))
 	whole, half := cells/2, cells%2
 	var b strings.Builder

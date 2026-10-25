@@ -62,9 +62,13 @@ func (a *Application) tuiPoolMeters(pools []poolView, labels meterLabels, barWid
 // tuiAccountBlock is one account in the list: an identity line with the status
 // word on the right, then (in two-line mode) the pool meters.
 func (a *Application) tuiAccountBlock(view tuiAccountView, state *tuiState, width, lines int) []string {
-	// The last column stays empty: air on the right inside the selection tint.
+	// The last columns stay empty: air on the right inside the selection and hover tints.
 	full := maxInt(1, width)
-	width = maxInt(1, full-1)
+	padRight := 1
+	if full >= 36 {
+		padRight = 2
+	}
+	width = maxInt(1, full-padRight)
 	tag := "" // the name says who it is; initials would only repeat it
 	name, activeWord := a.tuiActiveName(view)
 	if activeWord != "" {
@@ -212,9 +216,24 @@ func (a *Application) tuiListRows(state *tuiState, width, maxRows, listLines int
 	}
 	if commit && a.p.BarBg != "" && state.hover.kind == hitAccount && !strings.EqualFold(state.hover.key, state.selectedEmail) {
 		// The account under the pointer gets a faint tint: a click selects it.
+		hTop, hEnd := -1, -1
 		for i, email := range hits {
 			if strings.EqualFold(email, state.hover.key) {
-				rows[i] = tintColumns(rows[i], func(int) string { return a.p.BarBg })
+				if hTop < 0 {
+					hTop = i
+				}
+				hEnd = i + 1
+			}
+		}
+		if hTop >= 0 {
+			if listLines == 2 && hTop > 0 && hits[hTop-1] == "" && strings.TrimSpace(stripEscapes(rows[hTop-1])) == "" {
+				hTop--
+			}
+			if listLines == 2 && hEnd < len(rows) && hits[hEnd] == "" && strings.TrimSpace(stripEscapes(rows[hEnd])) == "" {
+				hEnd++
+			}
+			for i := hTop; i < hEnd; i++ {
+				rows[i] = a.tuiHoverRow(rows[i], width)
 			}
 		}
 	}
@@ -320,7 +339,19 @@ func (a *Application) tuiSelectionBand(state *tuiState, rows, hits []string, wid
 		state.settle("selection", float64(top))
 	}
 	state.bandEmail = state.selectedEmail
-	at := int(state.follow("selection", float64(top), tuiMotionSlide, now) + 0.5)
+	pos := state.follow("selection", float64(top), tuiMotionSlide, now)
+	if a.p.BodyBg != "" && lerpColor(a.p.BodyBg, a.p.SelectBg, 0.5) != a.p.SelectBg {
+		for i := range rows {
+			overlap := min(pos+float64(height), float64(i+1)) - max(pos, float64(i))
+			if overlap >= 0.99 {
+				rows[i] = a.tuiBandRow(rows[i], width)
+			} else if overlap > 0.01 {
+				rows[i] = a.tuiBandRowAlpha(rows[i], width, overlap)
+			}
+		}
+		return
+	}
+	at := int(pos + 0.5)
 	for i := max(0, at); i < min(len(rows), at+height); i++ {
 		rows[i] = a.tuiBandRow(rows[i], width)
 	}
@@ -329,8 +360,25 @@ func (a *Application) tuiSelectionBand(state *tuiState, rows, hits []string, wid
 // tuiBandRow is one row under the selection band: the tint behind it and the
 // selection bar in its first column.
 func (a *Application) tuiBandRow(row string, width int) string {
-	rest := strings.ReplaceAll(visibleSpan(row, 1, width), a.p.Reset, a.p.Reset+a.p.SelectBg)
-	return a.p.SelectBg + a.p.Orange + tuiSelectionBar + a.p.Reset + a.p.SelectBg + rest + a.p.Reset
+	return a.tuiBandRowAlpha(row, width, 1)
+}
+
+func (a *Application) tuiBandRowAlpha(row string, width int, alpha float64) string {
+	bg := a.p.SelectBg
+	barColor := a.p.Orange
+	if alpha < 1 && a.p.BodyBg != "" {
+		bg = lerpColor(a.p.BodyBg, a.p.SelectBg, alpha)
+		barColor = lerpColor(tuiAsForeground(a.p.BodyBg), a.p.Orange, alpha)
+	}
+	rest := strings.ReplaceAll(visibleSpan(row, 1, width), a.p.Reset, a.p.Reset+bg)
+	return bg + barColor + tuiSelectionBar + a.p.Reset + bg + rest + a.p.Reset
+}
+
+func (a *Application) tuiHoverRow(row string, width int) string {
+	bg := a.p.BarBg
+	padded := fitVisible(row, width, a.p)
+	rest := strings.ReplaceAll(visibleSpan(padded, 0, width), a.p.Reset, a.p.Reset+bg)
+	return bg + rest + a.p.Reset
 }
 
 func pick2(condition bool, yes, no int) int {

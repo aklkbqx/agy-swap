@@ -215,6 +215,7 @@ func (a *Application) tuiLines(state *tuiState, width, height int) []string {
 		bar := i < state.bodyTop || i >= footerStart
 		if a.p.BodyBg != "" && i < footerStart && (!bar || modal) {
 			// The body is black edge to edge: every reset hands back to it.
+			line = strings.ReplaceAll(line, "\x1b[49m", a.p.BodyBg)
 			line = a.p.BodyBg + strings.ReplaceAll(line, a.p.Reset, a.p.Reset+a.p.BodyBg) + a.p.Reset
 		}
 		switch {

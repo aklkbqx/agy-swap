@@ -129,7 +129,14 @@ func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLa
 	if len(rows) == 0 {
 		rows = a.tuiEmptyListRows(state, g.leftWidth, available-len(list))
 	}
+	hoverUnselected := plan.listLines == 2 && a.p.BarBg != "" && state != nil && state.hover.kind == hitAccount && state.hover.key != "" && !strings.EqualFold(state.hover.key, state.selectedEmail)
+	if hoverUnselected && len(hits) > 0 && strings.EqualFold(hits[0], state.hover.key) {
+		list[len(list)-1] = a.tuiHoverRow("", g.leftWidth)
+	}
 	list = append(list, rows...)
+	if hoverUnselected && len(hits) > 0 && strings.EqualFold(hits[len(hits)-1], state.hover.key) && len(list) < available {
+		list = append(list, a.tuiHoverRow("", g.leftWidth))
+	}
 	plan = a.tuiFitPlan(state, g.rightWidth, available, plan)
 	details := a.tuiScrollDetail(state, a.tuiGaugeDetail(state, g.rightWidth, available, plan), available, g.rightWidth, func(width int) []string {
 		return a.tuiGaugeDetail(state, width, available, plan)
@@ -245,10 +252,14 @@ func (a *Application) tuiPoolColumnBody(state *tuiState, g tuiGeometry, plan tui
 			})
 		}
 	}
+	hoverUnselected := plan.listLines == 2 && a.p.BarBg != "" && state != nil && state.hover.kind == hitAccount && state.hover.key != "" && !strings.EqualFold(state.hover.key, state.selectedEmail)
 	if shown, hits := a.tuiAccountRowsHits(state, g.contentWidth, listBudget, plan.listLines, true); len(shown) > 0 {
 		list = shown
 		state.listHits, state.listFirstRow = hits, len(lines)
 		state.addAccountHits(hits, state.bodyTop+len(lines), 2, 2+g.contentWidth)
+		if hoverUnselected && air && strings.EqualFold(hits[0], state.hover.key) {
+			lines[len(lines)-1] = frameRow(a.tuiHoverRow("", g.contentWidth), g, a.p)
+		}
 	}
 	listEnd := len(lines) + listBudget
 	state.addScrollHits("list", state.bodyTop+len(lines), state.bodyTop+minInt(listEnd, len(lines)+len(list)), 0, g.frameWidth, 1+g.contentWidth)
@@ -258,12 +269,21 @@ func (a *Application) tuiPoolColumnBody(state *tuiState, g tuiGeometry, plan tui
 		}
 		lines = append(lines, frameRow(row, g, a.p))
 	}
+	hoverBottomNext := hoverUnselected && len(state.listHits) > 0 && strings.EqualFold(state.listHits[len(state.listHits)-1], state.hover.key)
 	if detailBudget > 0 && len(lines) < g.bodyRows {
 		for len(lines) < listEnd {
-			lines = append(lines, frameRow("", g, a.p)) // the list ends above a lowered rule
+			row := ""
+			if hoverBottomNext {
+				row, hoverBottomNext = a.tuiHoverRow("", g.contentWidth), false
+			}
+			lines = append(lines, frameRow(row, g, a.p)) // the list ends above a lowered rule
 		}
 		if air {
-			lines = append(lines, frameRow("", g, a.p))
+			row := ""
+			if hoverBottomNext {
+				row = a.tuiHoverRow("", g.contentWidth)
+			}
+			lines = append(lines, frameRow(row, g, a.p))
 		}
 		state.stackRule = len(lines)
 		state.addHit(tuiHit{kind: hitRule, top: state.bodyTop + len(lines), bottom: state.bodyTop + len(lines) + 1, left: 0, right: g.frameWidth})
