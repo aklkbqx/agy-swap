@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.18.2
+
+### Changes
+
+- Site: `usePageScroll` (`src/nav/pageScroll.js`) mounted in `SiteNav` adds frame-rate-independent exponential smooth scrolling across every page (`/` and `/install`) for mouse wheel, trackpad, keyboard navigation (`ArrowUp`/`ArrowDown`/`PageUp`/`PageDown`/`Space`/`Home`/`End`), in-page hash links (`#beat0..#beat3`, `#commands`, `#safety`, `#install`, `#main-content`, `#choose`, `#first-run`), and cross-page hash arrivals (`/install` -> `/#commands`), while preserving `prefers-reduced-motion: reduce` and nested scrollable containers.
+- Site: `/install` adds anchor sections (`#choose`, `#first-run`) with sticky nav clearance (`scroll-margin-top: var(--nav-clearance)`) and scroll-linked reveal animations matching the home page.
+
 ## 2.18.1
 
 ### Fixes
