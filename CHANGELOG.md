@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.18.1
+
+### Fixes
+
+- TUI & Site: `TestSiteStoryFrames` now exports the native 24-bit truecolor palette (`BarBg #1c2128`, `BodyBg #0a0c10`, `SelectBg #2d333b`, `KeyBg #373e47`) and truecolor sub-cell `lerpColor` transition patches instead of the 8-bit 256-color fallback (#86).
+- Site: `TuiStoryFrame` renders with `Menlo`, `lineHeight: 1`, welded block digits (`43`, `0`) and card left borders (`▌`), and in-place beat switching without vertical cross-fade ghosting so the web terminal matches the native Go TUI 100%, alongside an updated `og-panorama.png` social preview (#86).
+
 ## 2.18.0
 
 ### Changes

@@ -53,7 +53,7 @@ func TestSiteStoryFramesTerminalEnvironment(t *testing.T) {
 func TestSiteStoryFrames(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
 	t.Setenv("TERM", "xterm-256color")
-	t.Setenv("COLORTERM", "")
+	t.Setenv("COLORTERM", "truecolor")
 	siteDir := filepath.Join("..", "..", "site")
 	packageData, err := os.ReadFile(filepath.Join(siteDir, "package.json"))
 	if err != nil {
