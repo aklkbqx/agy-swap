@@ -29,6 +29,9 @@ func (a *Application) cmdTarget(opts extendedOptions, positional []string) int {
 				continue
 			}
 			_, lookErr := exec.LookPath(builtin)
+			if lookErr != nil && builtin == "agy" && a.resolveAgyExecutable() != "" {
+				lookErr = nil
+			}
 			data = append(data, map[string]any{"name": builtin, "command": builtin, "enabled": true, "available": lookErr == nil, "experimental": true})
 		}
 		sort.Slice(data, func(i, j int) bool { return fmt.Sprint(data[i]["name"]) < fmt.Sprint(data[j]["name"]) })
@@ -49,6 +52,11 @@ func (a *Application) cmdTarget(opts extendedOptions, positional []string) int {
 			target = TargetConfig{Command: name}
 		}
 		path, lookErr := exec.LookPath(target.Command)
+		if lookErr != nil && name == "agy" {
+			if resolved := a.resolveAgyExecutable(); resolved != "" {
+				path, lookErr = resolved, nil
+			}
+		}
 		data := map[string]any{"name": name, "command": target.Command, "available": lookErr == nil, "path": path}
 		if opts.JSON {
 			return a.extendedResult("target check", opts, data, nil)

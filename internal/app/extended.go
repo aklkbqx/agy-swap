@@ -23,6 +23,7 @@ type extendedOptions struct {
 	PassphraseStdin bool
 	Passphrase      string
 	Output          string
+	Dir             string
 	Account         string
 	Target          string
 	Profile         string
@@ -44,12 +45,12 @@ func isExtendedCommand(argv []string) bool {
 		if arg == "--json" || arg == "--force" || arg == "--refresh" || arg == "--once" || arg == "--apply" || arg == "--merge" || arg == "--include-secrets" || arg == "--passphrase-stdin" {
 			continue
 		}
-		if strings.HasPrefix(arg, "--") {
+		if strings.HasPrefix(arg, "--") || arg == "-d" {
 			i++
 			continue
 		}
 		switch arg {
-		case "doctor", "config", "alias", "tag", "profile", "bind", "unbind", "recommend", "statusline", "watch", "history", "stats", "forecast", "backup", "metrics", "completion", "account", "target", "run":
+		case "doctor", "config", "alias", "tag", "profile", "bind", "unbind", "recommend", "statusline", "watch", "history", "stats", "forecast", "backup", "metrics", "completion", "account", "target", "run", "install-agy", "install", "agy":
 			return true
 		default:
 			return false
@@ -104,6 +105,12 @@ func parseExtended(argv []string) (string, extendedOptions, []string, error) {
 				return "", opts, nil, err
 			}
 			opts.Output = value
+		case "--dir", "-d":
+			value, err := take()
+			if err != nil {
+				return "", opts, nil, err
+			}
+			opts.Dir = value
 		case "--account":
 			value, err := take()
 			if err != nil {
@@ -224,7 +231,7 @@ func normalizeExtendedArgv(argv []string) []string {
 
 func extendedOptionTakesValue(arg string) bool {
 	switch arg {
-	case "--passphrase", "--output", "--account", "--target", "--profile", "--family", "--tag", "--mode", "--interval", "--limit", "--threshold", "--policy", "--reserve":
+	case "--passphrase", "--output", "--dir", "-d", "--account", "--target", "--profile", "--family", "--tag", "--mode", "--interval", "--limit", "--threshold", "--policy", "--reserve":
 		return true
 	default:
 		return false
@@ -311,6 +318,8 @@ func (a *Application) runExtended(ctx context.Context, argv []string) int {
 		code = a.cmdTarget(opts, positional)
 	case "run":
 		code = a.cmdRunNow(ctx, opts, positional)
+	case "install-agy", "install", "agy":
+		code = a.cmdInstallAgy(ctx, opts, positional)
 	default:
 		return a.extendedError(command, opts, fmt.Errorf("unknown command %q", command))
 	}
@@ -422,7 +431,7 @@ func (a *Application) cmdAccount(ctx context.Context, opts extendedOptions, posi
 		if !opts.Force {
 			return a.extendedError("account migrate", opts, errors.New("migration changes token storage; rerun with --force"))
 		}
-		migrated, skipped := 0, 0
+		migrated, skipped, remaining := 0, 0, 0
 		var replaced []string
 		for _, email := range accounts.Order {
 			account := accounts.ByEmail[email]
@@ -434,6 +443,7 @@ func (a *Application) cmdAccount(ctx context.Context, opts extendedOptions, posi
 			old, ok := a.saveAccountSecret(ctx, account, token)
 			if !ok {
 				skipped++
+				remaining++
 				continue
 			}
 			migrated++
@@ -445,11 +455,11 @@ func (a *Application) cmdAccount(ctx context.Context, opts extendedOptions, posi
 			return a.extendedError("account migrate", opts, err)
 		}
 		a.deleteReplacedSecrets(ctx, replaced)
-		data := map[string]any{"migrated": migrated, "skipped": skipped, "remaining_plaintext": skipped}
+		data := map[string]any{"migrated": migrated, "skipped": skipped, "remaining_plaintext": remaining}
 		if opts.JSON {
 			return a.extendedResult("account migrate", opts, data, nil)
 		}
-		fmt.Fprintf(a.Out, "Migrated %d account(s); %d remain in legacy storage.\n", migrated, skipped)
+		fmt.Fprintf(a.Out, "Migrated %d account(s); %d remain in legacy storage.\n", migrated, remaining)
 		return 0
 	default:
 		return a.extendedError("account", opts, fmt.Errorf("unknown subcommand %q", sub))

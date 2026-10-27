@@ -47,7 +47,7 @@ Requirements: Go 1.27.3 or later. macOS source builds require Xcode Command Line
 ```bash
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-go build -trimpath -ldflags "-s -w -X main.version=2.17.2 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.18.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ./agy-swap version
 ```
 
@@ -63,9 +63,10 @@ You can also use `go install` or build from source as shown above.
 
 ## First run
 
-1. Run `agy-swap add` and complete the browser sign-in to save an account.
-2. Run `agy-swap` to open the terminal view. Check the active account and quota snapshot before switching.
-3. Select an account, press Enter and choose Switch to update the shared local Antigravity session. Processes already running may need to reload credentials.
+1. If you do not have the Google Antigravity CLI (`agy`) installed yet, run `agy-swap install-agy` (or let `agy-swap add` offer to install it for you).
+2. Run `agy-swap add` and complete the browser sign-in to save an account.
+3. Run `agy-swap` to open the terminal view. Check the active account and quota snapshot before switching.
+4. Select an account, press Enter and choose Switch to update the shared local Antigravity session. Processes already running may need to reload credentials.
 
 ## Using the terminal UI
 
@@ -125,6 +126,7 @@ Every TUI action is also a command, so you can script it.
 | `profile` / `bind` | Define profiles and bind directories to them |
 | `recommend` | Explain which account is safest to use now |
 | `run now` | Launch the configured CLI with the right account |
+| `install-agy` | Download and install the Google Antigravity CLI (`agy`), checking its SHA-512 checksum |
 | `doctor` | Check storage, credentials, vault, and platform readiness |
 | `statusline` | Render or install a statusline for your prompt |
 | `backup` | Export or import accounts |
@@ -214,6 +216,10 @@ agy-swap statusline render < statusline.json
 
 # Print a local Prometheus-compatible metrics snapshot (no HTTP server)
 agy-swap metrics prometheus
+
+# Install or update the Google Antigravity CLI (optionally into a custom directory)
+agy-swap install-agy
+agy-swap install-agy --dir ~/.local/custom-bin
 
 # Run Antigravity CLI immediately after verifying session
 agy-swap run now

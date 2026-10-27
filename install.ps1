@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
 
-if ([string]::IsNullOrWhiteSpace($Version)) { $Version = '2.17.2' }
+if ([string]::IsNullOrWhiteSpace($Version)) { $Version = '2.18.0' }
 if ([string]::IsNullOrWhiteSpace($TargetDir)) { $TargetDir = Join-Path $env:LOCALAPPDATA 'Programs\agy-swap' }
 
 $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
@@ -68,11 +68,30 @@ try {
   Write-Host "  [ok] Installed binary to $target" -ForegroundColor Green
 
   $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-  if ($userPath -split ';' -notcontains $TargetDir) {
-    Write-Host "`nNote: $TargetDir is not in your user PATH." -ForegroundColor Yellow
-    Write-Host "To add it permanently, run:" -ForegroundColor Yellow
-    Write-Host "  [Environment]::SetEnvironmentVariable('Path', `"`$userPath;$TargetDir`", 'User')" -ForegroundColor Cyan
+  if ([string]::IsNullOrWhiteSpace($userPath)) {
+    [Environment]::SetEnvironmentVariable('Path', $TargetDir, 'User')
+    Write-Host "  [ok] Added $TargetDir to user PATH" -ForegroundColor Green
+  } elseif (($userPath -split ';') -notcontains $TargetDir) {
+    [Environment]::SetEnvironmentVariable('Path', "$TargetDir;$userPath", 'User')
+    Write-Host "  [ok] Added $TargetDir to user PATH" -ForegroundColor Green
   }
+  if (($env:Path -split ';') -notcontains $TargetDir) {
+    $env:Path = "$TargetDir;$env:Path"
+  }
+
+  $existingCmds = @(Get-Command agy-swap.exe -All -ErrorAction SilentlyContinue)
+  foreach ($cmd in $existingCmds) {
+    if ($cmd.Source -and ($cmd.Source -ne $target) -and (Test-Path $cmd.Source)) {
+      try {
+        Remove-Item $cmd.Source -Force -ErrorAction Stop
+        Write-Host "  [ok] Removed shadowed binary at $($cmd.Source)" -ForegroundColor Yellow
+      } catch {
+        Write-Host "  [warn] Another agy-swap.exe exists at $($cmd.Source) and could not be removed" -ForegroundColor Yellow
+      }
+    }
+  }
+
+  try { & $target --sync-session *> $null } catch {}
 
   Write-Host "`nInstallation complete! Run 'agy-swap' to launch the interactive manager.`n" -ForegroundColor Green
 } catch {

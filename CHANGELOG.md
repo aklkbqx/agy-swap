@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.18.0
+
+### Changes
+
+- CLI & TUI: `agy-swap install-agy` (also reachable from the TUI Command Palette under `System` or when `agy-swap add` detects no installed `agy`) downloads and installs the official Google Antigravity CLI (`agy`) for the current OS and architecture (`darwin`, `linux`, `windows`, `amd64`/`arm64`), verifies its SHA-512 checksum before extracting, runs `agy install`, and applies the `agy-swap` session launcher guard (#85).
+- Custom installation paths: `agy-swap install-agy --dir <path>` installs `agy` into a custom directory and saves it in `settings.json` (`targets.agy`). `add`, `run now`, `target list`, `target check`, and the session launcher guard resolve `AGY_SWAP_AGY_BIN`, `settings.targets.agy`, `PATH`, and standard per-OS locations (`~/.local/bin`, `~/.local/libexec`, `/opt/homebrew/bin`, `/usr/local/bin`, `%LOCALAPPDATA%\agy\bin`), and preserve relative or external symlinks without breaking them (#85).
+
+### Fixes
+
+- Windows: when switching accounts or clearing sessions in a passwordless SSH logon session where Windows Credential Manager returns `ERROR_NO_SUCH_LOGON_SESSION` (`1312`), `agy-swap` now writes the keyring-bypass marker (`cache/antigravity-keyring-unavailable`) and falls back to the `0600` OAuth token files instead of failing (#85).
+- Windows installer (`install.ps1`): automatically adds the installation directory to the user `Path`, removes stale duplicate `agy-swap.exe` binaries from earlier `PATH` entries so upgrades are never shadowed, and runs `--sync-session` after installation (#85).
+- `agy-swap account migrate --force`: accounts already stored in `vault.json` are no longer counted as `remain in legacy storage` (#85).
+
 ## 2.17.2
 
 ### Changes

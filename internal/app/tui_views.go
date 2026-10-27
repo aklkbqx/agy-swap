@@ -68,6 +68,7 @@ func tuiActions(state *tuiState) []tuiAction {
 		{ID: "split-reset", Label: "Reset pane split", Description: "Reset layout split to default width", Shortcut: "=", Section: "Layout", Enabled: true},
 		{ID: "update-check", Label: "Check for update", Description: "See whether a matching release asset is available", Shortcut: "", Section: "System", Enabled: true},
 		{ID: "update", Label: "Install latest update", Description: "Download, verify, and install the latest release", Shortcut: "u", Section: "System", Enabled: true},
+		{ID: "install-agy", Label: "Install Antigravity CLI", Description: "Download, verify, and install the official agy CLI", Shortcut: "", Section: "System", Enabled: true},
 		{ID: "quit", Label: "Quit", Description: "Close the interactive console", Shortcut: "q", Section: "System", Enabled: true},
 	}
 }

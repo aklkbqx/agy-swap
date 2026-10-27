@@ -666,6 +666,8 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			suspend(func() int { return a.cmdUpdate(ctx, cliArgs{updateCheck: true}) })
 		case "update":
 			openConfirm("update", "")
+		case "install-agy":
+			suspend(func() int { return a.cmdInstallAgy(ctx, extendedOptions{}, nil) })
 		case "add-account":
 			setView(tuiViewDashboard)
 			runAddAccount()

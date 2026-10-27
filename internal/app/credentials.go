@@ -25,6 +25,10 @@ type sessionPreparer interface {
 	PrepareSession(string) (string, error)
 }
 
+type headlessSessionBackend interface {
+	NoLogonSession() bool
+}
+
 type osCredentialBackend struct{}
 
 func (osCredentialBackend) Get(ctx context.Context) string { return platformCredentialGet(ctx) }
@@ -45,7 +49,7 @@ func NewCredentials(paths Paths) *Credentials {
 func (c *Credentials) Secure(ctx context.Context) string { return c.backend.Get(ctx) }
 
 func (c *Credentials) useFileSessionStore() bool {
-	if c == nil || runtime.GOOS == "windows" {
+	if c == nil {
 		return false
 	}
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("AGY_SWAP_SESSION_STORE")))
@@ -53,7 +57,13 @@ func (c *Credentials) useFileSessionStore() bool {
 		return false
 	}
 	_, isOS := c.backend.(osCredentialBackend)
-	return isOS
+	if !isOS {
+		return false
+	}
+	if mode == "file" {
+		return true
+	}
+	return runtime.GOOS != "windows"
 }
 
 func (c *Credentials) keyringMarkerPath() string {
@@ -63,14 +73,7 @@ func (c *Credentials) keyringMarkerPath() string {
 	return filepath.Join(filepath.Dir(c.paths.OAuthToken), "cache", "antigravity-keyring-unavailable")
 }
 
-// ensureKeyringBypassMarker maintains the antigravity-keyring-unavailable
-// marker with a far-future modification timestamp so Antigravity's
-// CompositeTokenStorage uses antigravity-oauth-token directly without invoking
-// /usr/bin/security or triggering macOS Keychain password dialogs.
-func (c *Credentials) ensureKeyringBypassMarker() {
-	if !c.useFileSessionStore() {
-		return
-	}
+func (c *Credentials) writeKeyringBypassMarker() {
 	marker := c.keyringMarkerPath()
 	if marker == "" {
 		return
@@ -83,6 +86,17 @@ func (c *Credentials) ensureKeyringBypassMarker() {
 	}
 	future := time.Now().Add(10 * 365 * 24 * time.Hour)
 	_ = os.Chtimes(marker, future, future)
+}
+
+// ensureKeyringBypassMarker maintains the antigravity-keyring-unavailable
+// marker with a far-future modification timestamp so Antigravity's
+// CompositeTokenStorage uses antigravity-oauth-token directly without invoking
+// /usr/bin/security or triggering macOS Keychain password dialogs.
+func (c *Credentials) ensureKeyringBypassMarker() {
+	if !c.useFileSessionStore() {
+		return
+	}
+	c.writeKeyringBypassMarker()
 }
 
 func (c *Credentials) Current(ctx context.Context) string {
@@ -258,6 +272,10 @@ func (c *Credentials) applyUnlocked(ctx context.Context, tokenData, email string
 		case current != "":
 			return false
 		case requireSecure:
+			if hb, ok := c.backend.(headlessSessionBackend); ok && hb.NoLogonSession() {
+				c.writeKeyringBypassMarker()
+				return c.writeOAuthFiles(tokenData, email)
+			}
 			return false
 		}
 	}

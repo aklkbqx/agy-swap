@@ -81,8 +81,13 @@ func (a *Application) cmdRunNow(ctx context.Context, opts extendedOptions, posit
 		return a.extendedError("run now", opts, err)
 	}
 	path, err := exec.LookPath(command)
+	if err != nil && (command == "agy" || command == "agy.exe" || opts.Target == "" || opts.Target == "agy") {
+		if resolved := a.resolveAgyExecutable(); resolved != "" {
+			path, err = resolved, nil
+		}
+	}
 	if err != nil {
-		return a.extendedError("run now", opts, fmt.Errorf("%s is not available: %w", command, err))
+		return a.extendedError("run now", opts, fmt.Errorf("%s is not available: %w (run 'agy-swap install-agy' to install Antigravity CLI)", command, err))
 	}
 	if err := a.prepareRunAccount(ctx, opts.Account, settings); err != nil {
 		return a.extendedError("run now", opts, err)

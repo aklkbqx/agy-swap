@@ -4,13 +4,23 @@ package app
 
 import (
 	"context"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-const credTypeGeneric = 1
+const (
+	credTypeGeneric                       = 1
+	errorNoSuchLogonSession syscall.Errno = 1312
+)
+
+var lastCredNoLogonSession atomic.Bool
+
+func (osCredentialBackend) NoLogonSession() bool {
+	return lastCredNoLogonSession.Load()
+}
 
 type credential struct {
 	Flags              uint32
@@ -59,11 +69,16 @@ func platformCredentialSet(_ context.Context, value string) bool {
 		return false
 	}
 	item := credential{Type: credTypeGeneric, TargetName: target, CredentialBlobSize: uint32(len(blob)), CredentialBlob: &blob[0], Persist: 3, UserName: user}
-	ok, _, _ := procCredWrite.Call(uintptr(unsafe.Pointer(&item)), 0)
-	return ok != 0
+	ok, _, err := procCredWrite.Call(uintptr(unsafe.Pointer(&item)), 0)
+	if ok != 0 {
+		lastCredNoLogonSession.Store(false)
+		return true
+	}
+	lastCredNoLogonSession.Store(err == errorNoSuchLogonSession)
+	return false
 }
 func platformCredentialDelete(context.Context) bool {
 	target, _ := windows.UTF16PtrFromString("gemini:antigravity")
 	ok, _, err := procCredDelete.Call(uintptr(unsafe.Pointer(target)), credTypeGeneric, 0)
-	return ok != 0 || err == syscall.ERROR_NOT_FOUND
+	return ok != 0 || err == syscall.ERROR_NOT_FOUND || err == errorNoSuchLogonSession
 }

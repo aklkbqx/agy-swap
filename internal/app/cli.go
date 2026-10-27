@@ -81,7 +81,11 @@ func (a *Application) newLoginCommand(ctx context.Context) *exec.Cmd {
 	if a.loginCommand != nil {
 		cmd = a.loginCommand(ctx)
 	} else {
-		cmd = exec.CommandContext(ctx, "agy")
+		agyPath := a.resolveAgyExecutable()
+		if agyPath == "" {
+			agyPath = "agy"
+		}
+		cmd = exec.CommandContext(ctx, agyPath)
 	}
 	if len(cmd.Env) == 0 {
 		cmd.Env = append(os.Environ(), "AGY_SWAP_SKIP_SYNC=1", "WSL_INTEROP=1")
@@ -279,8 +283,9 @@ extended commands:
   watch/history       Poll quota, notify on thresholds, and inspect bounded history
   stats/forecast      Summarize history and show reset forecasts
   backup/metrics      Export/import backups and expose local Prometheus metrics
-  target              Check experimental CLI/IDE target adapters
+   target              Check experimental CLI/IDE target adapters
   run now             Launch a configured CLI target immediately
+  install-agy         Download, verify, and install the Antigravity CLI (agy)
   completion          Print bash, zsh, fish, or PowerShell completion
 
 Most extended commands support --json. Secret backup passphrases can be read
@@ -557,6 +562,23 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 				}
 				break
 			}
+		}
+	}
+	if a.loginCommand == nil && a.resolveAgyExecutable() == "" {
+		fmt.Fprintf(a.Out, "\n%s⚠ Antigravity CLI ('agy') was not found on this machine.%s\n", a.p.Yellow, a.p.Reset)
+		for {
+			installNow, valid := parseYesNo(a.readLine(a.p.Cyan+"Install Antigravity CLI ('agy') now? [Y/n]: "+a.p.Reset), true)
+			if !valid {
+				fmt.Fprintln(a.Out, "Please answer y or n.")
+				continue
+			}
+			if installNow {
+				if code := a.cmdInstallAgy(ctx, extendedOptions{}, nil); code != 0 {
+					restore()
+					return code
+				}
+			}
+			break
 		}
 	}
 	fmt.Fprintf(a.Out, "\n%sAdd / Login Google Account%s\n%s1. A browser window will open to authenticate with Google.%s\n%s2. Complete login in Google Antigravity.%s\n", a.p.Bold, a.p.Reset, a.p.Gray, a.p.Reset, a.p.Gray, a.p.Reset)
