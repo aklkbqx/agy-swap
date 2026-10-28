@@ -7,6 +7,7 @@ Set Shell "bash"
 Set FontSize 16
 Set Width 1200
 Set Height 760
+Set Framerate 25
 Set Padding 16
 Set Theme { "background": "#0a0c10", "foreground": "#adbac7" }
 

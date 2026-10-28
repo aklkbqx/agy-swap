@@ -1,26 +1,33 @@
 package main
 
 import (
-	"bytes"
-	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/aklkbqx/agy-swap/v2/internal/app"
 )
 
-func TestDemoMainRunsSubcommands(t *testing.T) {
-	home := t.TempDir()
-	var out, errOut bytes.Buffer
-	application, err := app.NewDemo(version, &bytes.Buffer{}, &out, &errOut, app.DemoOptions{Home: home})
-	if err != nil {
-		t.Fatal(err)
+func TestDemoMainForwardsCLIArguments(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "agy-swap-demo")
+	if out, err := exec.Command("go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
 	}
-	code := application.Run(context.Background(), []string{"version"})
-	if code != 0 {
-		t.Fatalf("expected 0, got %d", code)
-	}
-	if !strings.Contains(out.String(), "agy-swap v"+version) {
-		t.Fatalf("unexpected version output: %s", out.String())
+	for _, command := range []string{"version", "list", "status"} {
+		t.Run(command, func(t *testing.T) {
+			cmd := exec.Command(binary, command)
+			cmd.Env = append(os.Environ(), "HOME="+t.TempDir())
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("%s failed: %v\n%s", command, err, out)
+			}
+			want := "alpha@example.invalid"
+			if command == "version" {
+				want = "agy-swap v" + version
+			}
+			if !strings.Contains(string(out), want) {
+				t.Fatalf("%s output missing %q: %s", command, want, out)
+			}
+		})
 	}
 }

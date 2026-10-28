@@ -6,6 +6,8 @@ __pycache__/
 /agy-swap
 *.exe
 /dist/
+/docs/assets/*.mp4
+/promo/
 /site/
 /coverage.out
 graft/
