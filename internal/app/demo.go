@@ -88,6 +88,8 @@ func NewDemo(version string, in io.Reader, out, errOut io.Writer, options DemoOp
 		reader = bufio.NewReader(in)
 	}
 	httpService := NewHTTPService(errOut)
+	quotaService := NewQuotaService(httpService, store)
+	quotaService.demo = true
 	renderClock := time.Now
 	if !options.Now.IsZero() {
 		renderClock = func() time.Time { return now }
@@ -95,7 +97,7 @@ func NewDemo(version string, in io.Reader, out, errOut io.Writer, options DemoOp
 	application := &Application{
 		Version: version, BuildID: "demo", In: in, Out: out, Err: errOut,
 		lineReader: reader, paths: paths, store: store, credentials: credentials,
-		http: httpService, stdinTTY: readerTerminal(in), stdoutTTY: writerTerminal(out),
+		http: httpService, quota: quotaService, stdinTTY: readerTerminal(in), stdoutTTY: writerTerminal(out),
 		demo: true, color: writerTerminal(out), renderClock: renderClock,
 	}
 	application.p = makePalette(application.color)

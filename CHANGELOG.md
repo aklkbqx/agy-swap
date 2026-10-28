@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.18.3
+
+### Changes
+
+- `make media` records the switch, keyboard-guide and CLI clips with VHS from `scripts/tapes/`, using the demo binary and fictional `@example.invalid` accounts. Each command runs in a fresh demo home, and the script refuses to keep a clip that did not run the demo binary or that contains a failing command (#90).
+- The demo binary passes its arguments to the CLI, so `list`, `status`, `recommend` and `switch` work there, and it keeps its seeded quota instead of refreshing from Google (#90).
+- README opens with the switch clip and adds a short walkthrough with all three clips (#90).
+
 ## 2.18.2
 
 ### Changes

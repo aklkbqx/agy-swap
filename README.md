@@ -10,6 +10,12 @@
 [![Platform Support](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-blue?style=flat-square&logo=apple&logoColor=white)](https://github.com/aklkbqx/agy-swap/releases)
 [![Arch](https://img.shields.io/badge/Arch-arm64%20%7C%20x86__64-orange?style=flat-square)](https://github.com/aklkbqx/agy-swap/releases)
 
+<br/>
+
+<a href="https://agy-swap.aklkbqx.com/#showcase">
+  <img src="docs/assets/switch.gif" alt="agy-swap switching between two demo accounts in the terminal" width="800" />
+</a>
+
 </div>
 
 agy-swap keeps several Google Antigravity accounts on one machine. It shows each account's remaining quota and when it resets, then switches the shared local Antigravity session to the account you pick. Everything runs locally; saved tokens stay in a private `vault.json` readable only by your user, or in your OS credential store with `AGY_SWAP_VAULT=keychain`.
@@ -47,7 +53,7 @@ Requirements: Go 1.27.3 or later. macOS source builds require Xcode Command Line
 ```bash
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-go build -trimpath -ldflags "-s -w -X main.version=2.18.2 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.18.3 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ./agy-swap version
 ```
 
@@ -241,6 +247,45 @@ printf '%s' "$BACKUP_PASSPHRASE" | agy-swap backup export --include-secrets --pa
 # Restore from backup file
 agy-swap backup import agy-swap-backup.json --merge
 ```
+
+## Walkthrough
+
+The clips below use fictional `@example.invalid` accounts. Regenerate them with `make media` (needs [VHS](https://github.com/charmbracelet/vhs)).
+
+### Switch accounts
+Run `agy-swap` to open the operator deck. Move through saved accounts with `↑`/`↓`, compare the weekly and 5-hour quota for each model family, then press `Enter` and confirm to switch the shared Antigravity session.
+
+<p align="center">
+  <img src="docs/assets/switch.gif" alt="Switching accounts in the operator deck" width="750" />
+</p>
+
+### Keyboard guide and action palette
+Press `?` for the keyboard guide. Press `Ctrl+K` (or `:`) to open the action palette and type to filter actions.
+
+<p align="center">
+  <img src="docs/assets/dashboard.gif" alt="Keyboard guide and action palette" width="750" />
+</p>
+
+### Commands for scripts
+The same work runs without the TUI:
+
+```bash
+# List accounts with tier and quota
+agy-swap list
+
+# Show the active account
+agy-swap status
+
+# Rank accounts for the current policy
+agy-swap recommend
+
+# Switch to a named account
+agy-swap switch beta@example.invalid
+```
+
+<p align="center">
+  <img src="docs/assets/cli.gif" alt="list, status, recommend and switch in a terminal" width="750" />
+</p>
 
 ## How account selection works
 

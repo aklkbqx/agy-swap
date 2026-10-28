@@ -1,11 +1,11 @@
-VERSION ?= 2.18.2
+VERSION ?= 2.18.3
 BUILD_ID ?= dev
 GOCACHE ?= /tmp/agy-swap-go-cache
 TARGET_DIR ?= $(HOME)/.local/bin
 GOLANGCI_LINT_VERSION ?= v2.14.0
 GOVULNCHECK_VERSION ?= v1.9.0
 
-.PHONY: help status release-check release-notes release-evidence build test race vet lint vuln benchmark tui-smoke qa bump install release-assets publish-homebrew-tap live site-preview site-release site-verify-live
+.PHONY: help status release-check release-notes release-evidence build test race vet lint vuln benchmark tui-smoke qa bump install release-assets publish-homebrew-tap live site-preview site-release site-verify-live media
 
 help:
 	@echo "Available make targets:"
@@ -29,6 +29,7 @@ help:
 	@echo "  site-preview    Build and serve the production site image locally on :4796"
 	@echo "  site-release    Build, smoke-test, and (PUSH=1) publish the site image for VERSION"
 	@echo "  site-verify-live  Wait for production to serve VERSION, then compare it with the tag build"
+	@echo "  media           Record the VHS showcase clips (switch, dashboard, cli) with the demo binary"
 
 build:
 	GOCACHE=$(GOCACHE) go build -trimpath -ldflags "-s -w -X main.version=$(VERSION) -X main.buildID=$(BUILD_ID)" -o agy-swap ./cmd/agy-swap
@@ -59,6 +60,9 @@ site-release:
 
 site-verify-live:
 	GOCACHE=$(GOCACHE) ./scripts/site-verify-live.sh $(VERSION)
+
+media:
+	GOCACHE=$(GOCACHE) VERSION=$(VERSION) ./scripts/record-media.sh
 
 status:
 	@./scripts/project-status.sh

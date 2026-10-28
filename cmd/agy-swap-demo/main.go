@@ -8,7 +8,7 @@ import (
 	"github.com/aklkbqx/agy-swap/v2/internal/app"
 )
 
-var version = "2.18.2"
+var version = "2.18.3"
 
 func main() {
 	home, err := os.UserHomeDir()
@@ -21,5 +21,5 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	os.Exit(application.Run(context.Background(), nil))
+	os.Exit(application.Run(context.Background(), os.Args[1:]))
 }

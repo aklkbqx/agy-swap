@@ -21,6 +21,7 @@ type QuotaService struct {
 	store        *Store
 	vault        AccountVault
 	pollInterval time.Duration
+	demo         bool
 	// diagnostics, when set, receives one line per quota bucket explaining
 	// whether it was kept. It never receives tokens or account identifiers.
 	diagnostics io.Writer
@@ -628,6 +629,9 @@ func (q *QuotaService) RefreshEmails(ctx context.Context, accounts *Accounts, em
 }
 
 func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, force bool, progress quotaProgress, pick func(email string) bool) map[string]string {
+	if q == nil || q.demo {
+		return nil
+	}
 	now := time.Now().UTC()
 	type item struct {
 		email   string
