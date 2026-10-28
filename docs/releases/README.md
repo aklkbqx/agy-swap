@@ -1,6 +1,6 @@
 # Release history
 
-All 57 observed Tool version tags are recorded: 56 published stable Releases and 1 tag-only versions. Latest stable: **v2.12.2**.
+All 70 observed Tool version tags are recorded: 69 published stable Releases and 1 tag-only versions. Latest stable: **v2.18.4**.
 
 The [JSON inventory](index.json) contains public Tool commits and actual asset metadata. Historical metadata is not retrospective installation/deployment verification. Missing Site tags mean no matching tag was observed, not that no deployment occurred.
 
@@ -8,6 +8,19 @@ Historical documentation covers all versions; security fixes support only latest
 
 | Version | GitHub record | Published UTC | Assets | Matching Site tag observed | Evidence |
 | --- | --- | --- | ---: | --- | --- |
+| v2.18.4 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.18.4) | 2026-10-28T16:03:46Z | 7 | Yes | [Delivery summary](v2.18.4.md) |
+| v2.18.3 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.18.3) | 2026-10-28T12:56:10Z | 7 | Yes | Recorded metadata |
+| v2.18.2 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.18.2) | 2026-10-27T20:27:18Z | 20 | Yes | Recorded metadata |
+| v2.18.1 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.18.1) | 2026-10-27T18:40:32Z | 14 | Yes | Recorded metadata |
+| v2.18.0 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.18.0) | 2026-10-27T07:58:46Z | 7 | Yes | Recorded metadata |
+| v2.17.2 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.17.2) | 2026-10-25T06:50:52Z | 7 | Yes | Recorded metadata |
+| v2.17.1 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.17.1) | 2026-10-24T18:01:24Z | 7 | Yes | Recorded metadata |
+| v2.17.0 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.17.0) | 2026-10-23T17:53:47Z | 7 | Yes | Recorded metadata |
+| v2.16.0 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.16.0) | 2026-10-23T16:15:46Z | 7 | Yes | Recorded metadata |
+| v2.15.0 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.15.0) | 2026-10-23T12:48:26Z | 7 | Yes | Recorded metadata |
+| v2.14.0 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.14.0) | 2026-10-23T11:56:04Z | 7 | Yes | Recorded metadata |
+| v2.13.1 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.13.1) | 2026-10-18T09:23:58Z | 7 | Yes | Recorded metadata |
+| v2.13.0 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.13.0) | 2026-10-18T08:29:11Z | 7 | Yes | Recorded metadata |
 | v2.12.2 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.12.2) | 2026-10-16T15:08:13Z | 7 | Yes | Recorded metadata |
 | v2.12.1 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.12.1) | 2026-10-16T10:18:24Z | 7 | Yes | Recorded metadata |
 | v2.12.0 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.12.0) | 2026-10-16T09:00:04Z | 7 | Yes | Recorded metadata |
