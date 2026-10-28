@@ -19,6 +19,10 @@ type storyFrameSet struct {
 }
 
 func TestSiteStoryFramesTerminalEnvironment(t *testing.T) {
+	siteDir := filepath.Join("..", "..", "site")
+	if _, err := os.Stat(filepath.Join(siteDir, "package.json")); os.IsNotExist(err) {
+		t.Skip("site repository is not checked out")
+	}
 	binary, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -57,6 +61,9 @@ func TestSiteStoryFrames(t *testing.T) {
 	siteDir := filepath.Join("..", "..", "site")
 	packageData, err := os.ReadFile(filepath.Join(siteDir, "package.json"))
 	if err != nil {
+		if os.IsNotExist(err) {
+			t.Skip("site repository is not checked out")
+		}
 		t.Fatal(err)
 	}
 	var manifest struct {
