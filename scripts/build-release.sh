@@ -16,7 +16,18 @@ go run ./cmd/releasetool verify-metadata "$version" .
 # Assets come only from the clean annotated tag, built by a patched toolchain.
 go run ./cmd/releasetool verify-source "$version" .
 go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION:-v1.9.0}" ./...
-mkdir -p "$dist"
+# Build beside the dedicated output directory so failures preserve its last
+# validated contents and publication cannot include binaries from older runs.
+case "$(basename "$dist")" in ''|.|..) echo 'Expected a dedicated output directory' >&2; exit 2;; esac
+if [ -L "$dist" ]; then echo 'Output directory must not be a symlink' >&2; exit 2; fi
+mkdir -p "$(dirname "$dist")"
+stage=$(mktemp -d "${dist%/}.stage.XXXXXX")
+cleanup() {
+  if [ -d "$stage/previous" ] && [ ! -e "$dist" ]; then mv "$stage/previous" "$dist"; fi
+  rm -rf "$stage"
+}
+trap cleanup EXIT
+mkdir "$stage/assets"
 for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
   platform=${target%/*}
   arch=${target#*/}
@@ -24,15 +35,19 @@ for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 wi
   cgo=0
   if [ "$platform" = darwin ]; then cgo=1; fi
   if [ "$platform" = windows ]; then suffix=.exe; fi
-  asset="$dist/agy-swap_v${version}_${platform}_${arch}${suffix}"
+  asset="$stage/assets/agy-swap_v${version}_${platform}_${arch}${suffix}"
   CGO_ENABLED="$cgo" GOOS="$platform" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X main.version=$version -X main.buildID=$build_id" -o "$asset" ./cmd/agy-swap
   printf 'Built %s\n' "$asset"
 done
-go run ./cmd/releasetool checksums "$dist"
-go run ./cmd/releasetool verify-assets "$version" "$dist"
-go run ./cmd/releasetool verify-builds "$version" "$dist" .
+go run ./cmd/releasetool checksums "$stage/assets"
+go run ./cmd/releasetool verify-assets "$version" "$stage/assets"
+go run ./cmd/releasetool verify-builds "$version" "$stage/assets" .
 go run ./cmd/releasetool verify-version "$version" install.sh
 go run ./cmd/releasetool verify-version "$version" install.ps1
 # Generates the local formula only. Publishing the tap is a separate opt-in step.
-./scripts/update-homebrew-tap.sh "$version" "$dist"
-"$dist/agy-swap_v${version}_darwin_$(go env GOHOSTARCH)" --version
+./scripts/update-homebrew-tap.sh "$version" "$stage/assets"
+"$stage/assets/agy-swap_v${version}_darwin_$(go env GOHOSTARCH)" --version
+if [ -e "$dist" ]; then mv "$dist" "$stage/previous"; fi
+mv "$stage/assets" "$dist"
+mv "$stage/assets.rb" "${dist%/}.rb"
+printf 'Validated release assets: %s\n' "$dist"

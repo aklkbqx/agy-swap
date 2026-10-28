@@ -37,7 +37,7 @@ linux_arm64=$(platform_checksum linux_arm64)
 linux_amd64=$(platform_checksum linux_amd64)
 
 # Local generation is independent of Homebrew and never mutates another repo.
-formula="$dist/agy-swap.rb"
+formula="${dist%/}.rb"
 cat > "$formula" <<EOF
 class AgySwap < Formula
   desc "Fast account switcher and quota monitor for Google Antigravity CLI"

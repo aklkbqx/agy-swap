@@ -76,7 +76,7 @@ func TestHomebrewFormulaGenerationDoesNotPublish(t *testing.T) {
 	if out, err := runTapScript(t, f, "2.0.0", f.dist); err != nil {
 		t.Fatalf("generate: %v\n%s", err, out)
 	}
-	formula, err := os.ReadFile(filepath.Join(f.dist, "agy-swap.rb"))
+	formula, err := os.ReadFile(f.dist + ".rb")
 	if err != nil || !strings.Contains(string(formula), "version \"2.0.0\"") {
 		t.Fatalf("missing generated formula: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestHomebrewPublicationRetriesFormulaOnlyPendingCommit(t *testing.T) {
 	if out, err := runTapScript(t, f, "2.0.0", f.dist); err != nil {
 		t.Fatalf("generate: %v\n%s", err, out)
 	}
-	data, err := os.ReadFile(filepath.Join(f.dist, "agy-swap.rb"))
+	data, err := os.ReadFile(f.dist + ".rb")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,6 +253,12 @@ build:*)
     if [ "$1" = -o ]; then shift; printf '#!/bin/sh\necho "agy-swap v2.0.0 (test)"\n' > "$1"; chmod +x "$1"; break; fi
     shift
   done;;
+run:./cmd/releasetool)
+  if [ "$3" = checksums ]; then
+    for target in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64 windows_amd64.exe windows_arm64.exe; do
+      printf '%064d  agy-swap_v2.0.0_%s\n' 0 "$target"
+    done > "$4/checksums.txt"
+  fi;;
 run:*) exit 0;;
 *) exit 1;;
 esac
@@ -283,7 +289,12 @@ build:*)
     shift
   done;;
 run:./cmd/releasetool)
-  if [ "$3" = "$GO_STUB_FAIL" ]; then exit 1; fi;;
+  if [ "$3" = "$GO_STUB_FAIL" ]; then exit 1; fi
+  if [ "$3" = checksums ]; then
+    for target in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64 windows_amd64.exe windows_arm64.exe; do
+      printf '%064d  agy-swap_v2.0.0_%s\n' 0 "$target"
+    done > "$4/checksums.txt"
+  fi;;
 run:*) exit 0;;
 *) exit 1;;
 esac
@@ -584,5 +595,54 @@ func TestReleaseEvidenceFailsOnEveryMismatch(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("failure for %q not reported:\n%s", want, out)
 		}
+	}
+}
+
+func TestReleaseBuildStagesBeforeReplacingPreviousAssets(t *testing.T) {
+	for _, fail := range []string{"", "verify-builds"} {
+		t.Run("failure="+fail, func(t *testing.T) {
+			f := newTapFixture(t)
+			previous := filepath.Join(f.dist, "agy-swap_v1.0.0_linux_arm64")
+			if err := os.WriteFile(previous, []byte("previous"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			bin := filepath.Join(f.root, "bin")
+			if err := os.Mkdir(bin, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(bin, "go"), []byte(recordingGoStub), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("sh", "./scripts/build-release.sh", "2.0.0", "test", f.dist)
+			cmd.Dir = "../.."
+			cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "GO_STUB_LOG="+filepath.Join(f.root, "go.log"), "GO_STUB_FAIL="+fail)
+			out, err := cmd.CombinedOutput()
+			if (err != nil) != (fail != "") {
+				t.Fatalf("build: %v\n%s", err, out)
+			}
+			entries, err := os.ReadDir(f.dist)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fail != "" {
+				if len(entries) != 2 {
+					t.Fatalf("failed build changed previous outputs: %v", entries)
+				}
+				data, err := os.ReadFile(previous)
+				if err != nil || string(data) != "previous" {
+					t.Fatalf("previous assets lost: %v", err)
+				}
+			} else {
+				if len(entries) != 7 {
+					t.Fatalf("expected exactly six binaries and checksums, got %v", entries)
+				}
+				if _, err := os.Stat(previous); !os.IsNotExist(err) {
+					t.Fatal("old release asset retained")
+				}
+				if _, err := os.Stat(f.dist + ".rb"); err != nil {
+					t.Fatal("formula not generated outside upload directory")
+				}
+			}
+		})
 	}
 }

@@ -93,6 +93,17 @@ AGY Live is an opt-in local development tool. The owner starts it with `make liv
 
 Use `go test ./internal/demoserver ./internal/app` for the native demo path. In `site/`, run `bun run build` followed by `bun run test` sequentially: the browser suite reads built assets and must not race the build that replaces them. The test script uses Node's test runner; `bun test` invokes a different runner. Review servers require owner authorization.
 
+### 3.5 Reproducible Showcase Recordings
+
+Run `make media` with VHS, ttyd, ffmpeg and Go installed to record the tapes in `scripts/tapes/`. Recordings use the demo binary and fictional accounts. All tapes and posters must succeed before the script replaces existing output.
+
+- `docs/assets/*.gif`: versioned examples displayed in README.
+- `site/public/media/*.mp4` and `*.png`: versioned Site runtime clips and posters.
+- `dist/media/*.mp4`: ignored local output for previewing or sharing clips.
+- `promo/`: ignored local launch-kit output, updated when the directory exists.
+
+Tool copies in `docs/assets/*.mp4` are ignored and are no longer generated there. Existing local copies are left untouched. Keep the demo source, tests and tapes in Git so contributors can reproduce the examples.
+
 ---
 
 ## 4. Cross-Platform Builds
@@ -132,9 +143,9 @@ Release assets are built from the release tag, not from a working tree. After th
 1. verifies version metadata;
 2. runs `releasetool verify-source`, which refuses uncommitted or untracked files, a HEAD that is not the annotated `vX.Y.Z` tag, and a compiler older than the `go.mod` toolchain floor;
 3. runs govulncheck (pinned by `GOVULNCHECK_VERSION`) and stops on any reachable vulnerability;
-4. cross-compiles the six binaries and writes checksums;
+4. cross-compiles the six binaries into a fresh staging directory and writes checksums; asset verification rejects unexpected files, mixed versions, symlinks, and duplicate or malformed checksums;
 5. runs `releasetool verify-builds`, which reads each asset's Go build information and requires the `github.com/aklkbqx/agy-swap/v2` module, the exact `vX.Y.Z` version (no `+dirty` or pseudo-version) and a Go version at or above the floor;
-6. generates `dist/release/agy-swap.rb`. It does not discover, edit, commit, or push a Homebrew tap.
+6. generates the local formula beside the upload directory as `dist/release.rb`, then replaces the dedicated `dist/release/` output directory only after all checks succeed. A failed build preserves the previous output. The upload directory contains only the six binaries and `checksums.txt`; the formula is excluded. This step does not discover, edit, commit, or push a Homebrew tap.
 
 Push the commit and tag, then publish the matching GitHub release and assets before updating Homebrew. Then run `make publish-homebrew-tap VERSION=X.Y.Z` explicitly. It uses `HOMEBREW_TAP_DIR` when set, or the installed `aklkbqx/agy-swap` tap; the tap must be on `main` with a clean working tree and index. Publication fetches the current remote tip, refuses behind/diverged branches and unrelated unpublished commits, and permits retrying a formula-only pending push. It commits only `Formula/agy-swap.rb` and pushes `origin main`. The helper's default invocation without `--publish` only generates the local formula.
 

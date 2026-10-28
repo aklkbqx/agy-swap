@@ -91,9 +91,25 @@ func run(args []string) error {
 }
 
 func verifyAssets(version, dir string) error {
+	allowed := map[string]bool{"checksums.txt": true}
+	for _, target := range releaseTargets {
+		allowed["agy-swap_v"+version+"_"+target] = true
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !allowed[entry.Name()] || !entry.Type().IsRegular() {
+			return fmt.Errorf("unexpected release entry: %s", entry.Name())
+		}
+	}
 	checksums, err := readChecksums(filepath.Join(dir, "checksums.txt"))
 	if err != nil {
 		return err
+	}
+	if len(checksums) != len(releaseTargets) {
+		return errors.New("release checksums must contain exactly the six expected assets")
 	}
 	for _, target := range releaseTargets {
 		name := "agy-swap_v" + version + "_" + target
@@ -172,9 +188,22 @@ func readChecksums(path string) (map[string]string, error) {
 		if len(fields) != 2 || len(fields[0]) != sha256.Size*2 {
 			return nil, fmt.Errorf("invalid checksum line %q", scanner.Text())
 		}
-		checksums[strings.TrimPrefix(fields[1], "*")] = strings.ToLower(fields[0])
+		if _, err := hex.DecodeString(fields[0]); err != nil {
+			return nil, fmt.Errorf("invalid checksum digest: %w", err)
+		}
+		name := strings.TrimPrefix(fields[1], "*")
+		if _, exists := checksums[name]; exists {
+			return nil, fmt.Errorf("duplicate checksum: %s", name)
+		}
+		checksums[name] = strings.ToLower(fields[0])
 	}
-	return checksums, scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	if len(checksums) == 0 {
+		return nil, errors.New("empty checksum manifest")
+	}
+	return checksums, nil
 }
 
 func verifyVersion(version, installerPath string) error {

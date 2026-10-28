@@ -23,7 +23,9 @@ WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/agy-media-XXXXXX")"
 trap 'rm -rf "$WORK_DIR"' EXIT
 BIN_DIR="$WORK_DIR/bin"
 LOG="$WORK_DIR/invocations.log"
-mkdir -p "$BIN_DIR" "$WORK_DIR/home" docs/assets site/public/media
+mkdir -p "$BIN_DIR" "$WORK_DIR/home" "$WORK_DIR/docs/assets" "$WORK_DIR/site/public/media"
+# VHS writes relative Output paths into staging; published assets are untouched
+# until every tape, invocation and poster has succeeded.
 
 echo "==> Building demo binary (v${VERSION})..."
 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "$BIN_DIR/agy-swap-demo" ./cmd/agy-swap-demo
@@ -44,6 +46,9 @@ chmod +x "$BIN_DIR/agy-swap"
 export PATH="$BIN_DIR:$PATH"
 export HOME="$WORK_DIR/home"
 export TERM="xterm-256color"
+# Record the product palette regardless of the invoking shell's output policy.
+unset NO_COLOR
+export COLORTERM="truecolor"
 # Reset times in the clips should not reveal the recording machine's time zone.
 export TZ="UTC"
 
@@ -56,7 +61,8 @@ poster_at() {
   esac
 }
 
-for tape in scripts/tapes/*.tape; do
+cd "$WORK_DIR"
+for tape in "$ROOT_DIR"/scripts/tapes/*.tape; do
   name="$(basename "$tape" .tape)"
   echo "==> Recording $name..."
   : >"$LOG"
@@ -81,10 +87,15 @@ for tape in scripts/tapes/*.tape; do
   cp -f "docs/assets/$name.mp4" "site/public/media/$name.mp4"
 done
 
+# README GIFs and Site runtime assets are versioned; local MP4 copies are not.
+mkdir -p "$ROOT_DIR/docs/assets" "$ROOT_DIR/site/public/media" "$ROOT_DIR/dist/media"
+cp -f docs/assets/*.gif "$ROOT_DIR/docs/assets/"
+cp -f docs/assets/*.mp4 "$ROOT_DIR/dist/media/"
+cp -f site/public/media/*.png site/public/media/*.mp4 "$ROOT_DIR/site/public/media/"
 # Local launch kit (ignored by Git) reuses the switch clip.
-if [ -d promo ]; then
-  cp -f docs/assets/switch.gif promo/agy-swap-demo.gif
-  cp -f docs/assets/switch.mp4 promo/agy-swap-demo.mp4
+if [ -d "$ROOT_DIR/promo" ]; then
+  cp -f docs/assets/switch.gif "$ROOT_DIR/promo/agy-swap-demo.gif"
+  cp -f docs/assets/switch.mp4 "$ROOT_DIR/promo/agy-swap-demo.mp4"
 fi
 
 echo "==> Recorded:"

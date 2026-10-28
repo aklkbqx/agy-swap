@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.18.4
+
+### Fixes
+
+- Media recording forces truecolor even when the invoking shell sets `NO_COLOR`, and tapes explicitly capture at 25 FPS (#90).
+- Media recording validates all tapes and posters in staging before replacing existing clips, so a failed command or encoder preserves the previous assets (#90).
+- Duplicate Tool MP4s are no longer tracked; recordings keep README GIFs and Site runtime media in their repositories, and write local MP4 output to ignored `dist/media/` (#90).
+- Release builds stage and verify a complete set before replacing the output directory. Asset verification rejects extra files, mixed versions and invalid checksum manifests; the local Homebrew formula is generated outside the upload directory (#90).
+- Showcase pauses playback when reduced motion is enabled, uses custom play/pause and seek controls without download links, and adds a readable CLI transcript in all four site languages (#90).
+- Regression tests exercise demo CLI arguments through the executable, media failures, release staging, and Showcase playback and keyboard behavior (#90).
+- Standalone Tool checkouts skip Site story-frame tests when the paired repository is absent (#92).
+
 ## 2.18.3
 
 ### Changes

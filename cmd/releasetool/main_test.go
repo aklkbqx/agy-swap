@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -102,5 +103,45 @@ func TestCalculateNextVersion(t *testing.T) {
 		if _, err := calculateNextVersion("2.2.0", invalid); err == nil {
 			t.Fatalf("expected error for invalid target %q", invalid)
 		}
+	}
+}
+
+func TestVerifyAssetsRejectsContaminatedRelease(t *testing.T) {
+	for _, extra := range []string{"agy-swap_v1.0.0_linux_arm64", "agy-swap.rb", "notes.md"} {
+		t.Run(extra, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, target := range releaseTargets {
+				if err := os.WriteFile(filepath.Join(dir, "agy-swap_v2.0.0_"+target), []byte(target), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := writeChecksums(dir, filepath.Join(dir, "checksums.txt")); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, extra), []byte("unexpected"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := verifyAssets("2.0.0", dir); err == nil {
+				t.Fatal("contaminated release accepted")
+			}
+		})
+	}
+}
+
+func TestReadChecksumsRejectsInvalidManifest(t *testing.T) {
+	for name, data := range map[string]string{
+		"duplicate": strings.Repeat("a", 64) + "  asset\n" + strings.Repeat("b", 64) + "  asset\n",
+		"nonhex":    strings.Repeat("z", 64) + "  asset\n",
+		"empty":     "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "checksums.txt")
+			if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := readChecksums(path); err == nil {
+				t.Fatal("invalid manifest accepted")
+			}
+		})
 	}
 }
