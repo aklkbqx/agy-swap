@@ -62,3 +62,43 @@ func TestDemoPolicyRejectsExternalEffects(t *testing.T) {
 		}
 	}
 }
+
+func TestDemoExecutesCLICommands(t *testing.T) {
+	home := t.TempDir()
+	var out, errOut bytes.Buffer
+	application, err := NewDemo("2.18.2", &bytes.Buffer{}, &out, &errOut, DemoOptions{Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. agy-swap list
+	code := application.Run(context.Background(), []string{"list"})
+	if code != 0 {
+		t.Fatalf("list exited with %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "alpha@example.invalid") || !strings.Contains(out.String(), "beta@example.invalid") {
+		t.Fatalf("expected list output to include demo accounts, got:\n%s", out.String())
+	}
+
+	// 2. agy-swap status
+	out.Reset()
+	errOut.Reset()
+	code = application.Run(context.Background(), []string{"status"})
+	if code != 0 {
+		t.Fatalf("status exited with %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "alpha@example.invalid") {
+		t.Fatalf("expected status output to include active account, got:\n%s", out.String())
+	}
+
+	// 3. agy-swap next
+	out.Reset()
+	errOut.Reset()
+	code = application.Run(context.Background(), []string{"next"})
+	if code != 0 {
+		t.Fatalf("next exited with %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "auto-rotated to") && !strings.Contains(out.String(), "Switched to") {
+		t.Fatalf("expected next output to confirm switch, got:\n%s", out.String())
+	}
+}
