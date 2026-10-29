@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.20.0
+
+### Changes
+
+- Synchronize the website delivery, installers and release metadata for v2.20.0 (#96).
+- CLI commands, account switching and quota behavior are unchanged.
+
 ## 2.19.0
 
 ### Changes
