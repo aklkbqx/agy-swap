@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.19.0
+
+### Changes
+
+- The website uses the official Google Antigravity mark, an open command reference and product-specific quota examples. Color identifies the brand, actions and actual states (#97).
+- Navigation and install tabs share animated selection indicators; quota examples and native terminal transitions explain the workflow, with static reduced-motion states (#97).
+- Showcase clips pause outside the viewport and in hidden tabs, preserve an explicit pause, and provide a retry after media-loading errors. Feedback is available in English, Thai, Japanese and Chinese (#97).
+- First-run installation commands have their own copy controls. Native story frames and release metadata are aligned with this version; CLI commands and account-switching behavior are unchanged (#97).
+- Terminal loading failures show a recovery action, and video metadata loading has an explicit status in all four website languages (#97).
+
 ## 2.18.4
 
 ### Fixes
