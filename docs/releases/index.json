@@ -1,9 +1,65 @@
 {
   "schemaVersion": 1,
   "repository": "aklkbqx/agy-swap",
-  "latestStableTag": "v2.18.4",
+  "latestStableTag": "v2.19.0",
   "siteTagObservation": "Complete private repository tags API read; public output contains tag-presence only.",
   "versions": [
+    {
+      "tag": "v2.19.0",
+      "toolCommit": "a52f72b1dae184135fdddfab5f7e6850d177c5e0",
+      "tagUrl": "https://github.com/aklkbqx/agy-swap/tree/v2.19.0",
+      "releaseState": "published",
+      "prerelease": false,
+      "publishedAt": "2026-10-29T03:10:00Z",
+      "releaseUrl": "https://github.com/aklkbqx/agy-swap/releases/tag/v2.19.0",
+      "assets": [
+        {
+          "name": "agy-swap_v2.19.0_darwin_amd64",
+          "size": 8619776,
+          "url": "https://github.com/aklkbqx/agy-swap/releases/download/v2.19.0/agy-swap_v2.19.0_darwin_amd64",
+          "digest": "sha256:5cf6eda29c2ed89fb2125e38286f6e886fb6b38d894322cf3444c42ece500a38"
+        },
+        {
+          "name": "agy-swap_v2.19.0_darwin_arm64",
+          "size": 7885778,
+          "url": "https://github.com/aklkbqx/agy-swap/releases/download/v2.19.0/agy-swap_v2.19.0_darwin_arm64",
+          "digest": "sha256:72e64ad502bda06f2d4139061665a874f8eb69343959f2e3397530954e1ca224"
+        },
+        {
+          "name": "agy-swap_v2.19.0_linux_amd64",
+          "size": 8544416,
+          "url": "https://github.com/aklkbqx/agy-swap/releases/download/v2.19.0/agy-swap_v2.19.0_linux_amd64",
+          "digest": "sha256:9f2a0a3900e15fcad2dc6178bad63fdad3edf26531720409a20cf22f3fb7a591"
+        },
+        {
+          "name": "agy-swap_v2.19.0_linux_arm64",
+          "size": 7798944,
+          "url": "https://github.com/aklkbqx/agy-swap/releases/download/v2.19.0/agy-swap_v2.19.0_linux_arm64",
+          "digest": "sha256:0902b6eebdb60c8f240279e6fadbf8e67d65b36d2b401fb9af5d2066a36b4454"
+        },
+        {
+          "name": "agy-swap_v2.19.0_windows_amd64.exe",
+          "size": 8817664,
+          "url": "https://github.com/aklkbqx/agy-swap/releases/download/v2.19.0/agy-swap_v2.19.0_windows_amd64.exe",
+          "digest": "sha256:ecfe8a77115f7929c04361af79662b9bf2f58794c44c073b4b368f2dcb3c0a1e"
+        },
+        {
+          "name": "agy-swap_v2.19.0_windows_arm64.exe",
+          "size": 7924224,
+          "url": "https://github.com/aklkbqx/agy-swap/releases/download/v2.19.0/agy-swap_v2.19.0_windows_arm64.exe",
+          "digest": "sha256:a87d546066be0239f5a6a7fc4ea8c9d94f741d1cbf5dde23d90b14f4fab68f1d"
+        },
+        {
+          "name": "checksums.txt",
+          "size": 584,
+          "url": "https://github.com/aklkbqx/agy-swap/releases/download/v2.19.0/checksums.txt",
+          "digest": "sha256:d620c3e934c54a23ca6d8faaec2843186fc4d3feae205577cee79f6ae1e562c8"
+        }
+      ],
+      "siteTagPresent": true,
+      "evidence": "verified-delivery-summary",
+      "evidenceDocument": "v2.19.0.md"
+    },
     {
       "tag": "v2.18.4",
       "toolCommit": "c0cce5fc9c1b62fa4af08d366a5c9ac99bbdce37",
