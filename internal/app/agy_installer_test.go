@@ -2,10 +2,12 @@ package app
 
 import (
 	"archive/tar"
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha512"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -17,6 +19,46 @@ import (
 	"testing"
 	"time"
 )
+
+func newSessionGuardTestApp(t *testing.T) (*Application, *bytes.Buffer, *bytes.Buffer) {
+	t.Helper()
+	paths := testPaths(t)
+	var out, errOut bytes.Buffer
+	in := bytes.NewBuffer(nil)
+	credentials := NewCredentials(paths)
+	app := &Application{
+		Version:     "2.17.1",
+		In:          in,
+		Out:         &out,
+		Err:         &errOut,
+		lineReader:  bufio.NewReader(in),
+		paths:       paths,
+		store:       NewStore(paths),
+		credentials: credentials,
+		vault:       NewFileAccountVault(filepath.Join(paths.ConfigDir, "vault.json")),
+		http:        NewHTTPService(&errOut),
+		p:           makePalette(false),
+	}
+	return app, &out, &errOut
+}
+
+func sampleRawDiskTokenWithRefresh(accessToken, refreshToken string, expiry time.Time) []byte {
+	payload := map[string]any{
+		"token": map[string]any{
+			"access_token":  accessToken,
+			"refresh_token": refreshToken,
+			"token_type":    "Bearer",
+			"expiry":        expiry.UTC().Format(time.RFC3339),
+		},
+	}
+	raw, _ := json.Marshal(payload)
+	return raw
+}
+
+func sampleTokenWithRefresh(accessToken, refreshToken string, expiry time.Time) string {
+	raw := sampleRawDiskTokenWithRefresh(accessToken, refreshToken, expiry)
+	return "go-keyring-base64:" + base64.StdEncoding.EncodeToString(raw)
+}
 
 func buildTestAgyTarGz(t *testing.T, payload []byte) ([]byte, string) {
 	t.Helper()

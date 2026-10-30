@@ -79,6 +79,37 @@ func TestReadLinePreservesBufferedInput(t *testing.T) {
 	}
 }
 
+func TestReadLineHandlesCarriageReturnAndCRLF(t *testing.T) {
+	reader, writer := io.Pipe()
+	defer func() { _ = reader.Close(); _ = writer.Close() }()
+	var out bytes.Buffer
+	a := &Application{In: reader, Out: &out}
+	done := make(chan string, 1)
+	go func() {
+		done <- a.readLine("Save? ")
+	}()
+	if _, err := writer.Write([]byte("y\r")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-done:
+		if got != "y" {
+			t.Fatalf("carriage-return line = %q, want %q", got, "y")
+		}
+	case <-time.After(300 * time.Millisecond):
+		_ = writer.Close()
+		t.Fatal("readLine stalled waiting for \\n after \\r")
+	}
+
+	crlfApp := &Application{In: strings.NewReader("n\r\nsecond\r\n"), Out: &out}
+	if got := crlfApp.readLine(""); got != "n" {
+		t.Fatalf("first CRLF line = %q, want %q", got, "n")
+	}
+	if got := crlfApp.readLine(""); got != "second" {
+		t.Fatalf("second CRLF line = %q, want %q", got, "second")
+	}
+}
+
 func TestTokenIdentityMatchesTargetAccount(t *testing.T) {
 	matching := tokenBlob(t, "User@Example.com", true, "r", time.Time{})
 	if !tokenMatchesEmail(matching, "user@example.com") {
@@ -94,7 +125,7 @@ func TestTokenIdentityMatchesTargetAccount(t *testing.T) {
 }
 
 func TestNormalizedReleaseTag(t *testing.T) {
-	for input, want := range map[string]string{"2.20.0": "v2.20.0", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} { //nolint:gocritic // the padded key tests trimming
+	for input, want := range map[string]string{"2.20.1": "v2.20.1", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} { //nolint:gocritic // the padded key tests trimming
 		if got := normalizedReleaseTag(input); got != want {
 			t.Fatalf("%q normalized to %q, want %q", input, got, want)
 		}
@@ -617,7 +648,7 @@ func TestTUIOverlayKeepsFrameGeometry(t *testing.T) {
 func TestTUISuccessToastKeepsFrameGeometryAndExpires(t *testing.T) {
 	accounts := NewAccounts()
 	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
-	a := &Application{Version: "2.20.0", p: makePalette(false), color: false}
+	a := &Application{Version: "2.20.1", p: makePalette(false), color: false}
 	state := newTUIState(accounts, "user@example.com")
 	state.showToast("Switched to user@example.com", "success")
 
@@ -1186,7 +1217,7 @@ func TestExtendedSettingsAliasesAndEncryptedBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	a := &Application{Version: "2.20.0", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
+	a := &Application{Version: "2.20.1", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
 	if code := a.Run(context.Background(), []string{"config", "set", "policy.min_remaining_pct", "25"}); code != 0 {
 		t.Fatalf("config set code=%d err=%s", code, errOut.String())
 	}
@@ -1717,13 +1748,13 @@ func TestAccountRowSelection(t *testing.T) {
 }
 
 func TestTUIDisplayVersionDev(t *testing.T) {
-	appDev := &Application{Version: "2.20.0", BuildID: "dev", p: makePalette(false)}
+	appDev := &Application{Version: "2.20.1", BuildID: "dev", p: makePalette(false)}
 	linesDev := appDev.tuiTopLines(newTUIState(NewAccounts(), ""), 80)
 	if !strings.Contains(strings.Join(linesDev, "\n"), "v"+appDev.Version+"-dev") {
 		t.Fatalf("TUI header missing dev tag: %q", linesDev)
 	}
 
-	appRel := &Application{Version: "2.20.0", BuildID: "release-v2.20.0", p: makePalette(false)}
+	appRel := &Application{Version: "2.20.1", BuildID: "release-v2.20.1", p: makePalette(false)}
 	linesRel := appRel.tuiTopLines(newTUIState(NewAccounts(), ""), 80)
 	if !strings.Contains(strings.Join(linesRel, "\n"), "v"+appRel.Version) || strings.Contains(strings.Join(linesRel, "\n"), "v"+appRel.Version+"-") {
 		t.Fatalf("TUI header should not have dev tag for release: %q", linesRel)

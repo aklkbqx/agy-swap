@@ -58,10 +58,11 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		return a.storeError(err)
 	}
 	current := a.credentials.Current(ctx)
-	oldState, err := term.MakeRaw(int(inFile.Fd()))
-	if err != nil {
+	origTerm := captureTerminalState(inFile, outFile)
+	if _, err := term.MakeRaw(int(inFile.Fd())); err != nil {
 		return a.storeError(err)
 	}
+	enableTUIRawOutput(outFile)
 	raw := true
 	// The mouse reports buttons, drags and, for hover, every move (1003).
 	mouseOn, mouseOff := "\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h", "\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l"
@@ -76,7 +77,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	enterScreen()
 	defer func() {
 		if raw {
-			_ = term.Restore(int(inFile.Fd()), oldState)
+			origTerm.Restore(false)
 		}
 		leaveScreen()
 	}()
@@ -300,8 +301,10 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		invalidateRefresh()
 		inputPaused.Store(true)
 		waitUntilInputIdle(&inputBusy, tuiInputPollTimeout+150*time.Millisecond)
+		resetPlatformInputState()
+		a.resetTerminalLineReader()
 		defer inputPaused.Store(false)
-		_ = term.Restore(int(inFile.Fd()), oldState)
+		origTerm.Restore(false)
 		raw = false
 		leaveScreen()
 		code := action()
@@ -310,11 +313,10 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		} else {
 			state.message, state.messageType = "Action failed", "error"
 		}
-		newState, stateErr := term.MakeRaw(int(inFile.Fd()))
-		if stateErr == nil {
-			oldState = newState
+		if _, stateErr := term.MakeRaw(int(inFile.Fd())); stateErr == nil {
 			raw = true
 		}
+		enableTUIRawOutput(outFile)
 		enterScreen()
 		state.lastFrame = nil // the screen was left, so the next frame is painted whole
 		fresh, loadErr := a.store.Load(false)

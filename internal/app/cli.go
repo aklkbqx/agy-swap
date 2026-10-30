@@ -76,6 +76,19 @@ func writerTerminal(writer io.Writer) bool {
 	return ok && term.IsTerminal(int(file.Fd()))
 }
 
+// writerWidth returns the terminal column width of the writer, or a
+// safe fallback of 80 when the writer is not a terminal or the size
+// cannot be determined. Used to soft-wrap long CLI prose so the
+// terminal's own hard-wrap does not split words mid-character.
+func writerWidth(writer io.Writer) int {
+	if file, ok := writer.(*os.File); ok {
+		if w, _, err := termGetSize(file); err == nil && w > 0 {
+			return w
+		}
+	}
+	return 80
+}
+
 func (a *Application) newLoginCommand(ctx context.Context) *exec.Cmd {
 	var cmd *exec.Cmd
 	if a.loginCommand != nil {
@@ -454,7 +467,16 @@ func newAccount(email, name, token string) Account {
 	return Account{"email": email, "name": firstString(cleanText(name), "Google User"), "token_data": token, "quota_schema": quotaSchema}
 }
 
+func (a *Application) resetTerminalLineReader() {
+	a.lineReaderMu.Lock()
+	defer a.lineReaderMu.Unlock()
+	if a.In != nil && readerTerminal(a.In) && a.lineReader != nil {
+		a.lineReader.Reset(a.In)
+	}
+}
+
 func (a *Application) readLine(prompt string) string {
+	ensureCookedTerminal(a.In, a.Out)
 	fmt.Fprint(a.Out, prompt)
 	a.lineReaderMu.Lock()
 	defer a.lineReaderMu.Unlock()
@@ -464,8 +486,26 @@ func (a *Application) readLine(prompt string) string {
 	if a.lineReader == nil {
 		a.lineReader = bufio.NewReader(a.In)
 	}
-	line, _ := a.lineReader.ReadString('\n')
-	return strings.TrimSpace(line)
+	var line []byte
+	for {
+		b, err := a.lineReader.ReadByte()
+		if err != nil {
+			break
+		}
+		if b == '\n' {
+			break
+		}
+		if b == '\r' {
+			if a.lineReader.Buffered() > 0 {
+				if next, peekErr := a.lineReader.Peek(1); peekErr == nil && len(next) == 1 && next[0] == '\n' {
+					_, _ = a.lineReader.ReadByte()
+				}
+			}
+			break
+		}
+		line = append(line, b)
+	}
+	return strings.TrimSpace(string(line))
 }
 
 func parseYesNo(input string, defaultYes bool) (bool, bool) {
@@ -593,6 +633,11 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 	}
 	fmt.Fprintf(a.Out, "\n%sLaunching interactive 'agy' login...%s\n", a.p.Green, a.p.Reset)
 	fmt.Fprintf(a.Out, "%sComplete every prompt shown here and in the browser. agy-swap will continue after the credential is saved.%s\n\n", a.p.Yellow, a.p.Reset)
+	loginTerm := captureTerminalState(a.In, a.Out)
+	restoreLoginTerm := func() {
+		loginTerm.Restore(true)
+		a.resetTerminalLineReader()
+	}
 	command := a.newLoginCommand(ctx)
 	command.Stdin = a.In
 	command.Stdout = a.Out
@@ -614,9 +659,11 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 		select {
 		case <-ctx.Done():
 			stopLoginCommand(command, commandDone)
+			restoreLoginTerm()
 			restore()
 			return 1
 		case commandErr := <-commandDone:
+			restoreLoginTerm()
 			token = a.credentials.Current(ctx)
 			if token != "" && token != current {
 				code := a.saveTokenAccount(ctx, token)
@@ -649,6 +696,7 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 			token = a.credentials.Current(ctx)
 			if token != "" && token != current {
 				stopLoginCommand(command, commandDone)
+				restoreLoginTerm()
 				code := a.saveTokenAccount(ctx, token)
 				if code != 0 {
 					restore()
@@ -667,6 +715,7 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 			}
 		case <-timeout.C:
 			stopLoginCommand(command, commandDone)
+			restoreLoginTerm()
 			restore()
 			fmt.Fprintf(a.Out, "\n%sTimed out waiting for login (120s).%s\n", a.p.Red, a.p.Reset)
 			if current != "" {

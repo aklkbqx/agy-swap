@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.20.1
+
+### Fixes
+
+- Preserve original cooked terminal input and output console modes across TUI `suspend()` cycles instead of overwriting them when an interactive child exits in raw mode (#98).
+- Snapshot and restore console input/output modes and reset child alternate-screen, mouse-tracking and cursor state after interactive `agy` login completes or is terminated, preventing staircased output and frozen confirmation prompts on Windows Terminal, PowerShell and OpenSSH ConPTY (#98).
+- Poll Windows console input events (`WaitForSingleObject` / `PeekConsoleInputW` / `ReadConsoleInputW`) instead of blocking `os.Stdin` with an unsupported read deadline, preventing background TUI input reads from holding `os.Stdin` across `suspend()` or consuming prompt keystrokes (#98).
+- Ensure cooked terminal mode before line prompts and accept `\r`, `\n` and `\r\n` line endings in `readLine` (#98).
+
 ## 2.20.0
 
 ### Changes
