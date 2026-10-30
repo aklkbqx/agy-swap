@@ -76,19 +76,6 @@ func writerTerminal(writer io.Writer) bool {
 	return ok && term.IsTerminal(int(file.Fd()))
 }
 
-// writerWidth returns the terminal column width of the writer, or a
-// safe fallback of 80 when the writer is not a terminal or the size
-// cannot be determined. Used to soft-wrap long CLI prose so the
-// terminal's own hard-wrap does not split words mid-character.
-func writerWidth(writer io.Writer) int {
-	if file, ok := writer.(*os.File); ok {
-		if w, _, err := termGetSize(file); err == nil && w > 0 {
-			return w
-		}
-	}
-	return 80
-}
-
 func (a *Application) newLoginCommand(ctx context.Context) *exec.Cmd {
 	var cmd *exec.Cmd
 	if a.loginCommand != nil {
@@ -622,9 +609,18 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 		}
 	}
 	fmt.Fprintf(a.Out, "\n%sAdd / Login Google Account%s\n%s1. A browser window will open to authenticate with Google.%s\n%s2. Complete login in Google Antigravity.%s\n", a.p.Bold, a.p.Reset, a.p.Gray, a.p.Reset, a.p.Gray, a.p.Reset)
-	for a.readLine(a.p.Cyan+"Press Enter when ready to start login (no password is required here)..."+a.p.Reset) != "" {
-
-		fmt.Fprintln(a.Out, "Please press Enter without entering a password; authentication happens in the browser.")
+	for {
+		resp := a.readLine(a.p.Cyan + "Press Enter when ready to start login (no password is required here; 'q' to cancel)..." + a.p.Reset)
+		if resp == "" {
+			break
+		}
+		lower := strings.ToLower(resp)
+		if lower == "q" || lower == "cancel" || lower == "exit" || lower == "n" || lower == "no" {
+			restore()
+			fmt.Fprintln(a.Out, "Login cancelled.")
+			return 0
+		}
+		fmt.Fprintln(a.Out, "Please press Enter to start login, or type 'q' to return.")
 	}
 	if !a.credentials.clearUnlocked(ctx) {
 		restore()
@@ -632,7 +628,8 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 		return 1
 	}
 	fmt.Fprintf(a.Out, "\n%sLaunching interactive 'agy' login...%s\n", a.p.Green, a.p.Reset)
-	fmt.Fprintf(a.Out, "%sComplete every prompt shown here and in the browser. agy-swap will continue after the credential is saved.%s\n\n", a.p.Yellow, a.p.Reset)
+	fmt.Fprintf(a.Out, "%sComplete every prompt shown here and in the browser. agy-swap will continue after the credential is saved.%s\n", a.p.Yellow, a.p.Reset)
+	fmt.Fprintf(a.Out, "%sPress Ctrl+C to cancel at any time.%s\n\n", a.p.Gray, a.p.Reset)
 	loginTerm := captureTerminalState(a.In, a.Out)
 	restoreLoginTerm := func() {
 		loginTerm.Restore(true)
@@ -661,6 +658,7 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 			stopLoginCommand(command, commandDone)
 			restoreLoginTerm()
 			restore()
+			fmt.Fprintf(a.Out, "\n%sLogin cancelled.%s\n", a.p.Yellow, a.p.Reset)
 			return 1
 		case commandErr := <-commandDone:
 			restoreLoginTerm()
@@ -684,6 +682,7 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 			}
 			restore()
 			if ctx.Err() != nil {
+				fmt.Fprintf(a.Out, "\n%sLogin cancelled.%s\n", a.p.Yellow, a.p.Reset)
 				return 1
 			}
 			if commandErr != nil {

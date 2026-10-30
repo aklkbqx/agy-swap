@@ -272,3 +272,122 @@ func TestAddLoginFlowSavesCredentialAndCleansUpWrapper(t *testing.T) {
 		t.Fatalf("credential was not saved to the vault: account=%#v", account)
 	}
 }
+
+func TestAddLoginFlowCanBeCancelledAtInitialPrompt(t *testing.T) {
+	for _, cancelInput := range []string{"q\n", "cancel\n", "n\n"} {
+		t.Run(strings.TrimSpace(cancelInput), func(t *testing.T) {
+			paths := testPaths(t)
+			var output, errorOutput bytes.Buffer
+			previousToken := tokenBlob(t, "user@example.com", true, "refresh", time.Now().Add(time.Hour))
+			backend := &fakeCredentialBackend{token: previousToken}
+			credentials := NewCredentials(paths)
+			credentials.backend = backend
+			if !credentials.writeOAuthFiles(previousToken, "user@example.com") {
+				t.Fatal("failed to seed oauth files")
+			}
+			store := NewStore(paths)
+			if err := store.Save(&Accounts{
+				Order:   []string{"user@example.com"},
+				ByEmail: map[string]Account{"user@example.com": {"email": "user@example.com", "token_data": previousToken}},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			launched := false
+			a := &Application{
+				In:          bytes.NewBufferString(cancelInput),
+				Out:         &output,
+				Err:         &errorOutput,
+				paths:       paths,
+				store:       store,
+				credentials: credentials,
+				http:        NewHTTPService(&errorOutput),
+				p:           makePalette(false),
+				loginCommand: func(ctx context.Context) *exec.Cmd {
+					launched = true
+					return exec.Command("true")
+				},
+			}
+			a.lineReader = bufio.NewReader(a.In)
+
+			code := a.addLoginFlow(context.Background())
+			if code != 0 {
+				t.Fatalf("code = %d, want 0; output = %q", code, output.String())
+			}
+			if launched {
+				t.Fatal("login command should not have been launched")
+			}
+			if !strings.Contains(output.String(), "Login cancelled") {
+				t.Fatalf("output missing 'Login cancelled': %q", output.String())
+			}
+			if credentials.readOAuthToken() == "" {
+				t.Fatal("active session files should not have been cleared when cancelled at prompt")
+			}
+		})
+	}
+}
+
+func TestAddLoginFlowContextCancellationAbortsCleanly(t *testing.T) {
+	paths := testPaths(t)
+	var output, errorOutput bytes.Buffer
+	previousToken := tokenBlob(t, "user@example.com", true, "refresh", time.Now().Add(time.Hour))
+	backend := &fakeCredentialBackend{token: previousToken}
+	credentials := NewCredentials(paths)
+	credentials.backend = backend
+	if !credentials.writeOAuthFiles(previousToken, "user@example.com") {
+		t.Fatal("failed to seed oauth files")
+	}
+	store := NewStore(paths)
+	if err := store.Save(&Accounts{
+		Order:   []string{"user@example.com"},
+		ByEmail: map[string]Account{"user@example.com": {"email": "user@example.com", "token_data": previousToken}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	a := &Application{
+		In:                bytes.NewBufferString("\n"),
+		Out:               &output,
+		Err:               &errorOutput,
+		paths:             paths,
+		store:             store,
+		credentials:       credentials,
+		http:              NewHTTPService(&errorOutput),
+		p:                 makePalette(false),
+		loginTimeout:      10 * time.Second,
+		loginPollInterval: 10 * time.Millisecond,
+		loginCommand: func(ctx context.Context) *exec.Cmd {
+			// Simulates long-running agy process
+			if runtime.GOOS == "windows" {
+				return exec.CommandContext(ctx, "powershell", "-Command", "Start-Sleep -Seconds 10")
+			}
+			return exec.CommandContext(ctx, "sleep", "10")
+		},
+	}
+	a.lineReader = bufio.NewReader(a.In)
+
+	done := make(chan int, 1)
+	go func() {
+		done <- a.addLoginFlow(ctx)
+	}()
+
+	// Give it a brief moment to start and clear tokens, then cancel via context (like Ctrl+C)
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case code := <-done:
+		if code != 1 {
+			t.Fatalf("code = %d, want 1; output = %q", code, output.String())
+		}
+		if !strings.Contains(output.String(), "Login cancelled") {
+			t.Fatalf("output missing 'Login cancelled': %q", output.String())
+		}
+		// Session rollback should have restored the previous token
+		if credentials.readOAuthToken() == "" {
+			t.Fatal("previous session should have been restored after context cancellation")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("addLoginFlow did not abort promptly on context cancellation")
+	}
+}

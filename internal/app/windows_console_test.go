@@ -95,9 +95,9 @@ func TestWindowsConsolePollLeavesEventUntouchedWhenPaused(t *testing.T) {
 }
 
 func TestWindowsCookedModeSanitizerClearsRawAndNewlineFlags(t *testing.T) {
-	// Simulate raw input mode left by taskkill'd agy.exe:
-	// ECHO, LINE_INPUT, PROCESSED_INPUT cleared; VIRTUAL_TERMINAL_INPUT set.
-	rawIn := uint32(windows.ENABLE_VIRTUAL_TERMINAL_INPUT | windows.ENABLE_EXTENDED_FLAGS)
+	// Simulate raw input mode left by taskkill'd agy.exe or TUI mouse tracking:
+	// ECHO, LINE_INPUT, PROCESSED_INPUT cleared; VIRTUAL_TERMINAL_INPUT, MOUSE, WINDOW set.
+	rawIn := uint32(windows.ENABLE_VIRTUAL_TERMINAL_INPUT | windows.ENABLE_MOUSE_INPUT | windows.ENABLE_WINDOW_INPUT | windows.ENABLE_EXTENDED_FLAGS)
 	cookedIn := sanitizeWindowsCookedInputMode(rawIn)
 	wantInBits := uint32(windows.ENABLE_PROCESSED_INPUT | windows.ENABLE_LINE_INPUT | windows.ENABLE_ECHO_INPUT)
 	if cookedIn&wantInBits != wantInBits {
@@ -105,6 +105,12 @@ func TestWindowsCookedModeSanitizerClearsRawAndNewlineFlags(t *testing.T) {
 	}
 	if cookedIn&windows.ENABLE_VIRTUAL_TERMINAL_INPUT != 0 {
 		t.Fatalf("cookedIn = 0x%04x, still has ENABLE_VIRTUAL_TERMINAL_INPUT", cookedIn)
+	}
+	if cookedIn&windows.ENABLE_MOUSE_INPUT != 0 {
+		t.Fatalf("cookedIn = 0x%04x, still has ENABLE_MOUSE_INPUT", cookedIn)
+	}
+	if cookedIn&windows.ENABLE_WINDOW_INPUT != 0 {
+		t.Fatalf("cookedIn = 0x%04x, still has ENABLE_WINDOW_INPUT", cookedIn)
 	}
 
 	// Simulate raw output mode left by taskkill'd agy.exe:

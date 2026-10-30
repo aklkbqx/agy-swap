@@ -12,6 +12,16 @@ import (
 
 const childTerminalResetSeq = "\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[?1049l\x1b[?25h"
 
+var (
+	procFlushConsoleInputBuffer = kernel32DLL.NewProc("FlushConsoleInputBuffer")
+)
+
+func flushConsoleInput(h windows.Handle) {
+	if h != 0 && h != windows.InvalidHandle {
+		_, _, _ = procFlushConsoleInputBuffer.Call(uintptr(h))
+	}
+}
+
 type terminalSnapshot struct {
 	inHandle  windows.Handle
 	hasIn     bool
@@ -24,7 +34,7 @@ type terminalSnapshot struct {
 
 func sanitizeWindowsCookedInputMode(mode uint32) uint32 {
 	cooked := mode | windows.ENABLE_PROCESSED_INPUT | windows.ENABLE_LINE_INPUT | windows.ENABLE_ECHO_INPUT
-	cooked &^= windows.ENABLE_VIRTUAL_TERMINAL_INPUT
+	cooked &^= (windows.ENABLE_VIRTUAL_TERMINAL_INPUT | windows.ENABLE_MOUSE_INPUT | windows.ENABLE_WINDOW_INPUT)
 	return cooked
 }
 
@@ -63,6 +73,7 @@ func (s *terminalSnapshot) Restore(resetChildModes bool) {
 	}
 	if s.hasIn {
 		_ = windows.SetConsoleMode(s.inHandle, s.inMode)
+		flushConsoleInput(s.inHandle)
 	}
 	if s.hasOut {
 		if resetChildModes && s.out != nil {
@@ -96,6 +107,7 @@ func ensureCookedTerminal(in io.Reader, out io.Writer) {
 			if mode != want {
 				_ = windows.SetConsoleMode(h, want)
 			}
+			flushConsoleInput(h)
 		}
 	}
 	if outFile, ok := out.(*os.File); ok {
@@ -114,4 +126,11 @@ func resetPlatformInputState() {
 	windowsInputDecoderMu.Lock()
 	windowsSharedInputDecoder.reset()
 	windowsInputDecoderMu.Unlock()
+	if os.Stdin != nil {
+		h := windows.Handle(os.Stdin.Fd())
+		var mode uint32
+		if windows.GetConsoleMode(h, &mode) == nil {
+			flushConsoleInput(h)
+		}
+	}
 }

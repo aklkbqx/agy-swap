@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/aklkbqx/agy-swap/v2/internal/app"
 )
@@ -17,5 +19,9 @@ func main() {
 		os.Exit(1)
 	}
 	application.BuildID = buildID
-	os.Exit(application.Run(context.Background(), os.Args[1:]))
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	code := application.Run(ctx, os.Args[1:])
+	cancel()
+	os.Exit(code)
 }
