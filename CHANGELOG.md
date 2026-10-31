@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.21.0
+
+### Changes
+
+- Redesign all seven Admin destinations and the login screen as a quieter, data-first operations console with consistent Thai copy, responsive layouts and paired light/dark themes.
+- Replace bespoke dropdown, dialog and tab behavior with Radix UI primitives, adopt Phosphor icons and move record creation, editing, imports and release-asset details into contextual dialogs.
+- Preserve source-specific reporting windows and unknown-data semantics while simplifying metric, chart, table, empty, loading and error presentations.
+- Add end-to-end Admin coverage for keyboard navigation, mobile navigation, authentication, imports, record mutations, source recovery and logout.
+
 ## 2.20.1
 
 ### Fixes
