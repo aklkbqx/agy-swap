@@ -75,6 +75,10 @@ func TestAddLoginFlowAttachesIOAndStopsWhenAgyExits(t *testing.T) {
 	if !credentials.writeOAuthFiles(previousToken, "previous@example.com") {
 		t.Fatal("could not seed previous OAuth files")
 	}
+	previousIDE, readErr := os.ReadFile(paths.IDEOAuthToken)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
 	previousJetski, readErr := os.ReadFile(paths.JetskiToken)
 	if readErr != nil {
 		t.Fatal(readErr)
@@ -98,6 +102,9 @@ func TestAddLoginFlowAttachesIOAndStopsWhenAgyExits(t *testing.T) {
 		loginTimeout:      10 * time.Second,
 		loginPollInterval: 10 * time.Millisecond,
 		loginCommand: func(ctx context.Context) *exec.Cmd {
+			if _, statErr := os.Stat(paths.IDEOAuthToken); !os.IsNotExist(statErr) {
+				t.Errorf("IDEOAuthToken was not cleared before launching login command: %v", statErr)
+			}
 			if _, statErr := os.Stat(paths.JetskiToken); !os.IsNotExist(statErr) {
 				t.Errorf("JetskiToken was not cleared before launching login command: %v", statErr)
 			}
@@ -134,6 +141,10 @@ func TestAddLoginFlowAttachesIOAndStopsWhenAgyExits(t *testing.T) {
 	}
 	if backend.token != previousToken {
 		t.Fatalf("previous credential was not restored: %q", backend.token)
+	}
+	restoredIDE, err := os.ReadFile(paths.IDEOAuthToken)
+	if err != nil || !bytes.Equal(restoredIDE, previousIDE) {
+		t.Fatalf("previous IDEOAuthToken was not restored: err=%v, got=%q", err, restoredIDE)
 	}
 	restoredJetski, err := os.ReadFile(paths.JetskiToken)
 	if err != nil || !bytes.Equal(restoredJetski, previousJetski) {

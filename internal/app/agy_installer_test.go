@@ -323,4 +323,9 @@ func TestWindowsHeadlessSessionStoreFallback(t *testing.T) {
 	if _, err := os.Stat(c.keyringMarkerPath()); err != nil {
 		t.Fatalf("expected keyring bypass marker written on headless fallback: %v", err)
 	}
+	for _, marker := range c.keyringMarkerPaths() {
+		if _, err := os.Stat(marker); err != nil {
+			t.Fatalf("expected keyring bypass marker at %s on headless fallback: %v", marker, err)
+		}
+	}
 }

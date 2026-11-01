@@ -25,7 +25,7 @@ func testPaths(t *testing.T) Paths {
 	t.Helper()
 	home := t.TempDir()
 	config := filepath.Join(home, ".gemini", "agy-swap")
-	return Paths{Home: home, ConfigDir: config, Accounts: filepath.Join(config, "accounts.json"), AccountsBackup: filepath.Join(config, "accounts.json.bak"), AccountsLock: filepath.Join(config, ".accounts.lock"), SessionLock: filepath.Join(config, ".session.lock"), LogCache: filepath.Join(config, "log-cache-v1.json"), Settings: filepath.Join(config, "config.json"), History: filepath.Join(config, "history-v1.jsonl"), RuntimeState: filepath.Join(config, "runtime-state.json"), JournalDir: filepath.Join(config, "journals"), OAuthToken: filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"), OAuthCredentials: filepath.Join(home, ".gemini", "oauth_creds.json"), GoogleAccounts: filepath.Join(home, ".gemini", "google_accounts.json"), JetskiToken: filepath.Join(home, ".gemini", "jetski-standalone-oauth-token")}
+	return Paths{Home: home, ConfigDir: config, Accounts: filepath.Join(config, "accounts.json"), AccountsBackup: filepath.Join(config, "accounts.json.bak"), AccountsLock: filepath.Join(config, ".accounts.lock"), SessionLock: filepath.Join(config, ".session.lock"), LogCache: filepath.Join(config, "log-cache-v1.json"), Settings: filepath.Join(config, "config.json"), History: filepath.Join(config, "history-v1.jsonl"), RuntimeState: filepath.Join(config, "runtime-state.json"), JournalDir: filepath.Join(config, "journals"), OAuthToken: filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"), IDEOAuthToken: filepath.Join(home, ".gemini", "antigravity", "antigravity-oauth-token"), OAuthCredentials: filepath.Join(home, ".gemini", "oauth_creds.json"), GoogleAccounts: filepath.Join(home, ".gemini", "google_accounts.json"), JetskiToken: filepath.Join(home, ".gemini", "jetski-standalone-oauth-token")}
 }
 
 func tokenBlob(t *testing.T, email string, verified bool, refresh string, expiry time.Time) string {
@@ -1070,7 +1070,7 @@ func TestCredentialFilesAndTransactionalRollback(t *testing.T) {
 	if backend.sets != setCount {
 		t.Fatal("reapplying the active credential rewrote the keychain")
 	}
-	for _, path := range []string{paths.OAuthToken, paths.JetskiToken, paths.OAuthCredentials, paths.GoogleAccounts} {
+	for _, path := range []string{paths.OAuthToken, paths.IDEOAuthToken, paths.JetskiToken, paths.OAuthCredentials, paths.GoogleAccounts} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("missing %s", path)
 		}
@@ -1110,12 +1110,16 @@ func TestJetskiTokenFallbackRollbackAndLoginRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ideBytes, err := os.ReadFile(paths.IDEOAuthToken)
+	if err != nil || !bytes.Equal(oauthBytes, ideBytes) {
+		t.Fatalf("IDEOAuthToken not synchronized with OAuthToken: err=%v", err)
+	}
 	jetskiBytes, err := os.ReadFile(paths.JetskiToken)
 	if err != nil || !bytes.Equal(oauthBytes, jetskiBytes) {
 		t.Fatalf("JetskiToken not synchronized with OAuthToken: err=%v", err)
 	}
-	// If a later write (OAuthCredentials) fails after OAuthToken and JetskiToken are written,
-	// both OAuthToken and JetskiToken must roll back to the previous account's bytes.
+	// If a later write (OAuthCredentials) fails after OAuthToken, IDEOAuthToken, and JetskiToken are written,
+	// all three token files must roll back to the previous account's bytes.
 	other := tokenBlob(t, "other@example.com", true, "r2", time.Now().Add(time.Hour))
 	badCredsPaths := paths
 	badCredsPaths.OAuthCredentials = filepath.Join(paths.OAuthToken, "invalid-child.json")
@@ -1128,6 +1132,10 @@ func TestJetskiTokenFallbackRollbackAndLoginRestore(t *testing.T) {
 	if err != nil || !bytes.Equal(afterOAuth, oauthBytes) {
 		t.Fatalf("OAuthToken was not rolled back after OAuthCredentials failure: err=%v", err)
 	}
+	afterIDE, err := os.ReadFile(paths.IDEOAuthToken)
+	if err != nil || !bytes.Equal(afterIDE, ideBytes) {
+		t.Fatalf("IDEOAuthToken was not rolled back after OAuthCredentials failure: err=%v", err)
+	}
 	afterJetski, err := os.ReadFile(paths.JetskiToken)
 	if err != nil || !bytes.Equal(afterJetski, jetskiBytes) {
 		t.Fatalf("JetskiToken was not rolled back after OAuthCredentials failure: err=%v", err)
@@ -1135,7 +1143,22 @@ func TestJetskiTokenFallbackRollbackAndLoginRestore(t *testing.T) {
 	if backend.token != token {
 		t.Fatal("secure credential was not rolled back after OAuthCredentials failure")
 	}
-	// If JetskiToken write itself fails after OAuthToken is written, OAuthToken and secure store roll back.
+	// If IDEOAuthToken write fails after OAuthToken is written, OAuthToken and secure store roll back.
+	badIDEPaths := paths
+	badIDEPaths.IDEOAuthToken = filepath.Join(paths.OAuthToken, "invalid-ide.json")
+	badIDE := NewCredentials(badIDEPaths)
+	badIDE.backend = backend
+	if badIDE.Apply(context.Background(), other, "other@example.com") {
+		t.Fatal("apply with invalid IDEOAuthToken parent succeeded")
+	}
+	afterOAuth, err = os.ReadFile(paths.OAuthToken)
+	if err != nil || !bytes.Equal(afterOAuth, oauthBytes) {
+		t.Fatalf("OAuthToken was not rolled back after IDEOAuthToken failure: err=%v", err)
+	}
+	if backend.token != token {
+		t.Fatal("secure credential was not rolled back after IDEOAuthToken failure")
+	}
+	// If JetskiToken write itself fails after OAuthToken and IDEOAuthToken are written, both and secure store roll back.
 	badJetskiPaths := paths
 	badJetskiPaths.JetskiToken = filepath.Join(paths.OAuthToken, "invalid-jetski.json")
 	badJetski := NewCredentials(badJetskiPaths)
@@ -1147,27 +1170,54 @@ func TestJetskiTokenFallbackRollbackAndLoginRestore(t *testing.T) {
 	if err != nil || !bytes.Equal(afterOAuth, oauthBytes) {
 		t.Fatalf("OAuthToken was not rolled back after JetskiToken failure: err=%v", err)
 	}
+	afterIDE, err = os.ReadFile(paths.IDEOAuthToken)
+	if err != nil || !bytes.Equal(afterIDE, ideBytes) {
+		t.Fatalf("IDEOAuthToken was not rolled back after JetskiToken failure: err=%v", err)
+	}
 	if backend.token != token {
 		t.Fatal("secure credential was not rolled back after JetskiToken failure")
+	}
+	// When IDEOAuthToken has a fresher access token for the same refresh_token, readOAuthToken prefers it.
+	fresherToken := tokenBlob(t, "user@example.com", true, "r", time.Now().Add(2*time.Hour))
+	fresherRaw, err := json.Marshal(decodeToken(fresherToken))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.IDEOAuthToken, fresherRaw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := credentials.readOAuthToken(); got != fresherToken {
+		t.Fatalf("readOAuthToken did not prefer fresher IDEOAuthToken for same refresh_token: got %q, want %q", got, fresherToken)
 	}
 	if err := os.Remove(paths.OAuthToken); err != nil {
 		t.Fatal(err)
 	}
 	backend.token = ""
 	if got := credentials.Current(context.Background()); got == "" || getString(tokenObject(decodeToken(got)), "refresh_token") != "r" {
-		t.Fatalf("Current did not fall back to JetskiToken when OAuthToken was missing: %q", got)
+		t.Fatalf("Current did not fall back to IDEOAuthToken when OAuthToken was missing: %q", got)
+	}
+	if err := os.Remove(paths.IDEOAuthToken); err != nil {
+		t.Fatal(err)
+	}
+	if got := credentials.Current(context.Background()); got == "" || getString(tokenObject(decodeToken(got)), "refresh_token") != "r" {
+		t.Fatalf("Current did not fall back to JetskiToken when OAuthToken and IDEOAuthToken were missing: %q", got)
 	}
 	if err := os.WriteFile(paths.OAuthToken, []byte("{corrupt"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(paths.IDEOAuthToken, []byte("{corrupt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if got := credentials.Current(context.Background()); got == "" || getString(tokenObject(decodeToken(got)), "refresh_token") != "r" {
-		t.Fatalf("Current did not fall back to JetskiToken when OAuthToken was corrupt: %q", got)
+		t.Fatalf("Current did not fall back to JetskiToken when OAuthToken and IDEOAuthToken were corrupt: %q", got)
 	}
 	if !credentials.Clear(context.Background()) {
 		t.Fatal("Clear failed")
 	}
-	if _, err := os.Stat(paths.JetskiToken); !os.IsNotExist(err) {
-		t.Fatalf("JetskiToken survived Clear: %v", err)
+	for _, p := range []string{paths.OAuthToken, paths.IDEOAuthToken, paths.JetskiToken} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Fatalf("%s survived Clear: %v", p, err)
+		}
 	}
 }
 

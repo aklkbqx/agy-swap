@@ -99,6 +99,7 @@ func (a *Application) candidateAgyPaths() []string {
 		if home != "" {
 			candidates = append(candidates,
 				filepath.Join(home, ".local", "bin", exe),
+				filepath.Join(home, ".gemini", "bin", exe),
 				filepath.Join(home, "bin", exe),
 			)
 		}
@@ -108,6 +109,8 @@ func (a *Application) candidateAgyPaths() []string {
 		candidates = append(candidates,
 			filepath.Join(home, ".local", "bin", exe),
 			filepath.Join(home, ".local", "libexec", exe),
+			filepath.Join(home, ".gemini", "bin", exe),
+			filepath.Join(home, ".gemini", "bin", ".agy.real"),
 			filepath.Join(home, "bin", exe),
 		)
 	}
