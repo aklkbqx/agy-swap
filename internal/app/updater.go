@@ -3,14 +3,19 @@ package app
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -20,9 +25,16 @@ import (
 )
 
 type releaseAsset struct {
-	Name string `json:"name"`
-	URL  string `json:"browser_download_url"`
+	Name   string `json:"name"`
+	URL    string `json:"browser_download_url"`
+	APIURL string `json:"url"`
 }
+
+type releaseCandidate struct {
+	URL     string
+	Headers map[string]string
+}
+
 type githubRelease struct {
 	Tag     string         `json:"tag_name"`
 	HTMLURL string         `json:"html_url"`
@@ -68,17 +80,124 @@ func expectedChecksum(manifest []byte, name string) (string, error) {
 	return client.ExpectedChecksum(manifest, name)
 }
 
+const defaultSiteBaseURL = "https://agy-swap.aklkbqx.com"
+
+var softwareVersionPattern = regexp.MustCompile(`"softwareVersion"\s*:\s*"v?([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)"`)
+
+func releaseMetadataURL() string {
+	if custom := strings.TrimSpace(os.Getenv("AGY_SWAP_UPDATE_URL")); custom != "" {
+		return custom
+	}
+	return "https://api.github.com/repos/" + githubRepo + "/releases/latest"
+}
+
+func releaseSiteFallbackURL() string {
+	if custom := strings.TrimSpace(os.Getenv("AGY_SWAP_SITE_URL")); custom != "" {
+		return custom
+	}
+	if strings.TrimSpace(os.Getenv("AGY_SWAP_UPDATE_URL")) != "" {
+		return ""
+	}
+	return defaultSiteBaseURL + "/"
+}
+
+func syntheticReleaseFromVersion(ver string) githubRelease {
+	tag := normalizedReleaseTag(ver)
+	assetName := "agy-swap_" + tag + "_" + runtime.GOOS + "_" + runtime.GOARCH
+	if runtime.GOOS == "windows" {
+		assetName += ".exe"
+	}
+	dlBase := "https://github.com/" + githubRepo + "/releases/download/" + tag
+	return githubRelease{
+		Tag:     tag,
+		HTMLURL: "https://github.com/" + githubRepo + "/releases/tag/" + tag,
+		Assets: []releaseAsset{
+			{Name: "checksums.txt", URL: dlBase + "/checksums.txt"},
+			{Name: assetName, URL: dlBase + "/" + assetName},
+		},
+	}
+}
+
+var errInvalidReleaseMetadata = errors.New("invalid release metadata")
+
+func (h *HTTPService) fetchLatestRelease(ctx context.Context) (githubRelease, error) {
+	data, _, err := h.getBytes(ctx, releaseMetadataURL(), map[string]string{"Accept": "application/vnd.github+json"}, 10*time.Second, 1024*1024)
+	if err == nil {
+		var release githubRelease
+		if json.Unmarshal(data, &release) == nil && release.Tag != "" {
+			return release, nil
+		}
+		err = errInvalidReleaseMetadata
+	}
+	if siteURL := releaseSiteFallbackURL(); siteURL != "" {
+		if siteData, _, siteErr := h.getBytes(ctx, siteURL, nil, 10*time.Second, 1024*1024); siteErr == nil {
+			if m := softwareVersionPattern.FindSubmatch(siteData); len(m) == 2 {
+				return syntheticReleaseFromVersion(string(m[1])), nil
+			}
+		}
+	}
+	return githubRelease{}, err
+}
+
+func assetCandidateURLs(releaseTag, assetName string, asset releaseAsset) []releaseCandidate {
+	tag := normalizedReleaseTag(releaseTag)
+	seen := make(map[string]struct{}, 4)
+	var out []releaseCandidate
+	add := func(rawURL string, headers map[string]string) {
+		u := strings.TrimSpace(rawURL)
+		if u == "" {
+			return
+		}
+		if _, ok := seen[u]; ok {
+			return
+		}
+		seen[u] = struct{}{}
+		out = append(out, releaseCandidate{URL: u, Headers: headers})
+	}
+
+	add(asset.URL, nil)
+	if mirror := strings.TrimRight(strings.TrimSpace(os.Getenv("AGY_SWAP_RELEASE_MIRROR")), "/"); mirror != "" {
+		if tag != "" {
+			add(mirror+"/"+tag+"/"+assetName, nil)
+		}
+		add(mirror+"/"+assetName, nil)
+	}
+	if asset.APIURL != "" {
+		add(asset.APIURL, map[string]string{"Accept": "application/octet-stream"})
+	}
+	return out
+}
+
+func (h *HTTPService) downloadReleaseAsset(ctx context.Context, candidates []releaseCandidate, timeout time.Duration, limit int64) ([]byte, error) {
+	if len(candidates) == 0 {
+		return nil, errors.New("no download URL candidates available")
+	}
+	var firstErr error
+	for _, candidate := range candidates {
+		data, _, err := h.getBytes(ctx, candidate.URL, candidate.Headers, timeout, limit)
+		if err == nil {
+			return data, nil
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	return nil, firstErr
+}
+
 func (a *Application) cmdUpdate(ctx context.Context, args cliArgs) int {
 	stop := a.spinner("Checking for updates...")
-	data, _, err := a.http.getBytes(ctx, "https://api.github.com/repos/"+githubRepo+"/releases/latest", map[string]string{"Accept": "application/vnd.github+json"}, 10*time.Second, 1024*1024)
+	release, err := a.http.fetchLatestRelease(ctx)
 	stop()
-	if err != nil {
-		fmt.Fprintf(a.Err, "%s✕ Could not fetch update metadata: %v%s\n", a.p.Red, err, a.p.Reset)
+	if errors.Is(err, errInvalidReleaseMetadata) {
+		fmt.Fprintf(a.Err, "%s✕ Could not determine latest version.%s\n", a.p.Red, a.p.Reset)
 		return 1
 	}
-	var release githubRelease
-	if json.Unmarshal(data, &release) != nil || release.Tag == "" {
-		fmt.Fprintf(a.Err, "%s✕ Could not determine latest version.%s\n", a.p.Red, a.p.Reset)
+	if err != nil {
+		fmt.Fprintf(a.Err, "%s✕ Could not fetch update metadata: %s%s\n", a.p.Red, formatUpdateDownloadError(err), a.p.Reset)
+		if hint := diagnoseUpdateDownloadError(err); hint != "" {
+			fmt.Fprintf(a.Err, "  %sHint: %s%s\n", a.p.Yellow, hint, a.p.Reset)
+		}
 		return 1
 	}
 	releaseTag := normalizedReleaseTag(release.Tag)
@@ -101,16 +220,18 @@ func (a *Application) cmdUpdate(ctx context.Context, args cliArgs) int {
 	if runtime.GOOS == "windows" {
 		assetName += ".exe"
 	}
-	var binaryURL, checksumsURL string
+	var binaryAsset, checksumsAsset releaseAsset
 	for _, asset := range release.Assets {
 		if asset.Name == assetName {
-			binaryURL = asset.URL
+			binaryAsset = asset
 		}
 		if asset.Name == "checksums.txt" {
-			checksumsURL = asset.URL
+			checksumsAsset = asset
 		}
 	}
-	if binaryURL == "" || checksumsURL == "" {
+	binaryCandidates := assetCandidateURLs(releaseTag, assetName, binaryAsset)
+	checksumCandidates := assetCandidateURLs(releaseTag, "checksums.txt", checksumsAsset)
+	if len(binaryCandidates) == 0 || len(checksumCandidates) == 0 {
 		fmt.Fprintf(a.Err, "%s✕ Release v%s does not contain %s (or checksums.txt) for %s/%s. Install from %s or run the matching platform installer.%s\n", a.p.Red, latest, assetName, runtime.GOOS, runtime.GOARCH, release.HTMLURL, a.p.Reset)
 		return 1
 	}
@@ -141,21 +262,34 @@ func (a *Application) cmdUpdate(ctx context.Context, args cliArgs) int {
 	}
 
 	stop = a.spinner("Downloading v" + latest + "...")
-	manifest, _, manifestErr := a.http.getBytes(ctx, checksumsURL, nil, 15*time.Second, 1024*1024)
-	binary, _, binaryErr := a.http.getBytes(ctx, binaryURL, nil, 30*time.Second, 64*1024*1024)
-	stop()
-	if manifestErr != nil || binaryErr != nil {
-		if manifestErr != nil {
-			err = manifestErr
-		} else {
-			err = binaryErr
+	manifest, manifestErr := a.http.downloadReleaseAsset(ctx, checksumCandidates, 15*time.Second, 1024*1024)
+	if manifestErr != nil {
+		stop()
+		if a.tryGoToolchainFallback(ctx, latest, current, release.HTMLURL, manifestErr) {
+			return 0
 		}
-		fmt.Fprintf(a.Err, "%s✕ Download failed for %s: %v%s\n", a.p.Red, assetName, err, a.p.Reset)
+		fmt.Fprintf(a.Err, "%s✕ Download failed for checksums.txt: %s%s\n", a.p.Red, formatUpdateDownloadError(manifestErr), a.p.Reset)
+		if hint := diagnoseUpdateDownloadError(manifestErr); hint != "" {
+			fmt.Fprintf(a.Err, "  %sHint: %s%s\n", a.p.Yellow, hint, a.p.Reset)
+		}
 		return 1
 	}
 	expected, err := expectedChecksum(manifest, assetName)
 	if err != nil {
+		stop()
 		fmt.Fprintf(a.Err, "%s✕ Integrity verification failed: %v%s\n", a.p.Red, err, a.p.Reset)
+		return 1
+	}
+	binary, binaryErr := a.http.downloadReleaseAsset(ctx, binaryCandidates, 30*time.Second, 64*1024*1024)
+	stop()
+	if binaryErr != nil {
+		if a.tryGoToolchainFallback(ctx, latest, current, release.HTMLURL, binaryErr) {
+			return 0
+		}
+		fmt.Fprintf(a.Err, "%s✕ Download failed for %s: %s%s\n", a.p.Red, assetName, formatUpdateDownloadError(binaryErr), a.p.Reset)
+		if hint := diagnoseUpdateDownloadError(binaryErr); hint != "" {
+			fmt.Fprintf(a.Err, "  %sHint: %s%s\n", a.p.Yellow, hint, a.p.Reset)
+		}
 		return 1
 	}
 	actual := sha256.Sum256(binary)
@@ -402,4 +536,274 @@ func cleanShadowedLocalBinary(out io.Writer, p palette) {
 			fmt.Fprintf(out, "%s✓ Removed shadowing binary at %s%s\n", p.Yellow, localBin, p.Reset)
 		}
 	}
+}
+
+var (
+	urlQueryStripPattern = regexp.MustCompile(`(https?://[^\s"?]+)\?[^\s"]+`)
+	ipv4ExtractPattern   = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+)
+
+func formatUpdateDownloadError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var uErr *url.Error
+	if errors.As(err, &uErr) && uErr.URL != "" {
+		sanitized := *uErr
+		if parsed, parseErr := url.Parse(uErr.URL); parseErr == nil {
+			parsed.RawQuery = ""
+			parsed.Fragment = ""
+			sanitized.URL = parsed.String()
+		}
+		return urlQueryStripPattern.ReplaceAllString(sanitized.Error(), "$1")
+	}
+	return urlQueryStripPattern.ReplaceAllString(err.Error(), "$1")
+}
+
+func isTLSVerifyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "tls:") ||
+		strings.Contains(msg, "x509:") ||
+		strings.Contains(msg, "certificate")
+}
+
+func diagnoseUpdateDownloadError(err error) string {
+	if !isTLSVerifyError(err) {
+		return ""
+	}
+	for _, match := range ipv4ExtractPattern.FindAllString(err.Error(), -1) {
+		ip := net.ParseIP(match)
+		if ip != nil && (ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast()) {
+			return fmt.Sprintf("Network firewall or captive portal (%s) intercepted release-assets.githubusercontent.com. Complete Wi-Fi login, whitelist *.githubusercontent.com, set AGY_SWAP_RELEASE_MIRROR, or switch networks.", match)
+		}
+	}
+	return "TLS certificate verification failed. If behind a corporate SSL-inspecting proxy, set AGY_SWAP_CA_BUNDLE=/path/to/ca-bundle.pem or AGY_SWAP_RELEASE_MIRROR."
+}
+
+func isPublicLookupHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" || host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local") {
+		return false
+	}
+	return net.ParseIP(host) == nil
+}
+
+func shouldRetryViaDoH(request *http.Request, err error) bool {
+	if !isTLSVerifyError(err) {
+		return false
+	}
+	if request != nil && request.URL != nil && isPublicLookupHost(request.URL.Hostname()) {
+		return true
+	}
+	var uErr *url.Error
+	if errors.As(err, &uErr) {
+		if parsed, parseErr := url.Parse(uErr.URL); parseErr == nil && isPublicLookupHost(parsed.Hostname()) {
+			return true
+		}
+	}
+	return false
+}
+
+func filterPublicDoHIPs(candidates []string) []string {
+	seen := make(map[string]struct{}, len(candidates))
+	var out []string
+	for _, raw := range candidates {
+		ip := net.ParseIP(strings.TrimSpace(raw))
+		if ip == nil {
+			continue
+		}
+		if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			continue
+		}
+		canonical := ip.String()
+		if _, ok := seen[canonical]; ok {
+			continue
+		}
+		seen[canonical] = struct{}{}
+		out = append(out, canonical)
+	}
+	return out
+}
+
+type dohJSONAnswer struct {
+	Type int    `json:"type"`
+	Data string `json:"data"`
+}
+
+type dohJSONResponse struct {
+	Status int             `json:"Status"`
+	Answer []dohJSONAnswer `json:"Answer"`
+}
+
+func defaultDoHEndpoints() []string {
+	if custom := strings.TrimSpace(os.Getenv("AGY_SWAP_DOH_URL")); custom != "" {
+		return []string{custom}
+	}
+	return []string{
+		"https://1.1.1.1/dns-query",
+		"https://8.8.8.8/resolve",
+	}
+}
+
+func newDirectDoHHTTPClient(baseTLS *tls.Config) *http.Client {
+	dialer := &net.Dialer{Timeout: 4 * time.Second, KeepAlive: 15 * time.Second}
+	tr := &http.Transport{
+		Proxy:             http.ProxyFromEnvironment,
+		DialContext:       dialer.DialContext,
+		ForceAttemptHTTP2: true,
+		IdleConnTimeout:   30 * time.Second,
+	}
+	if baseTLS != nil {
+		tr.TLSClientConfig = baseTLS.Clone()
+	}
+	return &http.Client{Transport: tr, Timeout: 5 * time.Second}
+}
+
+func resolveHostViaDoH(ctx context.Context, dohHTTP *http.Client, host string) ([]string, error) {
+	if !isPublicLookupHost(host) {
+		return nil, fmt.Errorf("non-public host %q", host)
+	}
+	if dohHTTP == nil {
+		dohHTTP = newDirectDoHHTTPClient(nil)
+	}
+	var lastErr error
+	for _, endpoint := range defaultDoHEndpoints() {
+		u, err := url.Parse(endpoint)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		q := u.Query()
+		q.Set("name", host)
+		q.Set("type", "A")
+		u.RawQuery = q.Encode()
+
+		reqCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, u.String(), nil)
+		if err != nil {
+			cancel()
+			lastErr = err
+			continue
+		}
+		req.Header.Set("Accept", "application/dns-json")
+		resp, err := dohHTTP.Do(req)
+		if err != nil {
+			cancel()
+			lastErr = err
+			continue
+		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+		_ = resp.Body.Close()
+		cancel()
+		if readErr != nil || resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("DoH HTTP %d", resp.StatusCode)
+			continue
+		}
+		var parsed dohJSONResponse
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			lastErr = err
+			continue
+		}
+		var rawIPs []string
+		for _, ans := range parsed.Answer {
+			if ans.Type == 1 || ans.Type == 28 {
+				rawIPs = append(rawIPs, ans.Data)
+			}
+		}
+		if ips := filterPublicDoHIPs(rawIPs); len(ips) > 0 {
+			return ips, nil
+		}
+		lastErr = fmt.Errorf("no public IPs in DoH response for %s", host)
+	}
+	if lastErr == nil {
+		lastErr = errors.New("no DoH endpoints configured")
+	}
+	return nil, lastErr
+}
+
+func newDoHBackedTransport(base *http.Transport) *http.Transport {
+	cloned := base.Clone()
+	dohHTTP := newDirectDoHHTTPClient(base.TLSClientConfig)
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	cloned.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err == nil && isPublicLookupHost(host) {
+			if ips, dohErr := resolveHostViaDoH(ctx, dohHTTP, host); dohErr == nil && len(ips) > 0 {
+				var dialErr error
+				for _, ip := range ips {
+					conn, cErr := dialer.DialContext(ctx, network, net.JoinHostPort(ip, port))
+					if cErr == nil {
+						return conn, nil
+					}
+					dialErr = cErr
+				}
+				if dialErr != nil {
+					return nil, dialErr
+				}
+			}
+		}
+		return dialer.DialContext(ctx, network, addr)
+	}
+	return cloned
+}
+
+func (a *Application) tryGoToolchainFallback(ctx context.Context, latest, current, htmlURL string, dlErr error) bool {
+	if strings.TrimSpace(os.Getenv("AGY_SWAP_NO_GO_FALLBACK")) == "1" {
+		return false
+	}
+	if os.Getenv("AGY_SWAP_GO_FALLBACK") != "1" && !isTLSVerifyError(dlErr) {
+		return false
+	}
+	goBin, err := exec.LookPath("go")
+	if err != nil || goBin == "" {
+		return false
+	}
+	if current == "" {
+		current, err = os.Executable()
+		if err != nil {
+			return false
+		}
+		if resolved, resolveErr := filepath.EvalSymlinks(current); resolveErr == nil {
+			current = resolved
+		}
+	}
+	fmt.Fprintf(a.Out, "%s● Release CDN blocked; building verified v%s via Go module proxy...%s\n", a.p.Cyan, latest, a.p.Reset)
+	tmpDir, err := os.MkdirTemp(filepath.Dir(current), ".agy-swap-gobuild.*")
+	if err != nil {
+		return false
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	binName := "agy-swap"
+	if runtime.GOOS == "windows" {
+		binName += ".exe"
+	}
+	candidate := filepath.Join(tmpDir, binName)
+	buildCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	pkg := "github.com/" + githubRepo + "/v2/cmd/agy-swap@v" + latest
+	cmd := exec.CommandContext(buildCtx, goBin, "install", "-trimpath", "-ldflags", "-s -w -X main.version="+latest+" -X main.buildID=release", pkg)
+	cmd.Env = append(os.Environ(), "GOBIN="+tmpDir)
+	if err := cmd.Run(); err != nil {
+		return false
+	}
+	if verifyUpdateBinary(ctx, candidate, latest) != nil {
+		return false
+	}
+	backup := current + ".bak"
+	if runtime.GOOS == "windows" {
+		return false
+	}
+	if replaceUpdateBinary(current, candidate, backup) != nil {
+		return false
+	}
+	fmt.Fprintf(a.Out, "%s✓ Updated agy-swap v%s → v%s (via Go module proxy)%s\n", a.p.Green, a.Version, latest, a.p.Reset)
+	if htmlURL != "" {
+		fmt.Fprintf(a.Out, "  %sRelease notes: %s%s\n", a.p.Gray, htmlURL, a.p.Reset)
+	}
+	return true
 }

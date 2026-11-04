@@ -6,7 +6,8 @@ VERSION="${AGY_SWAP_VERSION:-2.21.0}"
 VERSION="${VERSION#v}"
 TARGET_DIR="${AGY_SWAP_TARGET_DIR:-${HOME}/.local/bin}"
 TARGET_FILE="${TARGET_DIR}/agy-swap"
-RELEASE_BASE="https://github.com/aklkbqx/agy-swap/releases/download/v${VERSION}"
+RELEASE_BASE="${AGY_SWAP_RELEASE_MIRROR:-https://github.com/aklkbqx/agy-swap/releases/download/v${VERSION}}"
+RELEASE_BASE="${RELEASE_BASE%/}"
 
 GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BOLD='\033[1m'; NC='\033[0m'
 if [[ ! -t 1 || -n "${NO_COLOR:-}" ]]; then GREEN=''; BLUE=''; YELLOW=''; RED=''; BOLD=''; NC=''; fi
@@ -74,6 +75,10 @@ tmp_dir="$(mktemp -d "${TARGET_DIR}/.agy-swap-install.XXXXXX")"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 find_ca_bundle() {
+  if [[ -n "${AGY_SWAP_CA_BUNDLE:-}" && -f "${AGY_SWAP_CA_BUNDLE}" ]]; then
+    echo "${AGY_SWAP_CA_BUNDLE}"
+    return 0
+  fi
   local candidates=(
     "/etc/ssl/cert.pem"
     "/etc/ssl/certs/ca-certificates.crt"
@@ -108,7 +113,7 @@ download_file() {
     return 0
   fi
 
-  # Attempt 2: Auto-detect System Root CA Bundle if standard failed
+  # Attempt 2: Auto-detect System or Custom Root CA Bundle if standard failed
   local sys_ca
   if sys_ca="$(find_ca_bundle 2>/dev/null)"; then
     if curl "${opts[@]}" --cacert "$sys_ca" "$url" -o "$dest" 2>/dev/null; then
@@ -116,25 +121,25 @@ download_file() {
     fi
   fi
 
-  # Attempt 3: Verbose attempt to surface error
+  # Attempt 3: Encrypted DNS (DoH) to bypass local DNS sinkholes while keeping strict TLS
+  if curl "${opts[@]}" --doh-url "${AGY_SWAP_DOH_URL:-https://1.1.1.1/dns-query}" "$url" -o "$dest" 2>/dev/null; then
+    return 0
+  fi
+
+  # Attempt 4: Verbose attempt to surface error
   curl "${opts[@]}" "$url" -o "$dest"
 }
 
 printf "%b●%b Installing %bagy-swap v%s%b for %s/%s...\n" "$BLUE" "$NC" "$BOLD" "$VERSION" "$NC" "$os_name" "$arch_name"
 printf "  %b↓%b Downloading release binary from GitHub...\n" "$BLUE" "$NC"
 
-if ! download_file "${RELEASE_BASE}/${asset_name}" "${tmp_dir}/${asset_name}"; then
+if ! download_file "${RELEASE_BASE}/checksums.txt" "${tmp_dir}/checksums.txt" || ! download_file "${RELEASE_BASE}/${asset_name}" "${tmp_dir}/${asset_name}"; then
   printf "\n%bError: Failed to download release asset.%b\n" "$RED" "$NC" >&2
-  printf "%bIf you are behind a corporate proxy, VPN, or firewall with custom SSL inspection:%b\n" "$YELLOW" "$NC" >&2
-  printf "  1) Run with proxy tolerance (%bSHA-256 integrity remains strictly verified%b):\n" "$BOLD" "$NC" >&2
-  printf "     %bcurl -k -fsSL https://agy-swap.aklkbqx.com/install.sh | AGY_SWAP_INSECURE=1 bash%b\n" "$BOLD" "$NC" >&2
+  printf "%bIf you are behind a corporate proxy, VPN, or firewall blocking release-assets.githubusercontent.com:%b\n" "$YELLOW" "$NC" >&2
+  printf "  1) Supply your corporate Root CA bundle or a release mirror:\n" >&2
+  printf "     %bAGY_SWAP_CA_BUNDLE=/path/to/ca.pem AGY_SWAP_RELEASE_MIRROR=https://... bash install.sh%b\n" "$BOLD" "$NC" >&2
   printf "  2) Or compile directly with Go (bypasses GitHub releases):\n" >&2
   printf "     %bgo install github.com/aklkbqx/agy-swap/v2/cmd/agy-swap@latest%b\n\n" "$BOLD" "$NC" >&2
-  exit 1
-fi
-
-if ! download_file "${RELEASE_BASE}/checksums.txt" "${tmp_dir}/checksums.txt"; then
-  printf "\n%bError: Failed to download release checksums.%b\n" "$RED" "$NC" >&2
   exit 1
 fi
 
