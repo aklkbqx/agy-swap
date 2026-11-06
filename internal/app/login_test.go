@@ -472,6 +472,9 @@ func TestAddLoginFlowOffersUnsavedIDESession(t *testing.T) {
 		}
 		raw = decoded
 	}
+	if err := os.MkdirAll(filepath.Dir(f.paths.IDEOAuthToken), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(f.paths.IDEOAuthToken, raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -491,5 +494,63 @@ func TestAddLoginFlowOffersUnsavedIDESession(t *testing.T) {
 	saved := f.savedEmails(t)
 	if len(saved) != 2 || !strings.Contains(strings.Join(saved, ","), "ide@example.com") {
 		t.Fatalf("saved accounts = %v, want user@ and ide@", saved)
+	}
+}
+
+func TestAddLoginFlowOffersUnsavedIDESessionWhenCLISessionMissing(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		cliBytes []byte
+		email    string
+	}{
+		{name: "CLI session file missing", cliBytes: nil, email: "ide-missing-cli@example.com"},
+		{name: "CLI session file empty JSON", cliBytes: []byte("{}"), email: "ide-empty-cli@example.com"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newCLIFixture(t, "user@example.com")
+			_ = os.Remove(f.paths.OAuthToken)
+			_ = os.Remove(f.paths.JetskiToken)
+			if tc.cliBytes != nil {
+				if err := os.MkdirAll(filepath.Dir(f.paths.OAuthToken), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(f.paths.OAuthToken, tc.cliBytes, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			f.backend.token = ""
+			ideToken := tokenBlob(t, tc.email, true, "refresh-"+tc.email, time.Now().Add(time.Hour))
+			raw := []byte(ideToken)
+			if strings.HasPrefix(ideToken, "go-keyring-base64:") {
+				decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(ideToken, "go-keyring-base64:"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				raw = decoded
+			}
+			if err := os.MkdirAll(filepath.Dir(f.paths.IDEOAuthToken), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(f.paths.IDEOAuthToken, raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			f.userInfo = tc.email
+			f.a.loginCommand = func(ctx context.Context) *exec.Cmd {
+				t.Error("add must not start a browser login when the IDE session can be saved")
+				return exec.Command("false")
+			}
+			f.a.In = strings.NewReader("y\n")
+			f.a.lineReader = nil
+			if code := f.a.addLoginFlow(context.Background()); code != 0 {
+				t.Fatalf("code = %d; out = %q; err = %q", code, f.out.String(), f.errOut.String())
+			}
+			if !strings.Contains(f.out.String(), "not yet saved") {
+				t.Fatalf("add did not offer to save the IDE session: %q", f.out.String())
+			}
+			saved := f.savedEmails(t)
+			if len(saved) != 2 || !strings.Contains(strings.Join(saved, ","), tc.email) {
+				t.Fatalf("saved accounts = %v, want user@ and %s", saved, tc.email)
+			}
+		})
 	}
 }

@@ -46,6 +46,18 @@ func (a *Application) unsavedSurfaceSession(ctx context.Context, accounts *Accou
 	return ""
 }
 
+func (a *Application) hasAnySurfaceSession() bool {
+	if a == nil || a.credentials == nil {
+		return false
+	}
+	for _, p := range a.credentials.oauthTokenPaths() {
+		if hasOAuthSession(readOAuthTokenFromFile(p)) {
+			return true
+		}
+	}
+	return false
+}
+
 // matchAccountByToken identifies which saved account owns token using local
 // metadata and vault entries (including matching by refresh_token after
 // Antigravity refreshes access_token in place) without network requests.
@@ -434,9 +446,8 @@ func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
 		if readErr != nil || !isNativeExecutable(targetData) {
 			return
 		}
-		_ = os.Remove(agyBin)
 		script := buildAgyLauncherScriptForPaths(resolved, preferredSwap, a.credentials.hubReloadMarkerPath(), false)
-		_ = os.WriteFile(agyBin, []byte(script), 0o755)
+		_ = writeExecutableAtomically(agyBin, []byte(script))
 		syncAgyBinarySidecar(agyBin)
 		return
 	}
@@ -458,7 +469,7 @@ func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
 			return
 		}
 		script := buildAgyLauncherScriptForPaths(realRef, preferredSwap, a.credentials.hubReloadMarkerPath(), false)
-		_ = os.WriteFile(agyBin, []byte(script), 0o755)
+		_ = writeExecutableAtomically(agyBin, []byte(script))
 		syncAgyBinarySidecar(agyBin)
 		return
 	}
@@ -473,8 +484,38 @@ func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
 	}
 	skipPerms := strings.Contains(text, "AGY_NORMAL_MODE") || strings.Contains(text, "--dangerously-skip-permissions")
 	script := buildAgyLauncherScriptForPaths(realRef, preferredSwap, a.credentials.hubReloadMarkerPath(), skipPerms)
-	_ = os.WriteFile(agyBin, []byte(script), 0o755)
+	_ = writeExecutableAtomically(agyBin, []byte(script))
 	syncAgyBinarySidecar(agyBin)
+}
+
+func writeExecutableAtomically(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".agy-swap-wrapper-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	cleanup := func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Chmod(0o755); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
 }
 
 // ensureAgyLauncherGuard ensures ~/.local/bin/agy, ~/.gemini/bin/agy (used by

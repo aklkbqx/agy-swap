@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
 	"sync"
 	"syscall"
@@ -207,11 +208,25 @@ func TestTUISuspendPreservesCookedTerminalAfterRawLoginChild(t *testing.T) {
 		_ = syscall.Kill(-helper.Process.Pid, syscall.SIGKILL)
 		t.Fatalf("dirty login child did not run:\n%q", snapshot())
 	}
+	if !waitFor("exited before saving a login credential", 5*time.Second) || !waitFor("Action failed", 5*time.Second) {
+		_ = syscall.Kill(-helper.Process.Pid, syscall.SIGKILL)
+		t.Fatalf("first add flow did not finish and return to the TUI before seeding second session:\n%q", snapshot())
+	}
 	// Signal helper to seed an unsaved active session token for the second 'a' press.
 	if err := os.WriteFile(triggerFile, []byte("1"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(150 * time.Millisecond)
+	seededFile := triggerFile + ".done"
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		if _, err := os.Stat(seededFile); err == nil {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	if _, err := os.Stat(seededFile); err != nil {
+		_ = syscall.Kill(-helper.Process.Pid, syscall.SIGKILL)
+		t.Fatalf("helper did not finish seeding second session token: %v", err)
+	}
 	_, _ = master.Write([]byte("a"))
 
 	if !waitFor("Save this account? [y/N]", 5*time.Second) {
@@ -276,6 +291,7 @@ func TestTUISuspendDirtyLoginHelperProcess(t *testing.T) {
 		for {
 			if _, err := os.Stat(triggerFile); err == nil {
 				_ = f.a.credentials.writeOAuthFiles(token, "second@example.com")
+				_ = os.WriteFile(triggerFile+".done", []byte("1"), 0o600)
 				return
 			}
 			time.Sleep(15 * time.Millisecond)
@@ -284,5 +300,109 @@ func TestTUISuspendDirtyLoginHelperProcess(t *testing.T) {
 	f.a.In, f.a.Out, f.a.Err = os.Stdin, os.Stdout, os.Stdout
 	f.a.stdinTTY, f.a.stdoutTTY = true, true
 	f.a.lineReader = nil
-	os.Exit(f.a.cmdInteractive(context.Background()))
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	code := f.a.Run(ctx, nil)
+	cancel()
+	os.Exit(code)
+}
+
+func TestTUICtrlCAtAddLoginPromptReturnsToDashboard(t *testing.T) {
+	master, slave := openPTY(t)
+	defer func() { _ = master.Close() }()
+	triggerFile := t.TempDir() + "/unused-trigger"
+	helper := exec.Command(os.Args[0], "-test.run=^TestTUISuspendDirtyLoginHelperProcess$")
+	helper.Env = append(os.Environ(),
+		tuiDirtyLoginHelperEnv+"=1",
+		tuiDirtyLoginTriggerEnv+"="+triggerFile,
+	)
+	helper.Stdin, helper.Stdout, helper.Stderr = slave, slave, slave
+	helper.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
+	if err := helper.Start(); err != nil {
+		t.Fatal(err)
+	}
+	_ = slave.Close()
+
+	var rawOutput bytes.Buffer
+	var mu sync.Mutex
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := master.Read(buf)
+			if n > 0 {
+				mu.Lock()
+				rawOutput.Write(buf[:n])
+				mu.Unlock()
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	snapshot := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return rawOutput.String()
+	}
+	waitFor := func(substr string, timeout time.Duration) bool {
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			if strings.Contains(snapshot(), substr) {
+				return true
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		return false
+	}
+
+	if !waitFor("\x1b[?1049h", 5*time.Second) {
+		_ = syscall.Kill(-helper.Process.Pid, syscall.SIGKILL)
+		t.Fatalf("TUI did not enter alternate screen:\n%q", snapshot())
+	}
+	time.Sleep(80 * time.Millisecond)
+	_, _ = master.Write([]byte("a"))
+
+	if !waitFor("Press Enter when ready", 5*time.Second) {
+		_ = syscall.Kill(-helper.Process.Pid, syscall.SIGKILL)
+		t.Fatalf("add flow did not prompt:\n%q", snapshot())
+	}
+	// Send Ctrl+C on the controlling terminal while at the sign-in prompt.
+	_, _ = master.Write([]byte{0x03})
+
+	if !waitFor("Login cancelled.", 5*time.Second) {
+		_ = syscall.Kill(-helper.Process.Pid, syscall.SIGKILL)
+		t.Fatalf("Ctrl+C at sign-in prompt did not print 'Login cancelled.':\n%q", snapshot())
+	}
+	// After Login cancelled., the TUI must re-enter the alternate screen instead of exiting.
+	deadline := time.Now().Add(5 * time.Second)
+	returnedToTUI := false
+	for time.Now().Before(deadline) {
+		out := snapshot()
+		idx := strings.LastIndex(out, "Login cancelled.")
+		if idx >= 0 && strings.Contains(out[idx:], "\x1b[?1049h") && !strings.Contains(out[idx+strings.Index(out[idx:], "\x1b[?1049h"):], "\x1b[?1049l") {
+			returnedToTUI = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !returnedToTUI {
+		_ = syscall.Kill(-helper.Process.Pid, syscall.SIGKILL)
+		t.Fatalf("TUI exited instead of returning to the account list after Ctrl+C at prompt:\n%q", snapshot())
+	}
+
+	// Ensure the TUI still responds to subsequent keys without any leaked readLine goroutine stealing input.
+	time.Sleep(80 * time.Millisecond)
+	_, _ = master.Write([]byte("q"))
+
+	done := make(chan error, 1)
+	go func() { done <- helper.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("helper exited with error %v:\n%q", err, snapshot())
+		}
+	case <-time.After(5 * time.Second):
+		_ = syscall.Kill(-helper.Process.Pid, syscall.SIGKILL)
+		<-done
+		t.Fatalf("TUI helper did not exit cleanly on q after Ctrl+C cancellation:\n%q", snapshot())
+	}
 }

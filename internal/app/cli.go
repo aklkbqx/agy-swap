@@ -8,9 +8,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/term"
@@ -169,8 +171,10 @@ func (a *Application) Run(ctx context.Context, argv []string) int {
 		return 0
 	}
 	if isExtendedCommand(argv) {
-		a.reconcileActiveSession(ctx)
-		return a.runExtended(ctx, argv)
+		cmdCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+		defer stopSignals()
+		a.reconcileActiveSession(cmdCtx)
+		return a.runExtended(cmdCtx, argv)
 	}
 	args, err := parseCLI(argv)
 	if err != nil {
@@ -217,6 +221,15 @@ func (a *Application) Run(ctx context.Context, argv []string) int {
 		}
 		command = "list"
 	}
+	if (command == "switch" || command == "remove") && args.account == "" && a.stdinTTY && a.stdoutTTY {
+		if command == "switch" {
+			return a.cmdSwitch(ctx, args)
+		}
+		return a.cmdRemove(ctx, args)
+	}
+	cmdCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	ctx = cmdCtx
 	var code int
 	switch command {
 	case "add":
@@ -463,8 +476,8 @@ func (a *Application) resetTerminalLineReader() {
 }
 
 // readLine prints prompt and reads one line from a.In. When ctx is cancelled
-// (Ctrl+C) before a line arrives it returns ctx.Err() at once and leaves the
-// blocked read behind; callers stop prompting and return.
+// (Ctrl+C) before a line arrives it returns ctx.Err() at once so callers stop
+// prompting and return cleanly.
 func (a *Application) readLine(ctx context.Context, prompt string) (string, error) {
 	ensureCookedTerminal(a.In, a.Out)
 	fmt.Fprint(a.Out, prompt)
@@ -478,18 +491,39 @@ func (a *Application) readLine(ctx context.Context, prompt string) (string, erro
 		fmt.Fprintln(a.Out)
 		return "", err
 	}
-	result := make(chan string, 1)
-	go func() { result <- a.readLineBlocking() }()
-	select {
-	case line := <-result:
+	if line, handled, err := a.readTerminalLine(ctx); handled {
+		if err != nil {
+			fmt.Fprintln(a.Out)
+			return "", err
+		}
 		return line, nil
+	}
+	type lineResult struct {
+		line string
+		err  error
+	}
+	result := make(chan lineResult, 1)
+	go func() {
+		line, err := a.readLineBlocking()
+		result <- lineResult{line: line, err: err}
+	}()
+	select {
+	case res := <-result:
+		if res.err != nil {
+			fmt.Fprintln(a.Out)
+			return "", res.err
+		}
+		return res.line, nil
 	case <-ctx.Done():
 		fmt.Fprintln(a.Out)
 		return "", ctx.Err()
 	}
 }
 
-func (a *Application) readLineBlocking() string {
+func (a *Application) readTerminalLine(ctx context.Context) (string, bool, error) {
+	if !readerTerminal(a.In) {
+		return "", false, nil
+	}
 	a.lineReaderMu.Lock()
 	defer a.lineReaderMu.Unlock()
 	if a.lineReader == nil {
@@ -497,9 +531,21 @@ func (a *Application) readLineBlocking() string {
 	}
 	var line []byte
 	for {
+		if a.lineReader.Buffered() == 0 {
+			handled, err := waitTerminalInputReady(ctx, a.In)
+			if !handled {
+				return "", false, nil
+			}
+			if err != nil {
+				return "", true, err
+			}
+		}
 		b, err := a.lineReader.ReadByte()
 		if err != nil {
 			break
+		}
+		if b == 0x03 {
+			return "", true, context.Canceled
 		}
 		if b == '\n' {
 			break
@@ -514,7 +560,38 @@ func (a *Application) readLineBlocking() string {
 		}
 		line = append(line, b)
 	}
-	return strings.TrimSpace(string(line))
+	return strings.TrimSpace(string(line)), true, nil
+}
+
+func (a *Application) readLineBlocking() (string, error) {
+	a.lineReaderMu.Lock()
+	defer a.lineReaderMu.Unlock()
+	if a.lineReader == nil {
+		a.lineReader = bufio.NewReader(a.In)
+	}
+	var line []byte
+	for {
+		b, err := a.lineReader.ReadByte()
+		if err != nil {
+			break
+		}
+		if b == 0x03 {
+			return "", context.Canceled
+		}
+		if b == '\n' {
+			break
+		}
+		if b == '\r' {
+			if a.lineReader.Buffered() > 0 {
+				if next, peekErr := a.lineReader.Peek(1); peekErr == nil && len(next) == 1 && next[0] == '\n' {
+					_, _ = a.lineReader.ReadByte()
+				}
+			}
+			break
+		}
+		line = append(line, b)
+	}
+	return strings.TrimSpace(string(line)), nil
 }
 
 func parseYesNo(input string, defaultYes bool) (bool, bool) {
@@ -583,23 +660,29 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 			fmt.Fprintln(a.Err, "Session vault rollback failed; the previous secure credential could not be restored")
 		}
 	}
-	if current != "" {
+	if current != "" || a.hasAnySurfaceSession() {
 		accounts, err := a.store.Load(false)
 		if err != nil {
 			return a.storeError(err)
 		}
-		active := a.activeEmail(ctx, accounts, current)
-		_, saved := accounts.Get(strings.ToLower(active))
-		if saved {
-			// The CLI file holds a saved account, but the IDE may be signed in
-			// to one that is not saved yet; offer that one instead.
+		candidate := current
+		saved := false
+		if hasOAuthSession(candidate) {
+			active := a.activeEmail(ctx, accounts, candidate)
+			_, saved = accounts.Get(strings.ToLower(active))
+		} else {
+			candidate = ""
+		}
+		if candidate == "" || saved {
+			// The CLI file is empty or holds a saved account, while the IDE may
+			// be signed in to one that is not saved yet; offer that one instead.
 			if unsaved := a.unsavedSurfaceSession(ctx, accounts); unsaved != "" {
-				current, saved = unsaved, false
+				candidate, saved = unsaved, false
 			}
 		}
-		if !saved {
+		if candidate != "" && !saved {
 			label := "Unknown account"
-			if info := a.http.userInfo(ctx, getString(tokenObject(decodeToken(current)), "access_token")); info != nil {
+			if info := a.http.userInfo(ctx, getString(tokenObject(decodeToken(candidate)), "access_token")); info != nil {
 				email := normalizeEmail(getString(info, "email"))
 				name := firstString(info["name"], "Google User")
 				if email != "" {
@@ -620,7 +703,7 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 					continue
 				}
 				if save {
-					return a.saveTokenAccount(ctx, current)
+					return a.saveTokenAccount(ctx, candidate)
 				}
 				break
 			}
@@ -1289,7 +1372,7 @@ func (a *Application) cmdRemove(ctx context.Context, args cliArgs) int {
 	}
 	if args.account == "" {
 		if a.stdinTTY {
-			return a.cmdInteractive(context.Background())
+			return a.cmdInteractive(ctx)
 		}
 		fmt.Fprintf(a.Err, "%sInteractive mode requires TTY.%s\n", a.p.Red, a.p.Reset)
 		return 1

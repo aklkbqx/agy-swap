@@ -3,6 +3,7 @@
 package app
 
 import (
+	"context"
 	"encoding/binary"
 	"io"
 	"os"
@@ -266,4 +267,8 @@ func readInputByteWithTimeout(reader io.Reader, timeout time.Duration, paused *a
 		return 0, errInputPaused
 	}
 	return readInputByte(reader)
+}
+
+func waitTerminalInputReady(_ context.Context, _ io.Reader) (bool, error) {
+	return false, nil
 }

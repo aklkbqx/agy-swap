@@ -20,7 +20,7 @@ func main() {
 	}
 	application.BuildID = buildID
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM)
 	code := application.Run(ctx, os.Args[1:])
 	cancel()
 	os.Exit(code)

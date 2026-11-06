@@ -1366,6 +1366,60 @@ func TestRunNowParserAndTargetResolution(t *testing.T) {
 	}
 }
 
+func TestRunNowCtrlCAtSwitchPromptPrintsCancelled(t *testing.T) {
+	f := newCLIFixture(t, "personal@example.com", "work@example.com")
+	accounts, err := f.a.store.Load(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workAcc := quotaAccount("work@example.com", 0.9, 0.9, time.Now().Add(time.Hour))
+	workAcc["token_data"] = f.tokens["work@example.com"]
+	accounts.Set("work@example.com", workAcc)
+	if err := f.a.store.Save(accounts); err != nil {
+		t.Fatal(err)
+	}
+	if !f.a.credentials.writeOAuthFiles(f.tokens["personal@example.com"], "personal@example.com") {
+		t.Fatal("failed to seed active session")
+	}
+	fakeAgy := filepath.Join(t.TempDir(), "agy")
+	if err := os.WriteFile(fakeAgy, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settings := defaultSettings()
+	settings.Targets["agy"] = TargetConfig{Command: fakeAgy, Enabled: true}
+	settings.Profiles["work"] = Profile{Account: "work@example.com", Policy: "sticky"}
+	if err := f.a.store.SaveSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	reader, writer := io.Pipe()
+	defer func() { _ = reader.Close(); _ = writer.Close() }()
+	f.a.In = reader
+	f.a.lineReader = nil
+	f.a.stdinTTY = true
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() {
+		done <- f.a.cmdRunNow(ctx, extendedOptions{Profile: "work"}, []string{"now"})
+	}()
+	time.Sleep(80 * time.Millisecond)
+	cancel()
+	select {
+	case code := <-done:
+		if code != 1 {
+			t.Fatalf("code = %d, want 1; out = %q; err = %q", code, f.out.String(), f.errOut.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cmdRunNow did not return after Ctrl+C at prompt")
+	}
+	if !strings.Contains(f.out.String(), "Cancelled.") {
+		t.Fatalf("stdout missing 'Cancelled.': out=%q err=%q", f.out.String(), f.errOut.String())
+	}
+	if strings.Contains(f.errOut.String(), "context canceled") {
+		t.Fatalf("stderr leaked 'context canceled': %q", f.errOut.String())
+	}
+}
+
 func TestHistoryRetentionAndSecretVaultFallback(t *testing.T) {
 	paths := testPaths(t)
 	store := NewStore(paths)

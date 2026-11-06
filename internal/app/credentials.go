@@ -341,7 +341,7 @@ func (c *Credentials) readOAuthToken() string {
 	bestRefresh := ""
 	for _, path := range c.oauthTokenPaths() {
 		candidate := readOAuthTokenFromFile(path)
-		if candidate == "" {
+		if !hasOAuthSession(candidate) {
 			continue
 		}
 		if best == "" {

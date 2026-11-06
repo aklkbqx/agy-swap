@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -591,5 +592,44 @@ func TestEnsureAgyLauncherGuardUpgradesWrapperWithoutReloadMarker(t *testing.T) 
 	}
 	if !strings.Contains(string(got), filepath.Join(dir, ".agy.real")) {
 		t.Fatalf("upgraded wrapper lost the real agy path:\n%s", got)
+	}
+}
+
+func TestEnsureAgyLauncherGuardReplacesWrapperAtomically(t *testing.T) {
+	app, _, _ := newSessionGuardTestApp(t)
+	dir := filepath.Join(app.paths.Home, ".gemini", "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	agyBin := filepath.Join(dir, "agy")
+	old := "#!/bin/sh\n# Managed by agy-swap session guard\nreal_command=\"" + filepath.Join(dir, ".agy.real") + "\"\n" +
+		"\"$swap_command\" --sync-session\nexport WSL_INTEROP=\"${WSL_INTEROP:-1}\"\nhub_pid=\"\"\n" +
+		"if [ \"$status\" -ne 0 ] && [ \"$status\" -ne 143 ]; then exit \"$status\"; fi\n"
+	if err := os.WriteFile(agyBin, []byte(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	openBefore, err := os.Open(agyBin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = openBefore.Close() }()
+
+	app.ensureAgyLauncherGuardForPath(agyBin)
+
+	stillOld, err := io.ReadAll(openBefore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(stillOld) != old {
+		t.Fatalf("existing open file descriptor saw modified contents instead of atomic rename:\ngot:  %q\nwant: %q", string(stillOld), old)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".agy-swap-wrapper-") {
+			t.Fatalf("leftover temporary wrapper file in %s: %s", dir, entry.Name())
+		}
 	}
 }

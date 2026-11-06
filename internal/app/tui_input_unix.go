@@ -3,12 +3,15 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"io"
 	"os"
 	"sync/atomic"
 	"time"
 
 	"golang.org/x/sys/unix"
+	"golang.org/x/term"
 )
 
 // readInputByteWithTimeout uses poll(2) for terminals. SetReadDeadline is not
@@ -44,4 +47,28 @@ func readInputByteWithTimeout(reader io.Reader, timeout time.Duration, paused *a
 		return 0, errInputPaused
 	}
 	return readInputByte(reader)
+}
+
+func waitTerminalInputReady(ctx context.Context, reader io.Reader) (bool, error) {
+	file, ok := reader.(*os.File)
+	if !ok || !term.IsTerminal(int(file.Fd())) {
+		return false, nil
+	}
+	fd := int32(file.Fd())
+	for {
+		if err := ctx.Err(); err != nil {
+			return true, err
+		}
+		pollFD := []unix.PollFd{{Fd: fd, Events: unix.POLLIN}}
+		ready, err := unix.Poll(pollFD, 25)
+		if err != nil {
+			if errors.Is(err, unix.EINTR) {
+				continue
+			}
+			return true, err
+		}
+		if ready > 0 {
+			return true, ctx.Err()
+		}
+	}
 }

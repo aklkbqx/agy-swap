@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"golang.org/x/term"
@@ -47,12 +49,17 @@ func (tuiActiveEvent) tuiEvent()   {}
 func (tuiResizeEvent) tuiEvent()   {}
 func (tuiJobEvent) tuiEvent()      {}
 
-func (a *Application) cmdInteractive(ctx context.Context) int {
+func (a *Application) cmdInteractive(rootCtx context.Context) int {
+	tuiCtx := rootCtx
+	ctx := tuiCtx
 	inFile, inOK := a.In.(*os.File)
 	outFile, outOK := a.Out.(*os.File)
 	if !inOK || !outOK || !term.IsTerminal(int(inFile.Fd())) || !term.IsTerminal(int(outFile.Fd())) {
 		return a.cmdList(ctx, cliArgs{})
 	}
+	sigintGuard := make(chan os.Signal, 1)
+	signal.Notify(sigintGuard, os.Interrupt)
+	defer signal.Stop(sigintGuard)
 	accounts, err := a.store.Load(false)
 	if err != nil {
 		return a.storeError(err)
@@ -106,8 +113,14 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 	}()
 	events := make(chan tuiEvent, 32)
 	done := make(chan struct{})
-	workerCtx, cancelWorkers := context.WithCancel(ctx)
-	defer cancelWorkers()
+	workerCtx, cancelWorkers := context.WithCancel(tuiCtx)
+	var stopRecreatedTUI func()
+	defer func() {
+		cancelWorkers()
+		if stopRecreatedTUI != nil {
+			stopRecreatedTUI()
+		}
+	}()
 	var inputPaused atomic.Bool
 	var inputBusy atomic.Bool
 	var closeDone sync.Once
@@ -307,10 +320,25 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 		origTerm.Restore(false)
 		raw = false
 		leaveScreen()
+		suspendCtx, stopInterrupt := signal.NotifyContext(context.WithoutCancel(tuiCtx), os.Interrupt, syscall.SIGTERM)
+		ctx = suspendCtx
 		code := action()
-		if code == 0 {
+		interrupted := suspendCtx.Err() != nil
+		stopInterrupt()
+		if tuiCtx.Err() != nil && interrupted {
+			if stopRecreatedTUI != nil {
+				stopRecreatedTUI()
+			}
+			tuiCtx, stopRecreatedTUI = signal.NotifyContext(context.WithoutCancel(tuiCtx), syscall.SIGTERM)
+			workerCtx, cancelWorkers = context.WithCancel(tuiCtx)
+		}
+		ctx = tuiCtx
+		switch {
+		case code == 0:
 			state.message, state.messageType = "Completed", "success"
-		} else {
+		case interrupted:
+			state.message, state.messageType = "Cancelled", "info"
+		default:
 			state.message, state.messageType = "Action failed", "error"
 		}
 		if _, stateErr := term.MakeRaw(int(inFile.Fd())); stateErr == nil {
@@ -746,7 +774,7 @@ func (a *Application) cmdInteractive(ctx context.Context) int {
 			armFrame()
 		}
 		select {
-		case <-ctx.Done():
+		case <-tuiCtx.Done():
 			finish()
 			return 0
 		case <-resizeTicker.C:

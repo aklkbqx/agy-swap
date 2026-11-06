@@ -90,10 +90,18 @@ func (a *Application) cmdRunNow(ctx context.Context, opts extendedOptions, posit
 		return a.extendedError("run now", opts, fmt.Errorf("%s is not available: %w (run 'agy-swap install-agy' to install Antigravity CLI)", command, err))
 	}
 	if err := a.prepareRunAccount(ctx, opts.Account, settings); err != nil {
+		if errors.Is(err, context.Canceled) && !opts.JSON {
+			fmt.Fprintln(a.Out, "Cancelled.")
+			return 1
+		}
 		return a.extendedError("run now", opts, err)
 	}
 	if opts.Account == "" {
 		if err := a.prepareBoundRun(ctx, settings, opts.Profile); err != nil {
+			if errors.Is(err, context.Canceled) && !opts.JSON {
+				fmt.Fprintln(a.Out, "Cancelled.")
+				return 1
+			}
 			return a.extendedError("run now", opts, err)
 		}
 	}
