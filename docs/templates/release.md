@@ -15,7 +15,7 @@ Record installed binary path/version/build ID, asset names/checksums, download v
 
 ## Site delivery
 
-Record image tags and registry digest, public version/assets/health checks, and rollback. Production remains `:latest`. Put sensitive operational detail in the private repository. Mark an unaffected surface explicitly rather than inventing delivery evidence.
+Record the public website version and health checks as observed, or say the website was not affected.
 
 ## Remaining work
 

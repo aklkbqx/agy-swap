@@ -6,9 +6,7 @@ Thank you for your interest in contributing to `agy-swap`! We welcome contributi
 
 ## Project workspace
 
-Start with [the documentation index](docs/README.md) and [the GitHub workflow](docs/github-workflow.md). Use Issues for actionable work, tracked documents for plans and decisions, PRs for review, and Milestones/Releases for delivery. Search existing Issues before opening a duplicate. Every implementation task needs acceptance criteria, evidence, and a resumable checkpoint.
-
-Read [GitHub workflow](docs/github-workflow.md) before changing either repository. Keep Site tasks and private operational evidence in the private Site repository. Link a delivery Issue with `Refs #N` so merging a PR does not close the work before installation and live verification. Preserve the owner's local review gate before committing or publishing.
+Start with [the documentation index](docs/README.md) and [the GitHub workflow](docs/github-workflow.md). Use Issues for work, tracked documents for plans and decisions, and PRs for review. Search existing Issues before you open one. Link a PR with `Refs #N` so merging does not close work that still needs a release.
 
 ## Code of Conduct
 
@@ -93,6 +91,8 @@ bun test
 ---
 
 ## Commit & Pull Request Guidelines
+
+Write commit messages, PR descriptions and release notes as described in [Writing](docs/github-workflow.md#writing).
 
 ### Conventional Commits
 We follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:

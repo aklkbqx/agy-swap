@@ -2,7 +2,7 @@
 
 # agy-swap
 
-### See which Google Antigravity account is ready, then switch from your terminal
+### Switch Google Antigravity accounts in the CLI and the IDE from one terminal
 
 [![Release](https://img.shields.io/github/v/release/aklkbqx/agy-swap?color=FF891A&label=Release&style=flat-square)](https://github.com/aklkbqx/agy-swap/releases)
 [![Website](https://img.shields.io/badge/Website-agy--swap.aklkbqx.com-38BDF8?style=flat-square)](https://agy-swap.aklkbqx.com)
@@ -18,7 +18,7 @@
 
 </div>
 
-agy-swap keeps several Google Antigravity accounts on one machine. It shows each account's remaining quota and when it resets, then switches the shared local Antigravity session to the account you pick. Everything runs locally; saved tokens stay in a private `vault.json` readable only by your user, or in your OS credential store with `AGY_SWAP_VAULT=keychain`.
+agy-swap keeps several Google Antigravity accounts on one machine. It shows how much quota each account has left and when it resets. Pick one and agy-swap switches the `agy` CLI and, on macOS and Linux, the Antigravity IDE to that account. Everything runs on your machine. Saved tokens stay in `vault.json`, which only your user can read, or in your OS credential store with `AGY_SWAP_VAULT=keychain`.
 
 ## Install
 
@@ -57,22 +57,54 @@ go build -trimpath -ldflags "-s -w -X main.version=2.21.0 -X main.buildID=local"
 ./agy-swap version
 ```
 
-### Behind a TLS-inspecting proxy
+### On a restricted network
 
-If an enterprise firewall, VPN, or proxy (for example Zscaler, Fortinet, or Netskope) inspects TLS, `curl` may report `SSL certificate problem: self signed certificate`. The installer can skip certificate checks for the download while still verifying the SHA-256 checksum:
+Some company networks inspect TLS (Zscaler, Fortinet, Netskope and similar), block GitHub downloads, or answer DNS with a blocking address. The shell installer and `agy-swap update` can work around all three. The PowerShell installer supports the mirror and `AGY_SWAP_INSECURE` only.
+
+Trust your company's root certificate. This is the safest option:
 
 ```bash
-curl -k -fsSL https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | AGY_SWAP_INSECURE=1 bash
+curl -fsSL --cacert /path/to/company-ca.pem https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh \
+  | AGY_SWAP_CA_BUNDLE=/path/to/company-ca.pem bash
 ```
 
-You can also use `go install` or build from source as shown above.
+`agy-swap update` reads the same `AGY_SWAP_CA_BUNDLE` (or `CURL_CA_BUNDLE`).
+
+Download from a mirror of the release files when GitHub downloads are blocked:
+
+```bash
+AGY_SWAP_RELEASE_MIRROR=https://mirror.example.com/agy-swap bash install.sh
+```
+
+The installers download from the mirror instead of GitHub and expect the files at its top level. `agy-swap update` tries GitHub first, then a `vX.Y.Z/` folder on the mirror, then its top level.
+
+When a TLS error suggests the local DNS answer was redirected, agy-swap looks the host up again over DNS-over-HTTPS (Cloudflare `1.1.1.1`, then Google `8.8.8.8`) and ignores answers that point to private addresses. The shell installer retries a failed download once with curl's `--doh-url` (Cloudflare by default). Set `AGY_SWAP_DOH_URL` to use your own resolver.
+
+If a TLS certificate error blocks the download, `agy-swap update` builds the release with `go install` instead. This needs Go on your PATH and does not run on Windows. Go checks the source against its checksum database, but the binary is not compared with the release checksum. Set `AGY_SWAP_NO_GO_FALLBACK=1` to turn it off, or `AGY_SWAP_GO_FALLBACK=1` to use it after any download error.
+
+As a last resort the shell installer can skip certificate checks with `AGY_SWAP_INSECURE=1`. It still checks the SHA-256 checksum, but anyone on the network path could swap both files. Prefer the certificate bundle. You can also use `go install` or build from source as shown above.
 
 ## First run
 
 1. If you do not have the Google Antigravity CLI (`agy`) installed yet, run `agy-swap install-agy` (or let `agy-swap add` offer to install it for you).
 2. Run `agy-swap add` and complete the browser sign-in to save an account.
 3. Run `agy-swap` to open the terminal view. Check the active account and quota snapshot before switching.
-4. Select an account, press Enter and choose Switch to update the shared local Antigravity session. Processes already running may need to reload credentials.
+4. Select an account, press Enter and choose Switch. The `agy` CLI uses the new account from its next run. On macOS and Linux the Antigravity IDE switches too (see below). Other programs that are already running may need a restart.
+
+## Switch the CLI and the IDE together
+
+One switch moves every Antigravity surface on this machine to the same account: the `agy` CLI, the Antigravity IDE (macOS and Linux) and Jetski. You do not sign out of the IDE or open a browser.
+
+What agy-swap changes to make this work:
+
+- It writes the account's session to the files the CLI, the IDE and Jetski read under `~/.gemini`, and copies it into the system keychain, which the IDE also reads. On macOS this uses `/usr/bin/security`; on Linux it uses `secret-tool` when it is installed.
+- It updates the signed-in account name the IDE shows, in the IDE's `state.vscdb`, when `sqlite3` is installed.
+- It wraps `~/.local/bin/agy` and `~/.gemini/bin/agy` (and an `agy` you set with `AGY_SWAP_AGY_BIN` or `install-agy --dir`) in a small shell script that runs `agy-swap --sync-session` before and after each `agy` run. The original binary moves to `~/.local/libexec/agy` for the default CLI install and to `.agy.real` in the same folder for the others. If `agy` is a symlink, the wrapper calls the file it points to and nothing is moved.
+- After a switch it stops the IDE's background `agy` service with `pkill`; the IDE starts it again with the new account, so you do not restart the IDE.
+
+If a token is refreshed in the CLI or the IDE, agy-swap saves the fresh copy to the right account the next time it runs.
+
+agy-swap puts the wrapper back each time it runs. To remove it, uninstall agy-swap first, then move the original binary back over `agy` (or reinstall `agy`). Windows does not get IDE switching yet; switching there updates the CLI session only.
 
 ## Using the terminal UI
 
@@ -86,11 +118,28 @@ Each account shows a status word and two meters: Gem (Gemini) and C/G (Claude an
 
 The layout follows your terminal size:
 
-- **Wide (92 columns or more):** the account list on the left, the gauges on the right. Below 120 columns each pool panel puts its percentage beside the bars; from 120 columns the pool panels sit side by side, two to a row, with large percentages when there are enough rows. The dashboard stops growing at 160 columns and stays centred on a wider terminal.
-- **Stacked (64 to 91 columns):** the list on top, the gauges below.
-- **Compact (41 to 63 columns) and narrow (40 or fewer):** one column, with the selected account's pools below the list.
+- Wide (92 columns or more): the account list on the left, the gauges on the right. Below 120 columns each pool panel puts its percentage beside the bars; from 120 columns the pool panels sit side by side, two to a row, with large percentages when there are enough rows. The dashboard stops growing at 160 columns and stays centred on a wider terminal.
+- Stacked (64 to 91 columns): the list on top, the gauges below.
+- Compact (41 to 63 columns) and narrow (40 or fewer): one column, with the selected account's pools below the list.
 
-A terminal cannot change its font, so on a large window the dashboard scales what it draws instead, up to its 160-column width: the big digits grow up to twice their size, the bars become full-block, the list bars lengthen and the sections get a little more air, without turning the gauges into posters. When there are too few rows for big digits, the gauges become plain limit lines, down to a 28 by 12 window. Changes move briefly (the selection slides, meters ease, dialogs open from their centre); set `AGY_SWAP_REDUCED_MOTION=1` to turn motion off. The dashboard keeps quota close to live on its own: it reads the account Antigravity is using every 20 seconds and the others every 2 minutes, right after a pool resets, and within about 10 seconds of Antigravity writing to its logs (it only checks the logs' sizes and times). It remembers each account's Code Assist project for 15 minutes so most reads are one request, backs off from an account Google refuses (HTTP 429 or 5xx), reloads when another agy-swap process changes the accounts, and moves reset times onto this machine's clock when it is off. Set `AGY_SWAP_ASCII=1` to draw with ASCII characters only (it is chosen for you on a Linux console, a dumb terminal or a non-UTF-8 locale; `AGY_SWAP_ASCII=0` turns it off). `AGY_SWAP_QUOTA_DEBUG=1 agy-swap list --refresh` explains how each account's quota was read. Google picks which quota pools to report from the client version agy-swap sends; if a future Antigravity release makes pools disappear again, `AGY_SWAP_USER_AGENT` overrides the client string until agy-swap is updated.
+A terminal cannot change its font, so on a large window the dashboard draws bigger instead, up to 160 columns: big digits grow up to twice their size and bars become full blocks. With too few rows for big digits, gauges become plain limit lines, down to a 28 by 12 window. Changes move briefly: the selection slides, meters ease and dialogs open from their centre.
+
+Quota stays close to live without you pressing anything:
+
+- The account Antigravity is using is read every 20 seconds, the others every 2 minutes, and any account right after its pool resets.
+- When Antigravity writes to its logs, quota is read again within about 10 seconds. agy-swap only looks at the log files' sizes and times.
+- Each account's Code Assist project is remembered for 15 minutes, so most reads are one request.
+- An account that Google refuses (HTTP 429 or 5xx) is read less often until it recovers.
+- Another agy-swap process changing the accounts makes this one reload. Reset times are corrected when this machine's clock is off.
+
+Settings:
+
+| Variable | Effect |
+| :--- | :--- |
+| `AGY_SWAP_REDUCED_MOTION=1` | Turn off motion |
+| `AGY_SWAP_ASCII=1` / `0` | Force ASCII drawing on or off (on by default for a Linux console, a dumb terminal or a non-UTF-8 locale) |
+| `AGY_SWAP_QUOTA_DEBUG=1` | With `agy-swap list --refresh`, explain how each account's quota was read |
+| `AGY_SWAP_USER_AGENT` | Override the client string sent to Google if a future Antigravity release makes quota pools disappear |
 
 | Key | Action |
 | :--- | :--- |
@@ -141,30 +190,30 @@ Every TUI action is also a command, so you can script it.
 ### Accounts and switching
 
 ```bash
-# Add a new account (interactive OAuth browser login)
+# Add an account through the browser sign-in
 agy-swap add
 
-# Add via stdin token for automated environments
+# Add an account from a token on stdin (for scripts)
 printf '%s' "$TOKEN" | agy-swap add --token -
 
-# List all configured accounts with status & quota health
+# List saved accounts with status and quota
 agy-swap list
 agy-swap list --verbose
 
-# Switch active account by email or numeric index
+# Switch by email or by list number
 agy-swap switch dev@company.com
 agy-swap switch 2
 
-# Rotate to next account with available quota
+# Move to the next account with quota left
 agy-swap next
 
-# Rotate specifically within a model family (claude, gemini, gpt or argon)
+# Only consider one model family: claude, gemini, gpt or argon
 agy-swap next --family claude
 
-# Display current active session status
+# Show the active account
 agy-swap status
 
-# Log out current active session
+# Sign out of the active session
 agy-swap logout
 ```
 
@@ -178,13 +227,13 @@ timestamp; refresh quota before relying on the old data.
 ### Quota and cooldowns
 
 ```bash
-# Check quota usage across all accounts
+# Show quota for every account
 agy-swap limits
 
-# Force live endpoint refresh with verbose breakdown
+# Read quota from Google now and show every pool
 agy-swap limits --refresh --verbose
 
-# Manually record or reset model cooldowns
+# Set or clear a cooldown by hand
 agy-swap limit set 1 6h --group claude
 agy-swap limit set dev@company.com reset --group claude
 ```
@@ -192,14 +241,14 @@ agy-swap limit set dev@company.com reset --group claude
 ### Profiles, aliases, and project bindings
 
 ```bash
-# Create custom account aliases
+# Give accounts short names
 agy-swap alias set work dev@company.com
-agy-swap alias set personal user@gmail.com
+agy-swap alias set personal user@example.com
 
-# Create custom profiles
+# Create a profile
 agy-swap profile set work-profile work --family gemini
 
-# Set primary/reserve accounts and a ranking policy
+# Set a primary account, a reserve and a ranking policy
 agy-swap profile set work-profile work --family gemini --policy sticky --reserve personal --threshold 15
 
 # Bind a directory to an existing profile
@@ -213,10 +262,10 @@ agy-swap run now
 ### Diagnostics, statusline, and metrics
 
 ```bash
-# Run comprehensive diagnostic health check
+# Check storage, credentials and platform setup
 agy-swap doctor
 
-# Starship / Tmux / Zsh statusline prompt integration
+# Add agy-swap to a Starship, tmux or zsh statusline
 agy-swap statusline install
 agy-swap statusline render < statusline.json
 
@@ -227,7 +276,7 @@ agy-swap metrics prometheus
 agy-swap install-agy
 agy-swap install-agy --dir ~/.local/custom-bin
 
-# Run Antigravity CLI immediately after verifying session
+# Check the session, then start agy
 agy-swap run now
 agy-swap run now --account dev@company.com -- -p "Audit codebase"
 ```
@@ -238,13 +287,13 @@ agy-swap run now --account dev@company.com -- -p "Audit codebase"
 # Move legacy plaintext tokens from accounts.json into the vault
 agy-swap account migrate --force
 
-# Export portable metadata backup
+# Export accounts without secrets
 agy-swap backup export --output agy-swap-backup.json
 
-# Export encrypted full backup including secrets with passphrase
+# Export everything, secrets encrypted with a passphrase
 printf '%s' "$BACKUP_PASSPHRASE" | agy-swap backup export --include-secrets --passphrase-stdin --output agy-secrets.json
 
-# Restore from backup file
+# Import a backup and merge it
 agy-swap backup import agy-swap-backup.json --merge
 ```
 
@@ -297,17 +346,27 @@ Bindings take effect in `run now`, not when a shell merely changes directory. `-
 
 ## Security and privacy
 
-- **Saved account tokens:** stored in `vault.json` in the agy-swap config directory, readable only by your user (`0600`). The file is not encrypted. Set `AGY_SWAP_VAULT=keychain` to keep them in the OS credential store instead ([macOS Keychain](https://support.apple.com/guide/security/keychain-data-protection-secb0694df1a/web), [Windows Credential Manager](https://learn.microsoft.com/en-us/windows/win32/secauthn/credentials-management), or [Linux Secret Service](https://specifications.freedesktop.org/secret-service/)); `AGY_SWAP_VAULT=file` uses the file only. `agy-swap doctor` shows which one is in use.
-- **Active session:** switching writes the Antigravity session where Antigravity reads it, in its OS credential store entry and OAuth files under `~/.gemini`, protected by local permissions. On macOS, the active session is updated with `/usr/bin/security` for Antigravity compatibility; the credential value is passed in its command arguments. The saved-account vault uses Security.framework in keychain mode. `AGY_SWAP_VAULT` selects the saved vault, not the active-session backend. Old vault references may remain to support local backup recovery.
-- **Vault fallback:** if the selected vault cannot be written, the saved token remains as plaintext `token_data` in `accounts.json` (`0600`). Doctor reports `vault_migration`; retry `agy-swap account migrate --force` when the vault works.
-- **Doctor:** checks local storage, credentials, and platform readiness. It may create or tighten permissions on the config directory and recover an interrupted backup restore while loading state. It is not a strictly read-only command. `doctor --refresh` also checks GitHub release metadata for the platform's download asset.
-- **Identity:** Adding a credential requires a verified email returned by Google userinfo. Decoded JWT claims are only local identity hints, not signature verification.
-- **Portable backups:** Metadata exports omit secrets and machine-local vault references. Merge keeps an existing credential when the backup has none. Secret exports use AES-GCM with PBKDF2-HMAC-SHA256 (600,000 iterations); legacy encrypted backups remain readable. Verify and import use the same validation. Imports use a recovery journal; do not delete it after an interrupted restore.
-- **History:** Switch and quota events are local JSONL records with locking and retention. This is not an immutable audit ledger.
-- **Atomic writes:** Configuration writes use advisory file locks (`flock` on Unix, `LockFileEx` on Windows) and write-to-temp-then-rename.
-- **Token handling:** OAuth tokens are scrubbed from CLI logs and terminal output. Tokens can be passed on stdin.
-- **No telemetry:** The CLI contacts Google for account and quota data and GitHub for releases and updates.
-- **TLS verification:** Verification is enabled by default. Prefer a trusted corporate CA bundle; the explicit insecure option disables certificate authentication.
+Saved account tokens are stored in `vault.json` in the agy-swap config directory, readable only by your user (`0600`). The file is not encrypted. Set `AGY_SWAP_VAULT=keychain` to keep them in the OS credential store instead ([macOS Keychain](https://support.apple.com/guide/security/keychain-data-protection-secb0694df1a/web), [Windows Credential Manager](https://learn.microsoft.com/en-us/windows/win32/secauthn/credentials-management), or [Linux Secret Service](https://specifications.freedesktop.org/secret-service/)); `AGY_SWAP_VAULT=file` uses the file only. `agy-swap doctor` shows which one is in use.
+
+Switching writes the active session where Antigravity reads it: OAuth files under `~/.gemini` (mode `0600`) and, on macOS and Linux, the system keychain. On macOS the keychain write runs `/usr/bin/security`, and the token is passed in its command arguments, where other processes of your user can see it while it runs. In keychain mode the saved-account vault uses Security.framework instead. `AGY_SWAP_VAULT` picks where saved accounts live, not where the active session goes. Old vault references may remain so local backups can still be restored.
+
+If the selected vault cannot be written, the saved token stays as plaintext `token_data` in `accounts.json` (`0600`). Doctor reports `vault_migration`; run `agy-swap account migrate --force` again when the vault works.
+
+`agy-swap doctor` checks local storage, credentials and platform setup. It may create the config directory or tighten its permissions, and it recovers an interrupted backup restore while loading state, so it is not strictly read-only. `doctor --refresh` also checks GitHub release information for your platform's download.
+
+Adding an account requires a verified email from Google's userinfo endpoint. Decoded JWT claims are only used as local hints; their signatures are not checked.
+
+Metadata exports leave out secrets and machine-local vault references. When merging, an existing credential is kept if the backup has none. Secret exports use AES-GCM with PBKDF2-HMAC-SHA256 (600,000 iterations); older encrypted backups can still be read. Verify and import use the same checks. Imports keep a recovery journal; do not delete it after an interrupted restore.
+
+Switch and quota history is kept as local JSONL records with locking and retention. It is not a tamper-proof audit log.
+
+Configuration writes take an advisory file lock (`flock` on Unix, `LockFileEx` on Windows), write to a temporary file and then rename it.
+
+OAuth tokens are removed from CLI logs and terminal output. Tokens can be passed on stdin.
+
+agy-swap sends no telemetry. It talks to Google for sign-in, token refresh and quota; to GitHub for releases and updates; to agy-swap.aklkbqx.com for the latest version when GitHub is unreachable; and, after a TLS failure, to DNS-over-HTTPS resolvers (`1.1.1.1`, `8.8.8.8`, or `AGY_SWAP_DOH_URL`). Only when you use them does it also contact a release mirror you set, Go's module proxy and checksum database for the `go install` fallback, and Google's download server for `install-agy`.
+
+TLS certificates are always checked unless you turn that off. Prefer `AGY_SWAP_CA_BUNDLE` with your company's certificate; `AGY_SWAP_INSECURE=1` (installer) and `AGY_SWAP_INSECURE_TLS=1` (the binary) turn certificate checks off entirely.
 
 To report a vulnerability, see [SECURITY.md](SECURITY.md).
 

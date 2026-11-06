@@ -2,6 +2,8 @@
 
 Copy the relevant template into a reviewed body file or tracked document. Replace instructions with observed facts; remove sections that genuinely do not apply. Never publish an unfilled template as evidence.
 
+Write every template in plain language; see [Writing](../github-workflow.md#writing).
+
 | Template | Use |
 | --- | --- |
 | [Task](task.md) | Issue acceptance, scope, dependencies and delivery |
