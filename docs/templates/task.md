@@ -2,7 +2,7 @@
 
 ## Outcome
 
-Describe the concrete problem and observable result. Identify Tool, Site or cross-surface scope and the affected version. For private work, keep operational details in the private repository.
+Describe the problem and what should be true when it is fixed. Say whether it affects the CLI, the website or both, and which version.
 
 ## Acceptance
 

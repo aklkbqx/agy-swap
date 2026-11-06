@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,6 +16,34 @@ func tokenRefreshToken(tokenData string) string {
 		return ""
 	}
 	return strings.TrimSpace(getString(inner, "refresh_token"))
+}
+
+// hasOAuthSession reports whether token holds an access or refresh token, as
+// opposed to an empty or unrelated JSON file.
+func hasOAuthSession(token string) bool {
+	decoded := decodeToken(token)
+	inner := tokenObject(decoded)
+	if inner == nil {
+		inner = decoded
+	}
+	if inner == nil {
+		return false
+	}
+	return strings.TrimSpace(getString(inner, "access_token")) != "" || strings.TrimSpace(getString(inner, "refresh_token")) != ""
+}
+
+// unsavedSurfaceSession returns a session from any Antigravity surface (CLI,
+// IDE, Jetski) whose token belongs to no saved account, or "" when there is
+// none. reconcileActiveSession leaves such a session alone, and `add` offers to
+// save it.
+func (a *Application) unsavedSurfaceSession(ctx context.Context, accounts *Accounts) string {
+	for _, p := range a.credentials.oauthTokenPaths() {
+		token := readOAuthTokenFromFile(p)
+		if hasOAuthSession(token) && matchAccountByToken(ctx, accounts, a.vault, token) == "" {
+			return token
+		}
+	}
+	return ""
 }
 
 // matchAccountByToken identifies which saved account owns token using local
@@ -104,32 +133,56 @@ func (a *Application) reconcileActiveSession(ctx context.Context) {
 	}
 	defer func() { _ = lock.Close() }()
 
-	diskToken := a.credentials.readOAuthToken()
-	if diskToken == "" {
+	surfacePaths := a.credentials.oauthTokenPaths()
+	diskTokens := make([]string, 0, len(surfacePaths))
+	for _, p := range surfacePaths {
+		if tok := readOAuthTokenFromFile(p); tok != "" {
+			diskTokens = append(diskTokens, tok)
+		}
+	}
+	if len(diskTokens) == 0 {
+		// No session file is left: the user signed out. Do not sign them back in.
 		return
 	}
 	accounts, err := a.store.Load(false)
 	if err != nil || accounts.Len() == 0 {
 		return
 	}
-	ownerEmail := matchAccountByToken(ctx, accounts, a.vault, diskToken)
-	if ownerEmail == "" {
-		return
-	}
 
-	if ownerAcc, ok := accounts.Get(ownerEmail); ok {
-		storedOwnerToken, _ := a.accountToken(ctx, ownerAcc)
-		if shouldHarvestToken(storedOwnerToken, diskToken) {
-			oldRef, _ := a.saveAccountSecret(ctx, ownerAcc, diskToken)
-			accounts.Set(ownerEmail, ownerAcc)
-			if saveErr := a.store.Save(accounts); saveErr == nil && oldRef != "" {
-				a.deleteReplacedSecrets(ctx, []string{oldRef})
+	var matchedOwners []string
+	unsavedSession := false
+	for _, diskToken := range diskTokens {
+		ownerEmail := matchAccountByToken(ctx, accounts, a.vault, diskToken)
+		if ownerEmail == "" {
+			if hasOAuthSession(diskToken) {
+				unsavedSession = true
+			}
+			continue
+		}
+		matchedOwners = append(matchedOwners, ownerEmail)
+		if ownerAcc, ok := accounts.Get(ownerEmail); ok {
+			storedOwnerToken, _ := a.accountToken(ctx, ownerAcc)
+			if shouldHarvestToken(storedOwnerToken, diskToken) {
+				oldRef, _ := a.saveAccountSecret(ctx, ownerAcc, diskToken)
+				accounts.Set(ownerEmail, ownerAcc)
+				if saveErr := a.store.Save(accounts); saveErr == nil && oldRef != "" {
+					a.deleteReplacedSecrets(ctx, []string{oldRef})
+				}
 			}
 		}
 	}
+	if unsavedSession {
+		// A sign-in for an account agy-swap has not saved (for example in the
+		// IDE). Leave every surface alone so that token is not lost;
+		// `agy-swap add` offers to save it.
+		return
+	}
 
 	intendedEmail := a.credentials.StoredActiveEmail()
-	if intendedEmail == "" || strings.EqualFold(intendedEmail, ownerEmail) {
+	if intendedEmail == "" && len(matchedOwners) > 0 {
+		intendedEmail = matchedOwners[0]
+	}
+	if intendedEmail == "" {
 		return
 	}
 	intendedAcc, ok := accounts.Get(intendedEmail)
@@ -140,8 +193,22 @@ func (a *Application) reconcileActiveSession(ctx context.Context) {
 	if err != nil || intendedToken == "" {
 		return
 	}
-	_ = a.credentials.writeOAuthFiles(intendedToken, intendedEmail)
-	a.credentials.ensureKeyringBypassMarker()
+	needsSync := !strings.EqualFold(a.credentials.StoredActiveEmail(), intendedEmail)
+	if !needsSync {
+		for _, p := range surfacePaths {
+			if readOAuthTokenFromFile(p) != intendedToken {
+				needsSync = true
+				break
+			}
+		}
+	}
+	if needsSync {
+		_ = a.credentials.writeOAuthFiles(intendedToken, intendedEmail)
+		a.credentials.ensureKeyringBypassMarker()
+		if a.credentials.shouldMirrorOSKeyring() {
+			_ = a.credentials.Set(ctx, intendedToken)
+		}
+	}
 }
 
 func isNativeExecutable(data []byte) bool {
@@ -195,7 +262,11 @@ func shellQuoteDouble(value string) string {
 	return `"` + replacer.Replace(value) + `"`
 }
 
-func buildAgyLauncherScriptForPaths(realCommand, preferredSwapCommand string, skipPermsByDefault bool) string {
+// buildAgyLauncherScriptForPaths returns the session-guard wrapper. For the
+// IDE's --hub service it restarts the hub only when reloadMarker changed while
+// the hub ran (agy-swap rewrites it right before it stops hubs after a switch),
+// and gives up after ten restarts within ten seconds.
+func buildAgyLauncherScriptForPaths(realCommand, preferredSwapCommand, reloadMarker string, skipPermsByDefault bool) string {
 	realExpr := `"$HOME/.local/libexec/agy"`
 	if strings.TrimSpace(realCommand) != "" {
 		realExpr = shellQuoteDouble(realCommand)
@@ -203,6 +274,10 @@ func buildAgyLauncherScriptForPaths(realCommand, preferredSwapCommand string, sk
 	swapExpr := `"$HOME/.local/bin/agy-swap"`
 	if strings.TrimSpace(preferredSwapCommand) != "" {
 		swapExpr = shellQuoteDouble(preferredSwapCommand)
+	}
+	markerExpr := `""`
+	if strings.TrimSpace(reloadMarker) != "" {
+		markerExpr = shellQuoteDouble(reloadMarker)
 	}
 	execBlock := `"$real_command" "$@"`
 	if skipPermsByDefault {
@@ -215,7 +290,13 @@ fi`
 	return `#!/bin/sh
 # Managed by agy-swap session guard
 real_command=` + realExpr + `
+case "${1:-}" in
+  --version|-v|--help)
+    exec "$real_command" "$@"
+    ;;
+esac
 swap_command=` + swapExpr + `
+reload_marker=` + markerExpr + `
 if [ ! -x "$swap_command" ]; then
   for candidate in "$HOME/.local/bin/agy-swap" /opt/homebrew/bin/agy-swap /usr/local/bin/agy-swap "$HOME/go/bin/agy-swap"; do
     if [ -x "$candidate" ]; then
@@ -231,6 +312,44 @@ if [ "${AGY_SWAP_SKIP_SYNC:-0}" != "1" ] && [ -n "$swap_command" ] && [ -x "$swa
   "$swap_command" --sync-session >/dev/null 2>&1 || true
 fi
 export WSL_INTEROP="${WSL_INTEROP:-1}"
+case " $* " in
+  *" --hub "*)
+    stopping=0
+    hub_pid=""
+    window_start="$(date +%s)"
+    window_restarts=0
+    trap 'stopping=1; if [ -n "$hub_pid" ]; then kill -TERM "$hub_pid" 2>/dev/null || true; wait "$hub_pid" 2>/dev/null || true; fi; exit 0' TERM INT HUP
+    while [ "$stopping" -eq 0 ]; do
+      marker_before="$(cat "$reload_marker" 2>/dev/null || true)"
+      "$real_command" "$@" &
+      hub_pid=$!
+      wait "$hub_pid"
+      status=$?
+      hub_pid=""
+      if [ "$stopping" -ne 0 ]; then
+        exit 0
+      fi
+      marker_after="$(cat "$reload_marker" 2>/dev/null || true)"
+      if [ -z "$reload_marker" ] || [ "$marker_after" = "$marker_before" ]; then
+        exit "$status"
+      fi
+      now="$(date +%s)"
+      if [ $((now - window_start)) -ge 10 ]; then
+        window_start="$now"
+        window_restarts=0
+      fi
+      window_restarts=$((window_restarts + 1))
+      if [ "$window_restarts" -ge 10 ]; then
+        exit "$status"
+      fi
+      sleep 0.1
+      if [ "${AGY_SWAP_SKIP_SYNC:-0}" != "1" ] && [ -n "$swap_command" ] && [ -x "$swap_command" ]; then
+        "$swap_command" --sync-session >/dev/null 2>&1 || true
+      fi
+    done
+    exit 0
+    ;;
+esac
 ` + execBlock + `
 status=$?
 if [ "${AGY_SWAP_SKIP_SYNC:-0}" != "1" ] && [ -n "$swap_command" ] && [ -x "$swap_command" ]; then
@@ -250,6 +369,40 @@ func currentSwapExecutable() string {
 		return ""
 	}
 	return self
+}
+
+// syncAgyBinarySidecar updates Antigravity IDE's agy.version.json sidecar (when
+// present next to agyBin) so doesSidecarMatchStats sees the wrapper's size,
+// mtimeMs, and ino=0 while preserving the cached version and sha512.
+func syncAgyBinarySidecar(agyBin string) {
+	sidecarPath := strings.TrimSpace(agyBin) + ".version.json"
+	if sidecarPath == ".version.json" {
+		return
+	}
+	raw, err := os.ReadFile(sidecarPath)
+	if err != nil || len(raw) == 0 {
+		return
+	}
+	var sidecar map[string]any
+	if json.Unmarshal(raw, &sidecar) != nil || sidecar == nil {
+		return
+	}
+	info, err := os.Stat(agyBin)
+	if err != nil || info.IsDir() {
+		return
+	}
+	wantSize := info.Size()
+	wantMtime := info.ModTime().UnixMilli()
+	gotSize, sizeOK := sidecar["size"].(float64)
+	gotMtime, mtimeOK := sidecar["mtimeMs"].(float64)
+	gotIno, inoOK := sidecar["ino"].(float64)
+	if sizeOK && int64(gotSize) == wantSize && mtimeOK && int64(gotMtime) == wantMtime && inoOK && int64(gotIno) == 0 {
+		return
+	}
+	sidecar["size"] = wantSize
+	sidecar["mtimeMs"] = wantMtime
+	sidecar["ino"] = 0
+	_ = atomicWriteJSON(sidecarPath, sidecar)
 }
 
 func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
@@ -282,8 +435,9 @@ func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
 			return
 		}
 		_ = os.Remove(agyBin)
-		script := buildAgyLauncherScriptForPaths(resolved, preferredSwap, false)
+		script := buildAgyLauncherScriptForPaths(resolved, preferredSwap, a.credentials.hubReloadMarkerPath(), false)
 		_ = os.WriteFile(agyBin, []byte(script), 0o755)
+		syncAgyBinarySidecar(agyBin)
 		return
 	}
 
@@ -303,8 +457,9 @@ func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
 		if err := moveOrCopyExecutable(agyBin, libexecBin); err != nil {
 			return
 		}
-		script := buildAgyLauncherScriptForPaths(realRef, preferredSwap, false)
+		script := buildAgyLauncherScriptForPaths(realRef, preferredSwap, a.credentials.hubReloadMarkerPath(), false)
 		_ = os.WriteFile(agyBin, []byte(script), 0o755)
+		syncAgyBinarySidecar(agyBin)
 		return
 	}
 
@@ -312,32 +467,40 @@ func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
 	if !strings.HasPrefix(text, "#!") || (!strings.Contains(text, ".local/libexec/agy") && !strings.Contains(text, "Managed by agy-swap session guard")) {
 		return
 	}
-	if strings.Contains(text, "--sync-session") && strings.Contains(text, "WSL_INTEROP") && !strings.Contains(text, "python3 -") {
+	if strings.Contains(text, "--sync-session") && strings.Contains(text, "WSL_INTEROP") && strings.Contains(text, "hub_pid") && strings.Contains(text, "reload_marker=") && !strings.Contains(text, "python3 -") {
+		syncAgyBinarySidecar(agyBin)
 		return
 	}
 	skipPerms := strings.Contains(text, "AGY_NORMAL_MODE") || strings.Contains(text, "--dangerously-skip-permissions")
-	script := buildAgyLauncherScriptForPaths(realRef, preferredSwap, skipPerms)
+	script := buildAgyLauncherScriptForPaths(realRef, preferredSwap, a.credentials.hubReloadMarkerPath(), skipPerms)
 	_ = os.WriteFile(agyBin, []byte(script), 0o755)
+	syncAgyBinarySidecar(agyBin)
 }
 
-// ensureAgyLauncherGuard ensures ~/.local/bin/agy (and any configured custom agy
-// path) delegates to its backing binary and runs agy-swap --sync-session before
-// and after each session so background token refreshes never clobber newly opened workspaces.
+// ensureAgyLauncherGuard ensures ~/.local/bin/agy, ~/.gemini/bin/agy (used by
+// Antigravity IDE), and any configured custom agy path delegate to their
+// backing binary and run agy-swap --sync-session before and after each session.
 func (a *Application) ensureAgyLauncherGuard() {
 	if a == nil || runtime.GOOS == "windows" || strings.TrimSpace(a.paths.Home) == "" {
 		return
 	}
 	defaultBin := filepath.Join(a.paths.Home, ".local", "bin", "agy")
+	ideBin := filepath.Join(a.paths.Home, ".gemini", "bin", "agy")
 	a.ensureAgyLauncherGuardForPath(defaultBin)
+	a.ensureAgyLauncherGuardForPath(ideBin)
 
-	if envBin := strings.TrimSpace(os.Getenv("AGY_SWAP_AGY_BIN")); envBin != "" && filepath.Clean(envBin) != filepath.Clean(defaultBin) {
+	if envBin := strings.TrimSpace(os.Getenv("AGY_SWAP_AGY_BIN")); envBin != "" &&
+		filepath.Clean(envBin) != filepath.Clean(defaultBin) &&
+		filepath.Clean(envBin) != filepath.Clean(ideBin) {
 		a.ensureAgyLauncherGuardForPath(envBin)
 	}
 	if a.store != nil {
 		if settings, err := a.loadSettings(); err == nil {
 			if target, ok := settings.Targets["agy"]; ok && target.Enabled {
 				cmd := strings.TrimSpace(target.Command)
-				if cmd != "" && cmd != "agy" && filepath.IsAbs(cmd) && filepath.Clean(cmd) != filepath.Clean(defaultBin) {
+				if cmd != "" && cmd != "agy" && filepath.IsAbs(cmd) &&
+					filepath.Clean(cmd) != filepath.Clean(defaultBin) &&
+					filepath.Clean(cmd) != filepath.Clean(ideBin) {
 					a.ensureAgyLauncherGuardForPath(cmd)
 				}
 			}

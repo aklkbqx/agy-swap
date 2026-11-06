@@ -172,7 +172,11 @@ func (a *Application) prepareBoundRun(ctx context.Context, settings AppSettings,
 		if !a.stdinTTY {
 			return errors.New("binding needs confirmation; use --account explicitly or configure auto mode")
 		}
-		yes, valid := parseYesNo(a.readLine("Switch to this account before running? [y/N]: "), false)
+		answer, readErr := a.readLine(ctx, "Switch to this account before running? [y/N]: ")
+		if readErr != nil {
+			return readErr
+		}
+		yes, valid := parseYesNo(answer, false)
 		if !valid || !yes {
 			return nil
 		}

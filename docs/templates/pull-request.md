@@ -1,6 +1,6 @@
 # Problem and result
 
-Describe a concrete trigger and resulting behavior. Link the Issue with `Refs #N`, the reviewed plan and affected surface.
+Say what was wrong and what happens now, in a sentence or two a user would understand. Link the Issue with `Refs #N`, the plan, and the part of the project it touches.
 
 ## Verification
 

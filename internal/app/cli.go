@@ -76,19 +76,6 @@ func writerTerminal(writer io.Writer) bool {
 	return ok && term.IsTerminal(int(file.Fd()))
 }
 
-// writerWidth returns the terminal column width of the writer, or a
-// safe fallback of 80 when the writer is not a terminal or the size
-// cannot be determined. Used to soft-wrap long CLI prose so the
-// terminal's own hard-wrap does not split words mid-character.
-func writerWidth(writer io.Writer) int {
-	if file, ok := writer.(*os.File); ok {
-		if w, _, err := termGetSize(file); err == nil && w > 0 {
-			return w
-		}
-	}
-	return 80
-}
-
 func (a *Application) newLoginCommand(ctx context.Context) *exec.Cmd {
 	var cmd *exec.Cmd
 	if a.loginCommand != nil {
@@ -475,14 +462,36 @@ func (a *Application) resetTerminalLineReader() {
 	}
 }
 
-func (a *Application) readLine(prompt string) string {
+// readLine prints prompt and reads one line from a.In. When ctx is cancelled
+// (Ctrl+C) before a line arrives it returns ctx.Err() at once and leaves the
+// blocked read behind; callers stop prompting and return.
+func (a *Application) readLine(ctx context.Context, prompt string) (string, error) {
 	ensureCookedTerminal(a.In, a.Out)
 	fmt.Fprint(a.Out, prompt)
+	if a.In == nil {
+		return "", nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		fmt.Fprintln(a.Out)
+		return "", err
+	}
+	result := make(chan string, 1)
+	go func() { result <- a.readLineBlocking() }()
+	select {
+	case line := <-result:
+		return line, nil
+	case <-ctx.Done():
+		fmt.Fprintln(a.Out)
+		return "", ctx.Err()
+	}
+}
+
+func (a *Application) readLineBlocking() string {
 	a.lineReaderMu.Lock()
 	defer a.lineReaderMu.Unlock()
-	if a.In == nil {
-		return ""
-	}
 	if a.lineReader == nil {
 		a.lineReader = bufio.NewReader(a.In)
 	}
@@ -581,6 +590,13 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 		}
 		active := a.activeEmail(ctx, accounts, current)
 		_, saved := accounts.Get(strings.ToLower(active))
+		if saved {
+			// The CLI file holds a saved account, but the IDE may be signed in
+			// to one that is not saved yet; offer that one instead.
+			if unsaved := a.unsavedSurfaceSession(ctx, accounts); unsaved != "" {
+				current, saved = unsaved, false
+			}
+		}
 		if !saved {
 			label := "Unknown account"
 			if info := a.http.userInfo(ctx, getString(tokenObject(decodeToken(current)), "access_token")); info != nil {
@@ -592,7 +608,13 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 			}
 			fmt.Fprintf(a.Out, "\n%s⚠ Active session detected: %s%s%s\n%sThis account is not yet saved in agy-swap.%s\n", a.p.Yellow, a.p.Bold, label, a.p.Reset, a.p.Gray, a.p.Reset)
 			for {
-				save, valid := parseYesNo(a.readLine(a.p.Cyan+"Save this account? [y/N] (type 'n' to login a different account): "+a.p.Reset), false)
+				answer, readErr := a.readLine(ctx, a.p.Cyan+"Save this account? [y/N] (type 'n' to login a different account): "+a.p.Reset)
+				if readErr != nil {
+					restore()
+					fmt.Fprintf(a.Out, "%sLogin cancelled.%s\n", a.p.Yellow, a.p.Reset)
+					return 1
+				}
+				save, valid := parseYesNo(answer, false)
 				if !valid {
 					fmt.Fprintln(a.Out, "Please answer y or n.")
 					continue
@@ -607,7 +629,13 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 	if a.loginCommand == nil && a.resolveAgyExecutable() == "" {
 		fmt.Fprintf(a.Out, "\n%s⚠ Antigravity CLI ('agy') was not found on this machine.%s\n", a.p.Yellow, a.p.Reset)
 		for {
-			installNow, valid := parseYesNo(a.readLine(a.p.Cyan+"Install Antigravity CLI ('agy') now? [Y/n]: "+a.p.Reset), true)
+			answer, readErr := a.readLine(ctx, a.p.Cyan+"Install Antigravity CLI ('agy') now? [Y/n]: "+a.p.Reset)
+			if readErr != nil {
+				restore()
+				fmt.Fprintf(a.Out, "%sLogin cancelled.%s\n", a.p.Yellow, a.p.Reset)
+				return 1
+			}
+			installNow, valid := parseYesNo(answer, true)
 			if !valid {
 				fmt.Fprintln(a.Out, "Please answer y or n.")
 				continue
@@ -622,9 +650,23 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 		}
 	}
 	fmt.Fprintf(a.Out, "\n%sAdd / Login Google Account%s\n%s1. A browser window will open to authenticate with Google.%s\n%s2. Complete login in Google Antigravity.%s\n", a.p.Bold, a.p.Reset, a.p.Gray, a.p.Reset, a.p.Gray, a.p.Reset)
-	for a.readLine(a.p.Cyan+"Press Enter when ready to start login (no password is required here)..."+a.p.Reset) != "" {
-
-		fmt.Fprintln(a.Out, "Please press Enter without entering a password; authentication happens in the browser.")
+	for {
+		resp, readErr := a.readLine(ctx, a.p.Cyan+"Press Enter when ready to start login (no password is required here; 'q' to cancel)..."+a.p.Reset)
+		if readErr != nil {
+			restore()
+			fmt.Fprintf(a.Out, "%sLogin cancelled.%s\n", a.p.Yellow, a.p.Reset)
+			return 1
+		}
+		if resp == "" {
+			break
+		}
+		lower := strings.ToLower(resp)
+		if lower == "q" || lower == "cancel" || lower == "exit" || lower == "n" || lower == "no" {
+			restore()
+			fmt.Fprintln(a.Out, "Login cancelled.")
+			return 0
+		}
+		fmt.Fprintln(a.Out, "Please press Enter to start login, or type 'q' to return.")
 	}
 	if !a.credentials.clearUnlocked(ctx) {
 		restore()
@@ -632,7 +674,8 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 		return 1
 	}
 	fmt.Fprintf(a.Out, "\n%sLaunching interactive 'agy' login...%s\n", a.p.Green, a.p.Reset)
-	fmt.Fprintf(a.Out, "%sComplete every prompt shown here and in the browser. agy-swap will continue after the credential is saved.%s\n\n", a.p.Yellow, a.p.Reset)
+	fmt.Fprintf(a.Out, "%sComplete every prompt shown here and in the browser. agy-swap will continue after the credential is saved.%s\n", a.p.Yellow, a.p.Reset)
+	fmt.Fprintf(a.Out, "%sPress Ctrl+C to cancel at any time.%s\n\n", a.p.Gray, a.p.Reset)
 	loginTerm := captureTerminalState(a.In, a.Out)
 	restoreLoginTerm := func() {
 		loginTerm.Restore(true)
@@ -661,6 +704,7 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 			stopLoginCommand(command, commandDone)
 			restoreLoginTerm()
 			restore()
+			fmt.Fprintf(a.Out, "\n%sLogin cancelled.%s\n", a.p.Yellow, a.p.Reset)
 			return 1
 		case commandErr := <-commandDone:
 			restoreLoginTerm()
@@ -684,6 +728,7 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 			}
 			restore()
 			if ctx.Err() != nil {
+				fmt.Fprintf(a.Out, "\n%sLogin cancelled.%s\n", a.p.Yellow, a.p.Reset)
 				return 1
 			}
 			if commandErr != nil {
@@ -1233,7 +1278,7 @@ func (a *Application) cmdLimits(ctx context.Context, args cliArgs) int {
 	return code
 }
 
-func (a *Application) cmdRemove(_ context.Context, args cliArgs) int {
+func (a *Application) cmdRemove(ctx context.Context, args cliArgs) int {
 	accounts, err := a.store.Load(true)
 	if err != nil {
 		return a.storeError(err)
@@ -1255,7 +1300,12 @@ func (a *Application) cmdRemove(_ context.Context, args cliArgs) int {
 		fmt.Fprintf(a.Err, "%sAccount '%s' not found.%s\n", a.p.Red, args.account, a.p.Reset)
 		return 1
 	}
-	if strings.ToLower(a.readLine(fmt.Sprintf("Are you sure you want to remove '%s'? [y/N]: ", email))) == "y" {
+	answer, readErr := a.readLine(ctx, fmt.Sprintf("Are you sure you want to remove '%s'? [y/N]: ", email))
+	if readErr != nil {
+		fmt.Fprintln(a.Out, "Cancelled.")
+		return 1
+	}
+	if strings.ToLower(answer) == "y" {
 		ref := getString(accounts.ByEmail[email], "secret_ref")
 		accounts.Delete(email)
 		if err := a.store.Save(accounts); err != nil {

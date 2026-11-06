@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
 
-if ([string]::IsNullOrWhiteSpace($Version)) { $Version = '2.20.1' }
+if ([string]::IsNullOrWhiteSpace($Version)) { $Version = '2.21.0' }
 if ([string]::IsNullOrWhiteSpace($TargetDir)) { $TargetDir = Join-Path $env:LOCALAPPDATA 'Programs\agy-swap' }
 
 $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
@@ -19,7 +19,7 @@ switch ($arch) {
 $tag = if ($Version.StartsWith('v')) { $Version } else { "v$Version" }
 $Version = $tag.Substring(1)
 $asset = "agy-swap_${tag}_windows_${arch}.exe"
-$base = "https://github.com/aklkbqx/agy-swap/releases/download/$tag"
+$base = if ([string]::IsNullOrWhiteSpace($env:AGY_SWAP_RELEASE_MIRROR)) { "https://github.com/aklkbqx/agy-swap/releases/download/$tag" } else { $env:AGY_SWAP_RELEASE_MIRROR.TrimEnd('/') }
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("agy-swap-install-" + [guid]::NewGuid().ToString('N'))
 $target = Join-Path $TargetDir 'agy-swap.exe'
 $backup = "$target.bak"
@@ -38,8 +38,8 @@ try {
     }
   }
 
-  Invoke-WebRequest -Uri "$base/$asset" -OutFile (Join-Path $tmp $asset) @iwrParams
   Invoke-WebRequest -Uri "$base/checksums.txt" -OutFile (Join-Path $tmp 'checksums.txt') @iwrParams
+  Invoke-WebRequest -Uri "$base/$asset" -OutFile (Join-Path $tmp $asset) @iwrParams
 
   $line = Get-Content (Join-Path $tmp 'checksums.txt') | Where-Object { $_ -match "\s\*?$([regex]::Escape($asset))$" } | Select-Object -First 1
   if (-not $line) { throw "Checksum entry for $asset was not found" }

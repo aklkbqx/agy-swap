@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,7 @@ import (
 
 type HTTPService struct {
 	client      *http.Client
+	dohClient   *http.Client
 	insecure    *http.Client
 	errOut      io.Writer
 	warnOnce    sync.Once
@@ -50,16 +52,46 @@ func NewHTTPService(errOut io.Writer) *HTTPService {
 	transport.MaxIdleConns = 32
 	transport.MaxIdleConnsPerHost = 16
 	transport.IdleConnTimeout = 90 * time.Second
+	if rootCAs := loadCustomRootCAs(); rootCAs != nil {
+		transport.TLSClientConfig = &tls.Config{
+			RootCAs:    rootCAs,
+			MinVersion: tls.VersionTLS12,
+		}
+	}
+	dohTransport := newDoHBackedTransport(transport)
 	insecureTransport := transport.Clone()
 	insecureTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // explicit user opt-in only
 	return &HTTPService{
 		client:      &http.Client{Transport: transport},
+		dohClient:   &http.Client{Transport: dohTransport},
 		insecure:    &http.Client{Transport: insecureTransport},
 		errOut:      errOut,
 		oauthURL:    oauthTokenURL,
 		cloudAPI:    cloudCodeAPI,
 		userInfoURL: "https://www.googleapis.com/oauth2/v1/userinfo",
 	}
+}
+
+func loadCustomRootCAs() *x509.CertPool {
+	caPath := strings.TrimSpace(os.Getenv("AGY_SWAP_CA_BUNDLE"))
+	if caPath == "" {
+		caPath = strings.TrimSpace(os.Getenv("CURL_CA_BUNDLE"))
+	}
+	if caPath == "" {
+		return nil
+	}
+	pemBytes, err := os.ReadFile(caPath)
+	if err != nil || len(pemBytes) == 0 {
+		return nil
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(pemBytes) {
+		return nil
+	}
+	return pool
 }
 
 func allowInsecureTLS() bool {
@@ -74,18 +106,36 @@ func allowInsecureTLS() bool {
 	return false
 }
 
-func (h *HTTPService) do(request *http.Request) (*http.Response, error) {
-	response, err := h.client.Do(request)
-	if err == nil || !allowInsecureTLS() {
-		return response, err
-	}
+func cloneRequestForRetry(request *http.Request) (*http.Request, error) {
 	clone := request.Clone(request.Context())
 	if request.GetBody != nil {
 		body, bodyErr := request.GetBody()
 		if bodyErr != nil {
-			return nil, err
+			return nil, bodyErr
 		}
 		clone.Body = body
+	}
+	return clone, nil
+}
+
+func (h *HTTPService) do(request *http.Request) (*http.Response, error) {
+	response, err := h.client.Do(request)
+	if err == nil {
+		return response, nil
+	}
+	if h.dohClient != nil && shouldRetryViaDoH(request, err) {
+		if dohClone, cloneErr := cloneRequestForRetry(request); cloneErr == nil {
+			if dohResp, dohErr := h.dohClient.Do(dohClone); dohErr == nil {
+				return dohResp, nil
+			}
+		}
+	}
+	if !allowInsecureTLS() {
+		return response, err
+	}
+	clone, cloneErr := cloneRequestForRetry(request)
+	if cloneErr != nil {
+		return nil, err
 	}
 	h.warnOnce.Do(func() {
 		_, _ = fmt.Fprintln(h.errOut, "Warning: AGY_SWAP_INSECURE_TLS is enabled; TLS certificate verification is disabled.")

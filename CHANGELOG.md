@@ -1,13 +1,27 @@
 # Changelog
 
+## 2.21.0
+
+### Changes
+
+- Switching accounts now switches the Antigravity IDE too, on macOS and Linux. agy-swap writes the session the IDE reads, updates the account name the IDE shows, and restarts the IDE's background `agy` service so the new account takes effect without restarting the IDE. To do this it wraps `~/.gemini/bin/agy` the same way it already wraps `~/.local/bin/agy`; the original binary is kept as `.agy.real` beside it. Work an agent is doing in the IDE when you switch stops.
+- If the IDE or `agy` is signed in to an account you have not saved, agy-swap leaves that session alone. After you sign out, agy-swap does not sign you back in.
+- On macOS and Linux the active session is also copied into the system keychain, because the IDE reads it from there. On macOS this runs `/usr/bin/security` again, which v2.17.1 had stopped doing.
+- `agy-swap update` and the installers work on networks that inspect TLS or block GitHub downloads. Set `AGY_SWAP_RELEASE_MIRROR` to a copy of the release files (both installers and `update`). Point `AGY_SWAP_CA_BUNDLE` at your company's root certificate (shell installer and `update`). After a TLS error that looks like a redirected DNS answer, `update` looks the host up again over DNS-over-HTTPS (`AGY_SWAP_DOH_URL`) and ignores private addresses; the shell installer retries once with curl's DNS-over-HTTPS.
+- When GitHub's release information cannot be reached, `update` reads the latest version from agy-swap.aklkbqx.com. It uses that version only when it is a stable release whose checksum file can be downloaded. Checksums are downloaded before the binary, and the update stops if the checksum file does not list the binary.
+- If a TLS certificate error blocks the download and Go is installed, `update` builds the release with `go install` instead (not on Windows). That binary is not compared with the release checksum, and its build ID reads `go-install`. Set `AGY_SWAP_NO_GO_FALLBACK=1` to turn it off.
+
+### Fixes
+
+- Windows: console input settings are restored after `agy` sign-in, and cancelling a sign-in leaves the terminal usable (#98).
+
 ## 2.20.1
 
 ### Fixes
 
-- Preserve original cooked terminal input and output console modes across TUI `suspend()` cycles instead of overwriting them when an interactive child exits in raw mode (#98).
-- Snapshot and restore console input/output modes and reset child alternate-screen, mouse-tracking and cursor state after interactive `agy` login completes or is terminated, preventing staircased output and frozen confirmation prompts on Windows Terminal, PowerShell and OpenSSH ConPTY (#98).
-- Poll Windows console input events (`WaitForSingleObject` / `PeekConsoleInputW` / `ReadConsoleInputW`) instead of blocking `os.Stdin` with an unsupported read deadline, preventing background TUI input reads from holding `os.Stdin` across `suspend()` or consuming prompt keystrokes (#98).
-- Ensure cooked terminal mode before line prompts and accept `\r`, `\n` and `\r\n` line endings in `readLine` (#98).
+- Windows: after an interactive `agy` sign-in, the terminal goes back to normal. Output no longer staircases and confirmation prompts no longer freeze in Windows Terminal, PowerShell or an OpenSSH session (#98).
+- Windows: the TUI no longer holds the keyboard while a child program runs, so sign-in prompts receive every key you type (#98).
+- Line prompts accept Enter from any terminal, whether it sends `\r`, `\n` or both (#98).
 
 ## 2.20.0
 
@@ -50,48 +64,47 @@
 
 ### Changes
 
-- Site: `usePageScroll` (`src/nav/pageScroll.js`) mounted in `SiteNav` adds frame-rate-independent exponential smooth scrolling across every page (`/` and `/install`) for mouse wheel, trackpad, keyboard navigation (`ArrowUp`/`ArrowDown`/`PageUp`/`PageDown`/`Space`/`Home`/`End`), in-page hash links (`#beat0..#beat3`, `#commands`, `#safety`, `#install`, `#main-content`, `#choose`, `#first-run`), and cross-page hash arrivals (`/install` -> `/#commands`), while preserving `prefers-reduced-motion: reduce` and nested scrollable containers.
-- Site: `/install` adds anchor sections (`#choose`, `#first-run`) with sticky nav clearance (`scroll-margin-top: var(--nav-clearance)`) and scroll-linked reveal animations matching the home page.
+- Website: smooth scrolling for the mouse wheel, trackpad, keyboard and in-page links on every page, with reduced motion respected.
+- Website: the install page gets linkable sections for choosing a platform and for the first run.
 
 ## 2.18.1
 
 ### Fixes
 
-- TUI & Site: `TestSiteStoryFrames` now exports the native 24-bit truecolor palette (`BarBg #1c2128`, `BodyBg #0a0c10`, `SelectBg #2d333b`, `KeyBg #373e47`) and truecolor sub-cell `lerpColor` transition patches instead of the 8-bit 256-color fallback (#86).
-- Site: `TuiStoryFrame` renders with `Menlo`, `lineHeight: 1`, welded block digits (`43`, `0`) and card left borders (`▌`), and in-place beat switching without vertical cross-fade ghosting so the web terminal matches the native Go TUI 100%, alongside an updated `og-panorama.png` social preview (#86).
+- Website: the terminal on the home page uses the same truecolor palette as the TUI instead of the 256-color fallback, and its digits, borders and line height now match the TUI. The social preview image was regenerated (#86).
 
 ## 2.18.0
 
 ### Changes
 
-- CLI & TUI: `agy-swap install-agy` (also reachable from the TUI Command Palette under `System` or when `agy-swap add` detects no installed `agy`) downloads and installs the official Google Antigravity CLI (`agy`) for the current OS and architecture (`darwin`, `linux`, `windows`, `amd64`/`arm64`), verifies its SHA-512 checksum before extracting, runs `agy install`, and applies the `agy-swap` session launcher guard (#85).
-- Custom installation paths: `agy-swap install-agy --dir <path>` installs `agy` into a custom directory and saves it in `settings.json` (`targets.agy`). `add`, `run now`, `target list`, `target check`, and the session launcher guard resolve `AGY_SWAP_AGY_BIN`, `settings.targets.agy`, `PATH`, and standard per-OS locations (`~/.local/bin`, `~/.local/libexec`, `/opt/homebrew/bin`, `/usr/local/bin`, `%LOCALAPPDATA%\agy\bin`), and preserve relative or external symlinks without breaking them (#85).
+- `agy-swap install-agy` downloads the Google Antigravity CLI (`agy`) for your system, checks its SHA-512 checksum, installs it and wraps it for session sync. The TUI command palette and `agy-swap add` offer it when `agy` is missing (#85).
+- `install-agy --dir <path>` installs `agy` somewhere else and remembers that path. `add`, `run now`, `target list`, `target check` and the wrapper all find `agy` through `AGY_SWAP_AGY_BIN`, that saved path, `PATH` and the usual install folders, and leave symlinks working (#85).
 
 ### Fixes
 
-- Windows: when switching accounts or clearing sessions in a passwordless SSH logon session where Windows Credential Manager returns `ERROR_NO_SUCH_LOGON_SESSION` (`1312`), `agy-swap` now writes the keyring-bypass marker (`cache/antigravity-keyring-unavailable`) and falls back to the `0600` OAuth token files instead of failing (#85).
-- Windows installer (`install.ps1`): automatically adds the installation directory to the user `Path`, removes stale duplicate `agy-swap.exe` binaries from earlier `PATH` entries so upgrades are never shadowed, and runs `--sync-session` after installation (#85).
-- `agy-swap account migrate --force`: accounts already stored in `vault.json` are no longer counted as `remain in legacy storage` (#85).
+- Windows: in an SSH session without a password, where Credential Manager is unavailable, switching and clearing now fall back to the `0600` session files instead of failing (#85).
+- Windows installer: adds the install folder to your user `Path`, removes older copies of `agy-swap.exe` that would shadow the new one, and syncs the session after installing (#85).
+- `agy-swap account migrate --force` no longer reports accounts already in `vault.json` as left in old storage (#85).
 
 ## 2.17.2
 
 ### Changes
 
-- TUI: motion runs at 60 FPS (`16ms` per frame while moving, `50ms` while idle) instead of 30 FPS (`33ms`), doubling the frame count of selection slides, meter sweeps, modal openings, toasts, and view transitions while stopping the timer immediately once settled (#82).
-- TUI: truecolor sub-cell anti-aliasing (`lerpColor`) blends fractional edge rows of the selection band (`tuiSelectionBand` / `tuiBandRowAlpha`), fractional boundary columns of sliding dialog buttons (`tuiSlidingButtons`), the leading half-cell of quota meters (`renderMeter`), and the continuous cosine light wave during manual refreshes (`tuiRefreshSweep`) so motion glides smoothly across the character grid instead of snapping by whole rows or columns (#82).
-- Site: the pinned story terminal exports multi-frame ANSI diff transition sequences (`transitions` in `tui-story-frames.json`) and plays them in `TuiStoryFrame` when a beat becomes active, while honouring `prefers-reduced-motion` (#82).
+- TUI: motion runs at 60 frames per second instead of 30, so the selection, meters, dialogs and toasts move more smoothly. The timer stops as soon as nothing is moving (#82).
+- TUI: in a truecolor terminal, moving edges blend across character cells instead of jumping a whole row or column at a time (#82).
+- Website: the terminal on the home page plays the same transitions as the TUI, and stays still when reduced motion is on (#82).
 
 ### Fixes
 
-- TUI: hovering an unselected account now tints a full 4-row card (1 top padding row, 2 content rows, 1 bottom padding row) with 2 columns of right padding (`tuiHoverRow`), and body rows replace `\x1b[49m` with `BodyBg` so the hover highlight never leaks the terminal default background into the divider gap (#82).
+- TUI: hovering an account highlights its whole four-row card, and the highlight no longer shows the terminal's own background in the gap by the divider (#82).
 
 ## 2.17.1
 
 ### Fixes
 
-- macOS & Linux: switching accounts, clearing the active session, and logging in a new account no longer call `/usr/bin/security` or prompt for the login keychain password (#79). `agy-swap` maintains `~/.gemini/antigravity-cli/cache/antigravity-keyring-unavailable` and configures the `~/.local/bin/agy` launcher so Antigravity's `CompositeTokenStorage` (`shouldBypassKeyring`) and `agy-swap` both use the `0600` file-backed session store (`antigravity-oauth-token`) directly instead of reading stale Keychain items.
-- Multi-workspace sessions: a background `agy` process refreshing its OAuth token in another folder no longer switches newly opened workspaces away from the active account chosen in `agy-swap` (#79). `agy-swap --sync-session` (and automatic startup reconciliation) harvests refreshed tokens into the account vault by matching `refresh_token` and restores the active account selected in `google_accounts.json`.
-- Launcher guard: when `~/.local/bin/agy` is present, `agy-swap` automatically wraps or upgrades the launcher to run `agy-swap --sync-session` before and after `agy` with zero manual configuration (#79).
+- macOS and Linux: switching accounts, clearing the session and adding an account no longer run `/usr/bin/security`, so the login keychain stops asking for a password (#79). agy-swap keeps Antigravity on its file-based session (`antigravity-oauth-token`, mode `0600`) so neither side reads an old Keychain entry.
+- A background `agy` process that refreshes its token in another folder no longer moves new workspaces off the account you picked (#79). `agy-swap --sync-session` saves the refreshed token to the right account and puts your chosen account back.
+- When `~/.local/bin/agy` exists, agy-swap wraps it so every `agy` run starts and ends with `agy-swap --sync-session`. Nothing to configure (#79).
 
 ## 2.17.0
 
@@ -309,7 +322,7 @@
 - Release: asset builds generate a local Homebrew formula; tap commits and pushes require explicit `make publish-homebrew-tap`. Publication checks the actual remote tip and refuses dirty/diverged taps, unrelated unpublished commits, and invalid or duplicate checksums.
 - Tests: make website TUI story snapshots independent of inherited terminal color capabilities while keeping production truecolor support.
 - Docs and site: correct active-session versus saved-vault behavior, Doctor's storage/recovery effects in all four locales, local-only AGY Live instructions, and latest-stable-only security support with accurate network use.
-- Deployment: publish downloadable release assets before promoting the default installers, and tag both repositories before building the site image.
+- Installers: the default install commands now point at a release only after its downloads are published.
 
 ## 2.11.1
 
@@ -346,7 +359,7 @@
 
 ## 2.9.0
 
-- Site: production runs as one Watchtower-managed container. AGY Live runs only locally on loopback with `make live`, and the site image is built, previewed, and published from the local machine.
+- AGY Live, the interactive terminal demo, now runs only on your own machine with `make live`.
 - Site: the story, commands, and install band follow one scroll clock, with an arc drawn down the margin on every device and a particle arc in 3D on capable desktops. Wheel scrolling is smoothed while touch and reduced motion stay native.
 - Site: one floating glass capsule serves as the navbar on both pages. Cards, panels, dropdowns, and buttons share one radius scale and one set of glass tokens. Buttons use a soft orange gradient with white text, and a quiet backdrop fills the empty background. The AU/BU/GU account coins are gone.
 - Site: the dev server picks a free port instead of pinning 5173.
@@ -524,7 +537,6 @@ and browser demo reliability.
 - Preserve manual demo navigation during scrolling and ignore stale async loads.
   Pack 51,114 renderer fixtures into shared rows/frames and fit the 3D terminal on
   mobile screens. Update all four site translations and storage claims.
-- Consolidate site packaging around Docker/Nginx and local release tooling.
 
 Existing account files and legacy encrypted backups remain supported. Automatic
 selection now fails when no account has verified fresh capacity; use an explicit

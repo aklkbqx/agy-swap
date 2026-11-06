@@ -52,6 +52,7 @@ type Paths struct {
 	RuntimeState     string
 	JournalDir       string
 	OAuthToken       string
+	IDEOAuthToken    string
 	OAuthCredentials string
 	GoogleAccounts   string
 	JetskiToken      string
@@ -77,6 +78,7 @@ func DefaultPaths() (Paths, error) {
 		RuntimeState:     filepath.Join(config, "runtime-state.json"),
 		JournalDir:       filepath.Join(config, "journals"),
 		OAuthToken:       filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"),
+		IDEOAuthToken:    filepath.Join(home, ".gemini", "antigravity", "antigravity-oauth-token"),
 		OAuthCredentials: filepath.Join(home, ".gemini", "oauth_creds.json"),
 		GoogleAccounts:   filepath.Join(home, ".gemini", "google_accounts.json"),
 		JetskiToken:      filepath.Join(home, ".gemini", "jetski-standalone-oauth-token"),
