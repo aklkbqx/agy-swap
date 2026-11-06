@@ -19,6 +19,7 @@ type extendedOptions struct {
 	Once            bool
 	Apply           bool
 	Merge           bool
+	Open            bool
 	IncludeSecrets  bool
 	PassphraseStdin bool
 	Passphrase      string
@@ -42,7 +43,7 @@ type extendedOptions struct {
 func isExtendedCommand(argv []string) bool {
 	for i := 0; i < len(argv); i++ {
 		arg := argv[i]
-		if arg == "--json" || arg == "--force" || arg == "--refresh" || arg == "--once" || arg == "--apply" || arg == "--merge" || arg == "--include-secrets" || arg == "--passphrase-stdin" {
+		if arg == "--json" || arg == "--force" || arg == "--refresh" || arg == "--once" || arg == "--apply" || arg == "--merge" || arg == "--open" || arg == "--include-secrets" || arg == "--passphrase-stdin" {
 			continue
 		}
 		if strings.HasPrefix(arg, "--") || arg == "-d" {
@@ -50,7 +51,7 @@ func isExtendedCommand(argv []string) bool {
 			continue
 		}
 		switch arg {
-		case "doctor", "config", "alias", "tag", "profile", "bind", "unbind", "recommend", "statusline", "watch", "history", "stats", "forecast", "backup", "metrics", "completion", "account", "target", "run", "install-agy", "install", "agy":
+		case "doctor", "config", "alias", "tag", "profile", "bind", "unbind", "recommend", "statusline", "watch", "history", "stats", "forecast", "backup", "metrics", "completion", "account", "target", "run", "install-agy", "install", "agy", "donate", "sponsor":
 			return true
 		default:
 			return false
@@ -89,6 +90,8 @@ func parseExtended(argv []string) (string, extendedOptions, []string, error) {
 			opts.Apply = true
 		case "--merge":
 			opts.Merge = true
+		case "--open":
+			opts.Open = true
 		case "--include-secrets":
 			opts.IncludeSecrets = true
 		case "--passphrase":
@@ -320,6 +323,8 @@ func (a *Application) runExtended(ctx context.Context, argv []string) int {
 		code = a.cmdRunNow(ctx, opts, positional)
 	case "install-agy", "install", "agy":
 		code = a.cmdInstallAgy(ctx, opts, positional)
+	case "donate", "sponsor":
+		code = a.cmdDonate(ctx, opts, positional)
 	default:
 		return a.extendedError(command, opts, fmt.Errorf("unknown command %q", command))
 	}

@@ -10,7 +10,7 @@ func (a *Application) cmdCompletion(opts extendedOptions, positional []string) i
 	if len(positional) > 0 {
 		shell = strings.ToLower(positional[0])
 	}
-	commands := "doctor config alias tag profile bind unbind recommend statusline watch history stats forecast backup metrics completion account target run"
+	commands := "doctor config alias tag profile bind unbind recommend statusline watch history stats forecast backup metrics completion account target run install-agy donate sponsor"
 	var script string
 	switch shell {
 	case "bash":
@@ -20,7 +20,7 @@ func (a *Application) cmdCompletion(opts extendedOptions, positional []string) i
 	case "fish":
 		script = fmt.Sprintf("complete -c agy-swap -f -a '%s add list limits logout next switch remove status update version limit verify'", commands)
 	case "powershell", "pwsh":
-		script = `Register-ArgumentCompleter -Native -CommandName agy-swap -ScriptBlock { param($wordToComplete, $commandAst, $cursorPosition); 'doctor','config','alias','tag','profile','bind','recommend','statusline','watch','history','stats','forecast','backup','metrics','completion','account','target','run','add','list','limits','logout','next','switch','remove','status','update','version','limit','verify' | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) } }`
+		script = `Register-ArgumentCompleter -Native -CommandName agy-swap -ScriptBlock { param($wordToComplete, $commandAst, $cursorPosition); 'doctor','config','alias','tag','profile','bind','recommend','statusline','watch','history','stats','forecast','backup','metrics','completion','account','target','run','install-agy','donate','sponsor','add','list','limits','logout','next','switch','remove','status','update','version','limit','verify' | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) } }`
 	default:
 		return a.extendedError("completion", opts, fmt.Errorf("unsupported shell %q", shell))
 	}

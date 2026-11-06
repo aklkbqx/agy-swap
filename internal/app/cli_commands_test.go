@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -363,5 +364,72 @@ func TestCLINextKeepsTheOnlyEligibleAccount(t *testing.T) {
 	f.userInfo = "alpha@example.com"
 	if code := f.run("", "next"); code != 0 || !strings.Contains(f.out.String(), "auto-rotated to alpha@example.com") {
 		t.Fatalf("only eligible account: code=%d\n%s%s", code, f.out, f.errOut)
+	}
+}
+
+func TestCLIDonateAndSponsorLinksAndTUIHelp(t *testing.T) {
+	f := newCLIFixture(t)
+	var opened []string
+	f.a.openURL = func(_ context.Context, rawURL string) error {
+		opened = append(opened, rawURL)
+		return nil
+	}
+
+	for _, cmd := range []string{"donate", "sponsor"} {
+		if code := f.run("", cmd); code != 0 {
+			t.Fatalf("%s failed: code=%d err=%s", cmd, code, f.errOut.String())
+		}
+		out := f.out.String()
+		if !strings.Contains(out, "https://github.com/sponsors/aklkbqx") || strings.Contains(out, "ko-fi.com") {
+			t.Fatalf("%s output unexpected:\n%s", cmd, out)
+		}
+	}
+
+	if code := f.run("", "donate", "--json"); code != 0 {
+		t.Fatalf("donate --json failed: code=%d err=%s", code, f.errOut.String())
+	}
+	var env struct {
+		OK      bool           `json:"ok"`
+		Command string         `json:"command"`
+		Data    map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(f.out.Bytes(), &env); err != nil {
+		t.Fatalf("donate --json invalid json: %v\n%s", err, f.out.String())
+	}
+	if !env.OK || env.Command != "donate" || env.Data["github_sponsors"] != "https://github.com/sponsors/aklkbqx" || env.Data["url"] != "https://github.com/sponsors/aklkbqx" {
+		t.Fatalf("unexpected donate --json payload: %#v", env)
+	}
+
+	if code := f.run("", "donate", "--open"); code != 0 {
+		t.Fatalf("donate --open failed: code=%d err=%s", code, f.errOut.String())
+	}
+	if len(opened) != 1 || opened[0] != "https://github.com/sponsors/aklkbqx" {
+		t.Fatalf("expected default --open to open GitHub Sponsors, got %v", opened)
+	}
+
+	if code := f.run("", "donate", "unknown"); code != 1 {
+		t.Fatalf("expected unknown channel to return exit code 1, got %d", code)
+	}
+
+	helpJoined := strings.Join(f.a.tuiHelpLines(80), "\n")
+	if !strings.Contains(helpJoined, "github.com/sponsors/aklkbqx") || strings.Contains(helpJoined, "ko-fi.com") {
+		t.Fatalf("expected tuiHelpLines to include GitHub Sponsors only, got:\n%s", helpJoined)
+	}
+
+	state := &tuiState{accounts: NewAccounts(), settings: defaultSettings()}
+	actions := tuiActions(state)
+	foundDonate := false
+	for _, act := range actions {
+		if act.ID == "donate" && act.Enabled {
+			foundDonate = true
+			break
+		}
+	}
+	if !foundDonate {
+		t.Fatalf("expected enabled 'donate' action in tuiActions")
+	}
+	f.a.tuiOpenDonate(context.Background(), state)
+	if len(opened) != 2 || opened[1] != "https://github.com/sponsors/aklkbqx" {
+		t.Fatalf("expected tuiOpenDonate to open GitHub Sponsors, got %v", opened)
 	}
 }

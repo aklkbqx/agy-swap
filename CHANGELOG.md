@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.22.0
+
+### Changes
+
+- Add `agy-swap donate` (and `agy-swap sponsor`) to print the GitHub Sponsors link or open it directly with `--open` (#102).
+- List the GitHub Sponsors link in the `?` keyboard guide, add a `Sponsor & donate` entry to the `Ctrl+K` action palette, and include a website update (#102).
+
+### Fixes
+
+- Keep non-interactive commands from refreshing expired credentials or wrapping `agy` binaries before running read-only flags such as `--help` and `--version` (#101).
+- Clear stale `google_accounts.json` entries when signing out, and print a clear cancellation message when `Ctrl+C` interrupts `run now` or a suspended TUI command (#101).
+
 ## 2.21.0
 
 ### Changes

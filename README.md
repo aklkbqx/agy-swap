@@ -53,7 +53,7 @@ Requirements: Go 1.27.3 or later. macOS source builds require Xcode Command Line
 ```bash
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-go build -trimpath -ldflags "-s -w -X main.version=2.21.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.22.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ./agy-swap version
 ```
 
@@ -189,6 +189,7 @@ Every TUI action is also a command, so you can script it.
 | `statusline` | Render or install a statusline for your prompt |
 | `backup` | Export or import accounts |
 | `update` | Update agy-swap to the latest release |
+| `donate` | Show the GitHub Sponsors support link (or open it with `--open`) |
 
 ### Accounts and switching
 
@@ -376,6 +377,10 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md).
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [docs/development.md](docs/development.md) for build and test commands, and [docs/architecture.md](docs/architecture.md) for how the code is organized.
+
+## Support
+
+If agy-swap saves you time, you can support maintenance through [GitHub Sponsors](https://github.com/sponsors/aklkbqx), or run `agy-swap donate --open`.
 
 ## License
 

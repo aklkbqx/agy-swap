@@ -698,6 +698,8 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 			openConfirm("update", "")
 		case "install-agy":
 			suspend(func() int { return a.cmdInstallAgy(ctx, extendedOptions{}, nil) })
+		case "donate":
+			a.tuiOpenDonate(ctx, state)
 		case "add-account":
 			setView(tuiViewDashboard)
 			runAddAccount()

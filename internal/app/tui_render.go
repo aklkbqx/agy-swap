@@ -1053,6 +1053,9 @@ func (a *Application) tuiHelpLines(width int) []string {
 		"u           Download and install the latest release",
 		"b           Return to dashboard",
 		"Esc / any   Close help",
+		"",
+		a.p.Bold + "SUPPORT" + a.p.Reset,
+		"Sponsor     github.com/sponsors/aklkbqx",
 	}
 	for i := range lines {
 		lines[i] = truncateVisible(lines[i], maxInt(18, width-8), a.p)

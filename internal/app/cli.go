@@ -268,7 +268,7 @@ func (a *Application) printUsage(w io.Writer) {
                 [--verbose]
                 {add,list,limits,logout,next,switch,remove,status,update,version,limit,
                  doctor,config,alias,tag,profile,bind,recommend,statusline,watch,
-                 history,stats,forecast,backup,metrics,completion,account,target,run} ...
+                 history,stats,forecast,backup,metrics,completion,account,target,run,donate} ...
 
 Minimal Multi-Account Switcher for Google Antigravity CLI (agy)
 
@@ -299,6 +299,7 @@ extended commands:
    target              Check experimental CLI/IDE target adapters
   run now             Launch a configured CLI target immediately
   install-agy         Download, verify, and install the Antigravity CLI (agy)
+  donate              Show GitHub Sponsors support link (--open)
   completion          Print bash, zsh, fish, or PowerShell completion
 
 Most extended commands support --json. Secret backup passphrases can be read

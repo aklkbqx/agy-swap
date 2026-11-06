@@ -69,6 +69,7 @@ func tuiActions(state *tuiState) []tuiAction {
 		{ID: "update-check", Label: "Check for update", Description: "See whether a matching release asset is available", Shortcut: "", Section: "System", Enabled: true},
 		{ID: "update", Label: "Install latest update", Description: "Download, verify, and install the latest release", Shortcut: "u", Section: "System", Enabled: true},
 		{ID: "install-agy", Label: "Install Antigravity CLI", Description: "Download, verify, and install the official agy CLI", Shortcut: "", Section: "System", Enabled: true},
+		{ID: "donate", Label: "Sponsor & donate", Description: "Open GitHub Sponsors in your browser", Shortcut: "", Section: "System", Enabled: true},
 		{ID: "quit", Label: "Quit", Description: "Close the interactive console", Shortcut: "q", Section: "System", Enabled: true},
 	}
 }
