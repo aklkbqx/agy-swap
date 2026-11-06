@@ -71,11 +71,38 @@ func TestVerifiedGoogleClaimIsStrict(t *testing.T) {
 func TestReadLinePreservesBufferedInput(t *testing.T) {
 	var out bytes.Buffer
 	a := &Application{In: strings.NewReader("first\nsecond\n"), Out: &out}
-	if got := a.readLine(""); got != "first" {
-		t.Fatalf("first line = %q", got)
+	if got, err := a.readLine(context.Background(), ""); err != nil || got != "first" {
+		t.Fatalf("first line = %q, %v", got, err)
 	}
-	if got := a.readLine(""); got != "second" {
-		t.Fatalf("second line = %q", got)
+	if got, err := a.readLine(context.Background(), ""); err != nil || got != "second" {
+		t.Fatalf("second line = %q, %v", got, err)
+	}
+}
+
+func TestReadLineReturnsWhenContextIsCancelled(t *testing.T) {
+	reader, writer := io.Pipe()
+	defer func() { _ = reader.Close(); _ = writer.Close() }()
+	var out bytes.Buffer
+	a := &Application{In: reader, Out: &out}
+	ctx, cancel := context.WithCancel(context.Background())
+	type result struct {
+		line string
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		line, err := a.readLine(ctx, "Save? ")
+		done <- result{line, err}
+	}()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	select {
+	case got := <-done:
+		if !errors.Is(got.err, context.Canceled) || got.line != "" {
+			t.Fatalf("readLine = %q, %v; want empty line and context.Canceled", got.line, got.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("readLine ignored context cancellation")
 	}
 }
 
@@ -86,7 +113,8 @@ func TestReadLineHandlesCarriageReturnAndCRLF(t *testing.T) {
 	a := &Application{In: reader, Out: &out}
 	done := make(chan string, 1)
 	go func() {
-		done <- a.readLine("Save? ")
+		got, _ := a.readLine(context.Background(), "Save? ")
+		done <- got
 	}()
 	if _, err := writer.Write([]byte("y\r")); err != nil {
 		t.Fatal(err)
@@ -102,10 +130,10 @@ func TestReadLineHandlesCarriageReturnAndCRLF(t *testing.T) {
 	}
 
 	crlfApp := &Application{In: strings.NewReader("n\r\nsecond\r\n"), Out: &out}
-	if got := crlfApp.readLine(""); got != "n" {
+	if got, _ := crlfApp.readLine(context.Background(), ""); got != "n" {
 		t.Fatalf("first CRLF line = %q, want %q", got, "n")
 	}
-	if got := crlfApp.readLine(""); got != "second" {
+	if got, _ := crlfApp.readLine(context.Background(), ""); got != "second" {
 		t.Fatalf("second CRLF line = %q, want %q", got, "second")
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -159,16 +160,37 @@ func syncIDEOnboardingEmail(home, email string) {
 	}
 }
 
-// reloadRunningIDEHubs sends SIGTERM to any running backing agy --hub process
-// so the session-guard wrapper loop immediately respawns it on the same port
-// with the newly switched account credentials, triggering Antigravity IDE's
-// heartbeat instance_changed webview refresh without exhausting crash recovery.
+// hubReloadMarkerPath is the file agy-swap rewrites just before it stops the
+// IDE's background agy hub after a switch. The session-guard wrapper restarts
+// the hub only when this file changed while the hub was running.
+func (c *Credentials) hubReloadMarkerPath() string {
+	if c == nil || c.paths.OAuthToken == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(c.paths.OAuthToken), "cache", "agy-swap-hub-reload")
+}
+
+// reloadRunningIDEHubs records the switch in hubReloadMarkerPath and sends
+// SIGTERM to any running backing agy --hub process. The session-guard wrapper
+// sees the changed marker and starts the hub again on the same port with the
+// newly switched account, which triggers Antigravity IDE's instance_changed
+// webview refresh without exhausting its crash recovery.
 func (c *Credentials) reloadRunningIDEHubs() {
 	if c == nil || runtime.GOOS == "windows" || currentSwapExecutable() == "" || !c.shouldMirrorOSKeyring() {
 		return
 	}
 	pkillBin, err := exec.LookPath("pkill")
 	if err != nil || pkillBin == "" {
+		return
+	}
+	marker := c.hubReloadMarkerPath()
+	if marker == "" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
+		return
+	}
+	if err := os.WriteFile(marker, []byte(strconv.FormatInt(time.Now().UnixNano(), 10)), 0o600); err != nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

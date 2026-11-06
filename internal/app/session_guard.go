@@ -18,6 +18,34 @@ func tokenRefreshToken(tokenData string) string {
 	return strings.TrimSpace(getString(inner, "refresh_token"))
 }
 
+// hasOAuthSession reports whether token holds an access or refresh token, as
+// opposed to an empty or unrelated JSON file.
+func hasOAuthSession(token string) bool {
+	decoded := decodeToken(token)
+	inner := tokenObject(decoded)
+	if inner == nil {
+		inner = decoded
+	}
+	if inner == nil {
+		return false
+	}
+	return strings.TrimSpace(getString(inner, "access_token")) != "" || strings.TrimSpace(getString(inner, "refresh_token")) != ""
+}
+
+// unsavedSurfaceSession returns a session from any Antigravity surface (CLI,
+// IDE, Jetski) whose token belongs to no saved account, or "" when there is
+// none. reconcileActiveSession leaves such a session alone, and `add` offers to
+// save it.
+func (a *Application) unsavedSurfaceSession(ctx context.Context, accounts *Accounts) string {
+	for _, p := range a.credentials.oauthTokenPaths() {
+		token := readOAuthTokenFromFile(p)
+		if hasOAuthSession(token) && matchAccountByToken(ctx, accounts, a.vault, token) == "" {
+			return token
+		}
+	}
+	return ""
+}
+
 // matchAccountByToken identifies which saved account owns token using local
 // metadata and vault entries (including matching by refresh_token after
 // Antigravity refreshes access_token in place) without network requests.
@@ -112,7 +140,8 @@ func (a *Application) reconcileActiveSession(ctx context.Context) {
 			diskTokens = append(diskTokens, tok)
 		}
 	}
-	if len(diskTokens) == 0 && a.credentials.StoredActiveEmail() == "" {
+	if len(diskTokens) == 0 {
+		// No session file is left: the user signed out. Do not sign them back in.
 		return
 	}
 	accounts, err := a.store.Load(false)
@@ -121,9 +150,13 @@ func (a *Application) reconcileActiveSession(ctx context.Context) {
 	}
 
 	var matchedOwners []string
+	unsavedSession := false
 	for _, diskToken := range diskTokens {
 		ownerEmail := matchAccountByToken(ctx, accounts, a.vault, diskToken)
 		if ownerEmail == "" {
+			if hasOAuthSession(diskToken) {
+				unsavedSession = true
+			}
 			continue
 		}
 		matchedOwners = append(matchedOwners, ownerEmail)
@@ -137,6 +170,12 @@ func (a *Application) reconcileActiveSession(ctx context.Context) {
 				}
 			}
 		}
+	}
+	if unsavedSession {
+		// A sign-in for an account agy-swap has not saved (for example in the
+		// IDE). Leave every surface alone so that token is not lost;
+		// `agy-swap add` offers to save it.
+		return
 	}
 
 	intendedEmail := a.credentials.StoredActiveEmail()
@@ -223,7 +262,11 @@ func shellQuoteDouble(value string) string {
 	return `"` + replacer.Replace(value) + `"`
 }
 
-func buildAgyLauncherScriptForPaths(realCommand, preferredSwapCommand string, skipPermsByDefault bool) string {
+// buildAgyLauncherScriptForPaths returns the session-guard wrapper. For the
+// IDE's --hub service it restarts the hub only when reloadMarker changed while
+// the hub ran (agy-swap rewrites it right before it stops hubs after a switch),
+// and gives up after ten restarts within ten seconds.
+func buildAgyLauncherScriptForPaths(realCommand, preferredSwapCommand, reloadMarker string, skipPermsByDefault bool) string {
 	realExpr := `"$HOME/.local/libexec/agy"`
 	if strings.TrimSpace(realCommand) != "" {
 		realExpr = shellQuoteDouble(realCommand)
@@ -231,6 +274,10 @@ func buildAgyLauncherScriptForPaths(realCommand, preferredSwapCommand string, sk
 	swapExpr := `"$HOME/.local/bin/agy-swap"`
 	if strings.TrimSpace(preferredSwapCommand) != "" {
 		swapExpr = shellQuoteDouble(preferredSwapCommand)
+	}
+	markerExpr := `""`
+	if strings.TrimSpace(reloadMarker) != "" {
+		markerExpr = shellQuoteDouble(reloadMarker)
 	}
 	execBlock := `"$real_command" "$@"`
 	if skipPermsByDefault {
@@ -249,6 +296,7 @@ case "${1:-}" in
     ;;
 esac
 swap_command=` + swapExpr + `
+reload_marker=` + markerExpr + `
 if [ ! -x "$swap_command" ]; then
   for candidate in "$HOME/.local/bin/agy-swap" /opt/homebrew/bin/agy-swap /usr/local/bin/agy-swap "$HOME/go/bin/agy-swap"; do
     if [ -x "$candidate" ]; then
@@ -268,8 +316,11 @@ case " $* " in
   *" --hub "*)
     stopping=0
     hub_pid=""
+    window_start="$(date +%s)"
+    window_restarts=0
     trap 'stopping=1; if [ -n "$hub_pid" ]; then kill -TERM "$hub_pid" 2>/dev/null || true; wait "$hub_pid" 2>/dev/null || true; fi; exit 0' TERM INT HUP
     while [ "$stopping" -eq 0 ]; do
+      marker_before="$(cat "$reload_marker" 2>/dev/null || true)"
       "$real_command" "$@" &
       hub_pid=$!
       wait "$hub_pid"
@@ -278,7 +329,17 @@ case " $* " in
       if [ "$stopping" -ne 0 ]; then
         exit 0
       fi
-      if [ "$status" -ne 0 ] && [ "$status" -ne 143 ]; then
+      marker_after="$(cat "$reload_marker" 2>/dev/null || true)"
+      if [ -z "$reload_marker" ] || [ "$marker_after" = "$marker_before" ]; then
+        exit "$status"
+      fi
+      now="$(date +%s)"
+      if [ $((now - window_start)) -ge 10 ]; then
+        window_start="$now"
+        window_restarts=0
+      fi
+      window_restarts=$((window_restarts + 1))
+      if [ "$window_restarts" -ge 10 ]; then
         exit "$status"
       fi
       sleep 0.1
@@ -374,7 +435,7 @@ func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
 			return
 		}
 		_ = os.Remove(agyBin)
-		script := buildAgyLauncherScriptForPaths(resolved, preferredSwap, false)
+		script := buildAgyLauncherScriptForPaths(resolved, preferredSwap, a.credentials.hubReloadMarkerPath(), false)
 		_ = os.WriteFile(agyBin, []byte(script), 0o755)
 		syncAgyBinarySidecar(agyBin)
 		return
@@ -396,7 +457,7 @@ func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
 		if err := moveOrCopyExecutable(agyBin, libexecBin); err != nil {
 			return
 		}
-		script := buildAgyLauncherScriptForPaths(realRef, preferredSwap, false)
+		script := buildAgyLauncherScriptForPaths(realRef, preferredSwap, a.credentials.hubReloadMarkerPath(), false)
 		_ = os.WriteFile(agyBin, []byte(script), 0o755)
 		syncAgyBinarySidecar(agyBin)
 		return
@@ -406,12 +467,12 @@ func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
 	if !strings.HasPrefix(text, "#!") || (!strings.Contains(text, ".local/libexec/agy") && !strings.Contains(text, "Managed by agy-swap session guard")) {
 		return
 	}
-	if strings.Contains(text, "--sync-session") && strings.Contains(text, "WSL_INTEROP") && strings.Contains(text, "hub_pid") && !strings.Contains(text, "python3 -") {
+	if strings.Contains(text, "--sync-session") && strings.Contains(text, "WSL_INTEROP") && strings.Contains(text, "hub_pid") && strings.Contains(text, "reload_marker=") && !strings.Contains(text, "python3 -") {
 		syncAgyBinarySidecar(agyBin)
 		return
 	}
 	skipPerms := strings.Contains(text, "AGY_NORMAL_MODE") || strings.Contains(text, "--dangerously-skip-permissions")
-	script := buildAgyLauncherScriptForPaths(realRef, preferredSwap, skipPerms)
+	script := buildAgyLauncherScriptForPaths(realRef, preferredSwap, a.credentials.hubReloadMarkerPath(), skipPerms)
 	_ = os.WriteFile(agyBin, []byte(script), 0o755)
 	syncAgyBinarySidecar(agyBin)
 }

@@ -84,6 +84,12 @@ const defaultSiteBaseURL = "https://agy-swap.aklkbqx.com"
 
 var softwareVersionPattern = regexp.MustCompile(`"softwareVersion"\s*:\s*"v?([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)"`)
 
+// releaseDownloadBase is where release assets live; tests point it at a local
+// server.
+var releaseDownloadBase = "https://github.com/" + githubRepo + "/releases/download"
+
+var stableVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+
 func releaseMetadataURL() string {
 	if custom := strings.TrimSpace(os.Getenv("AGY_SWAP_UPDATE_URL")); custom != "" {
 		return custom
@@ -107,7 +113,7 @@ func syntheticReleaseFromVersion(ver string) githubRelease {
 	if runtime.GOOS == "windows" {
 		assetName += ".exe"
 	}
-	dlBase := "https://github.com/" + githubRepo + "/releases/download/" + tag
+	dlBase := releaseDownloadBase + "/" + tag
 	return githubRelease{
 		Tag:     tag,
 		HTMLURL: "https://github.com/" + githubRepo + "/releases/tag/" + tag,
@@ -130,13 +136,31 @@ func (h *HTTPService) fetchLatestRelease(ctx context.Context) (githubRelease, er
 		err = errInvalidReleaseMetadata
 	}
 	if siteURL := releaseSiteFallbackURL(); siteURL != "" {
-		if siteData, _, siteErr := h.getBytes(ctx, siteURL, nil, 10*time.Second, 1024*1024); siteErr == nil {
-			if m := softwareVersionPattern.FindSubmatch(siteData); len(m) == 2 {
-				return syntheticReleaseFromVersion(string(m[1])), nil
-			}
+		if release, ok := h.releaseFromSite(ctx, siteURL); ok {
+			return release, nil
 		}
 	}
 	return githubRelease{}, err
+}
+
+// releaseFromSite reads the version the website advertises and accepts it only
+// when it is a stable version whose checksums file downloads, so a website
+// deployed ahead of a release never announces an update that fails.
+func (h *HTTPService) releaseFromSite(ctx context.Context, siteURL string) (githubRelease, bool) {
+	siteData, _, err := h.getBytes(ctx, siteURL, nil, 10*time.Second, 1024*1024)
+	if err != nil {
+		return githubRelease{}, false
+	}
+	m := softwareVersionPattern.FindSubmatch(siteData)
+	if len(m) != 2 || !stableVersionPattern.Match(m[1]) {
+		return githubRelease{}, false
+	}
+	release := syntheticReleaseFromVersion(string(m[1]))
+	checksums := release.Assets[0]
+	if _, err := h.downloadReleaseAsset(ctx, assetCandidateURLs(release.Tag, checksums.Name, checksums), 10*time.Second, 1024*1024); err != nil {
+		return githubRelease{}, false
+	}
+	return release, true
 }
 
 func assetCandidateURLs(releaseTag, assetName string, asset releaseAsset) []releaseCandidate {
@@ -750,8 +774,18 @@ func newDoHBackedTransport(base *http.Transport) *http.Transport {
 	return cloned
 }
 
+// goFallbackLdflags stamps a go install build so `--version` and the TUI show
+// it did not come from a release archive.
+func goFallbackLdflags(version string) string {
+	return "-s -w -X main.version=" + version + " -X main.buildID=go-install"
+}
+
 func (a *Application) tryGoToolchainFallback(ctx context.Context, latest, current, htmlURL string, dlErr error) bool {
 	if strings.TrimSpace(os.Getenv("AGY_SWAP_NO_GO_FALLBACK")) == "1" {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		// The running .exe cannot be replaced in place; skip the build.
 		return false
 	}
 	if os.Getenv("AGY_SWAP_GO_FALLBACK") != "1" && !isTLSVerifyError(dlErr) {
@@ -770,23 +804,19 @@ func (a *Application) tryGoToolchainFallback(ctx context.Context, latest, curren
 			current = resolved
 		}
 	}
-	fmt.Fprintf(a.Out, "%s● Release CDN blocked; building verified v%s via Go module proxy...%s\n", a.p.Cyan, latest, a.p.Reset)
+	fmt.Fprintf(a.Out, "%s● Release download blocked; building v%s from source with Go (not checked against the release checksum)...%s\n", a.p.Cyan, latest, a.p.Reset)
 	tmpDir, err := os.MkdirTemp(filepath.Dir(current), ".agy-swap-gobuild.*")
 	if err != nil {
 		return false
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	binName := "agy-swap"
-	if runtime.GOOS == "windows" {
-		binName += ".exe"
-	}
-	candidate := filepath.Join(tmpDir, binName)
+	candidate := filepath.Join(tmpDir, "agy-swap")
 	buildCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
 	pkg := "github.com/" + githubRepo + "/v2/cmd/agy-swap@v" + latest
-	cmd := exec.CommandContext(buildCtx, goBin, "install", "-trimpath", "-ldflags", "-s -w -X main.version="+latest+" -X main.buildID=release", pkg)
+	cmd := exec.CommandContext(buildCtx, goBin, "install", "-trimpath", "-ldflags", goFallbackLdflags(latest), pkg)
 	cmd.Env = append(os.Environ(), "GOBIN="+tmpDir)
 	if err := cmd.Run(); err != nil {
 		return false
@@ -795,9 +825,6 @@ func (a *Application) tryGoToolchainFallback(ctx context.Context, latest, curren
 		return false
 	}
 	backup := current + ".bak"
-	if runtime.GOOS == "windows" {
-		return false
-	}
 	if replaceUpdateBinary(current, candidate, backup) != nil {
 		return false
 	}

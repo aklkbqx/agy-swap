@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +16,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -337,6 +340,58 @@ func TestAddLoginFlowCanBeCancelledAtInitialPrompt(t *testing.T) {
 	}
 }
 
+func TestAddLoginFlowCtrlCAtPromptRestoresAndReturns(t *testing.T) {
+	paths := testPaths(t)
+	var output, errorOutput bytes.Buffer
+	previousToken := tokenBlob(t, "user@example.com", true, "refresh", time.Now().Add(time.Hour))
+	credentials := NewCredentials(paths)
+	credentials.backend = &fakeCredentialBackend{token: previousToken}
+	if !credentials.writeOAuthFiles(previousToken, "user@example.com") {
+		t.Fatal("failed to seed oauth files")
+	}
+	store := NewStore(paths)
+	if err := store.Save(&Accounts{
+		Order:   []string{"user@example.com"},
+		ByEmail: map[string]Account{"user@example.com": {"email": "user@example.com", "token_data": previousToken}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reader, writer := io.Pipe()
+	defer func() { _ = reader.Close(); _ = writer.Close() }()
+	var launched atomic.Bool
+	a := &Application{
+		In: reader, Out: &output, Err: &errorOutput,
+		paths: paths, store: store, credentials: credentials,
+		http: NewHTTPService(&errorOutput), p: makePalette(false),
+		loginCommand: func(ctx context.Context) *exec.Cmd {
+			launched.Store(true)
+			return exec.Command("true")
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() { done <- a.addLoginFlow(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	select {
+	case code := <-done:
+		if code != 1 {
+			t.Fatalf("code = %d, want 1; output = %q", code, output.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("addLoginFlow kept waiting at the prompt after Ctrl+C")
+	}
+	if launched.Load() {
+		t.Fatal("login command must not start after Ctrl+C at the prompt")
+	}
+	if !strings.Contains(output.String(), "Login cancelled") {
+		t.Fatalf("output missing 'Login cancelled': %q", output.String())
+	}
+	if credentials.readOAuthToken() == "" {
+		t.Fatal("previous session must stay in place")
+	}
+}
+
 func TestAddLoginFlowContextCancellationAbortsCleanly(t *testing.T) {
 	paths := testPaths(t)
 	var output, errorOutput bytes.Buffer
@@ -400,5 +455,41 @@ func TestAddLoginFlowContextCancellationAbortsCleanly(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("addLoginFlow did not abort promptly on context cancellation")
+	}
+}
+
+func TestAddLoginFlowOffersUnsavedIDESession(t *testing.T) {
+	f := newCLIFixture(t, "user@example.com")
+	if !f.a.credentials.writeOAuthFiles(f.tokens["user@example.com"], "user@example.com") {
+		t.Fatal("failed to seed oauth files")
+	}
+	ideToken := tokenBlob(t, "ide@example.com", true, "refresh-ide", time.Now().Add(time.Hour))
+	raw := []byte(ideToken)
+	if strings.HasPrefix(ideToken, "go-keyring-base64:") {
+		decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(ideToken, "go-keyring-base64:"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw = decoded
+	}
+	if err := os.WriteFile(f.paths.IDEOAuthToken, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.userInfo = "ide@example.com"
+	f.a.loginCommand = func(ctx context.Context) *exec.Cmd {
+		t.Error("add must not start a browser login when the IDE session can be saved")
+		return exec.Command("false")
+	}
+	f.a.In = strings.NewReader("y\n")
+	f.a.lineReader = nil
+	if code := f.a.addLoginFlow(context.Background()); code != 0 {
+		t.Fatalf("code = %d; out = %q; err = %q", code, f.out.String(), f.errOut.String())
+	}
+	if !strings.Contains(f.out.String(), "not yet saved") {
+		t.Fatalf("add did not offer to save the IDE session: %q", f.out.String())
+	}
+	saved := f.savedEmails(t)
+	if len(saved) != 2 || !strings.Contains(strings.Join(saved, ","), "ide@example.com") {
+		t.Fatalf("saved accounts = %v, want user@ and ide@", saved)
 	}
 }

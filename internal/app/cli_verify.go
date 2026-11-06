@@ -91,7 +91,11 @@ func (a *Application) checkNewAccount(ctx context.Context, email string) (*eligi
 		return ineligible, true
 	}
 	for {
-		open, valid := parseYesNo(a.readLine(a.p.Cyan+"Open it in your browser now? [Y/n] "+a.p.Reset), true)
+		answer, readErr := a.readLine(ctx, a.p.Cyan+"Open it in your browser now? [Y/n] "+a.p.Reset)
+		if readErr != nil {
+			return ineligible, true
+		}
+		open, valid := parseYesNo(answer, true)
 		if !valid {
 			fmt.Fprintln(a.Out, "Please answer y or n.")
 			continue

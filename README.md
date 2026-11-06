@@ -100,9 +100,12 @@ What agy-swap changes to make this work:
 - It writes the account's session to the files the CLI, the IDE and Jetski read under `~/.gemini`, and copies it into the system keychain, which the IDE also reads. On macOS this uses `/usr/bin/security`; on Linux it uses `secret-tool` when it is installed.
 - It updates the signed-in account name the IDE shows, in the IDE's `state.vscdb`, when `sqlite3` is installed.
 - It wraps `~/.local/bin/agy` and `~/.gemini/bin/agy` (and an `agy` you set with `AGY_SWAP_AGY_BIN` or `install-agy --dir`) in a small shell script that runs `agy-swap --sync-session` before and after each `agy` run. The original binary moves to `~/.local/libexec/agy` for the default CLI install and to `.agy.real` in the same folder for the others. If `agy` is a symlink, the wrapper calls the file it points to and nothing is moved.
-- After a switch it stops the IDE's background `agy` service with `pkill`; the IDE starts it again with the new account, so you do not restart the IDE.
+- The IDE checks `agy` against the size and modification time recorded in `agy.version.json` next to it. agy-swap writes the wrapper's size and time into that file so the IDE keeps using the wrapper. The recorded version and checksum stay as they were.
+- After a switch it records the switch in `~/.gemini/antigravity-cli/cache/agy-swap-hub-reload` and stops the IDE's background `agy` service with `pkill`. The wrapper sees the new record and starts the service again with the new account, so you do not restart the IDE. Work an agent is doing in the IDE at that moment stops.
 
 If a token is refreshed in the CLI or the IDE, agy-swap saves the fresh copy to the right account the next time it runs.
+
+If the IDE or `agy` is signed in to an account you have not saved in agy-swap, agy-swap leaves that session alone; `agy-swap add` offers to save it. After you sign out and no session file is left, agy-swap does not write one back. Choose an account in agy-swap to sign in again.
 
 agy-swap puts the wrapper back each time it runs. To remove it, uninstall agy-swap first, then move the original binary back over `agy` (or reinstall `agy`). Windows does not get IDE switching yet; switching there updates the CLI session only.
 

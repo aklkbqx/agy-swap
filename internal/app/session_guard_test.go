@@ -446,3 +446,150 @@ exit "$status"
 		}
 	})
 }
+
+func TestHubWrapperRestartsOnlyAfterSwitch(t *testing.T) {
+	cases := []struct {
+		name     string
+		hub      string
+		wantRuns int
+		wantCode int
+	}{
+		{"exits normally", `exit 0`, 1, 0},
+		{"crashes", `exit 3`, 1, 3},
+		{"terminated without a switch", `kill -TERM $$`, 1, 143},
+		{"switch reload", `if [ "$n" -eq 1 ]; then echo "$n" > "$HUB_MARKER"; kill -TERM $$; fi; exit 0`, 2, 0},
+		{"reload loop is capped", `echo "$n" > "$HUB_MARKER"; kill -TERM $$`, 10, 143},
+		{"repeated switches are not capped", `if [ "$n" -le 6 ]; then sleep 1.1; echo "$n" > "$HUB_MARKER"; kill -TERM $$; fi; exit 0`, 7, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			count := filepath.Join(dir, "runs")
+			marker := filepath.Join(dir, "cache", "agy-swap-hub-reload")
+			if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			hub := filepath.Join(dir, "hub")
+			body := "#!/bin/sh\necho run >> \"$HUB_COUNT\"\nn=$(( $(wc -l < \"$HUB_COUNT\") ))\n" + tc.hub + "\n"
+			if err := os.WriteFile(hub, []byte(body), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			wrapper := filepath.Join(dir, "agy")
+			if err := os.WriteFile(wrapper, []byte(buildAgyLauncherScriptForPaths(hub, "", marker, false)), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, "/bin/sh", wrapper, "--hub")
+			cmd.Env = []string{"HOME=" + dir, "PATH=/usr/bin:/bin", "AGY_SWAP_SKIP_SYNC=1", "HUB_COUNT=" + count, "HUB_MARKER=" + marker}
+			_ = cmd.Run()
+			if ctx.Err() != nil {
+				t.Fatal("wrapper did not exit within 20s")
+			}
+			raw, _ := os.ReadFile(count)
+			runs := strings.Count(string(raw), "run")
+			if runs != tc.wantRuns {
+				t.Fatalf("hub ran %d times, want %d", runs, tc.wantRuns)
+			}
+			if code := cmd.ProcessState.ExitCode(); code != tc.wantCode {
+				t.Fatalf("wrapper exit = %d, want %d", code, tc.wantCode)
+			}
+		})
+	}
+}
+
+func TestHubReloadMarkerPath(t *testing.T) {
+	c := &Credentials{paths: Paths{OAuthToken: filepath.Join("home", ".gemini", "oauth_creds.json")}}
+	want := filepath.Join("home", ".gemini", "cache", "agy-swap-hub-reload")
+	if got := c.hubReloadMarkerPath(); got != want {
+		t.Fatalf("hubReloadMarkerPath = %q, want %q", got, want)
+	}
+	if got := (*Credentials)(nil).hubReloadMarkerPath(); got != "" {
+		t.Fatalf("nil credentials marker = %q, want empty", got)
+	}
+}
+
+func TestReconcileActiveSessionRespectsUnsavedSignInAndSignOut(t *testing.T) {
+	_ = securityStub(t, 0)
+	ctx := context.Background()
+	setup := func(t *testing.T) *Application {
+		app, _, _ := newSessionGuardTestApp(t)
+		beta := sampleTokenWithRefresh("at-beta", "rt-beta", time.Now().Add(time.Hour))
+		accounts := NewAccounts()
+		betaAcc := Account{"email": "beta@example.com", "name": "Beta", "added_at": "2026-03-01T00:00:00Z", "last_used": "2026-03-02T00:00:00Z"}
+		app.saveAccountSecret(ctx, betaAcc, beta)
+		accounts.Set("beta@example.com", betaAcc)
+		if err := app.store.Save(accounts); err != nil {
+			t.Fatal(err)
+		}
+		if code := app.cmdSwitch(ctx, cliArgs{account: "beta@example.com"}); code != 0 {
+			t.Fatalf("cmdSwitch(beta) exited %d", code)
+		}
+		return app
+	}
+
+	t.Run("unsaved IDE sign-in is not overwritten", func(t *testing.T) {
+		app := setup(t)
+		gammaRaw := sampleRawDiskTokenWithRefresh("at-gamma", "rt-gamma", time.Now().Add(time.Hour))
+		if err := os.WriteFile(app.paths.IDEOAuthToken, gammaRaw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		app.reconcileActiveSession(ctx)
+		got, _ := os.ReadFile(app.paths.IDEOAuthToken)
+		if string(got) != string(gammaRaw) {
+			t.Fatalf("IDE session for an unsaved account was overwritten: %s", got)
+		}
+	})
+
+	t.Run("sign-out is not undone", func(t *testing.T) {
+		app := setup(t)
+		for _, p := range []string{app.paths.OAuthToken, app.paths.IDEOAuthToken, app.paths.JetskiToken} {
+			if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+		}
+		app.reconcileActiveSession(ctx)
+		for _, p := range []string{app.paths.OAuthToken, app.paths.IDEOAuthToken, app.paths.JetskiToken} {
+			if _, err := os.Stat(p); err == nil {
+				t.Fatalf("%s was written back after sign-out", p)
+			}
+		}
+	})
+
+	t.Run("a file without a token is still repaired", func(t *testing.T) {
+		app := setup(t)
+		if err := os.WriteFile(app.paths.IDEOAuthToken, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		app.reconcileActiveSession(ctx)
+		if !hasOAuthSession(readOAuthTokenFromFile(app.paths.IDEOAuthToken)) {
+			t.Fatal("empty IDE session file was not repaired")
+		}
+	})
+}
+
+func TestEnsureAgyLauncherGuardUpgradesWrapperWithoutReloadMarker(t *testing.T) {
+	app, _, _ := newSessionGuardTestApp(t)
+	dir := filepath.Join(app.paths.Home, ".gemini", "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	agyBin := filepath.Join(dir, "agy")
+	// Shape of the wrapper written by earlier 2.21.0 builds: hub loop present,
+	// no reload marker, restarts on every exit 0 or 143.
+	old := "#!/bin/sh\n# Managed by agy-swap session guard\nreal_command=\"" + filepath.Join(dir, ".agy.real") + "\"\n" +
+		"\"$swap_command\" --sync-session\nexport WSL_INTEROP=\"${WSL_INTEROP:-1}\"\nhub_pid=\"\"\n" +
+		"if [ \"$status\" -ne 0 ] && [ \"$status\" -ne 143 ]; then exit \"$status\"; fi\n"
+	if err := os.WriteFile(agyBin, []byte(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	app.ensureAgyLauncherGuardForPath(agyBin)
+	got, _ := os.ReadFile(agyBin)
+	if !strings.Contains(string(got), "reload_marker=") {
+		t.Fatalf("wrapper without reload marker was not upgraded:\n%s", got)
+	}
+	if !strings.Contains(string(got), filepath.Join(dir, ".agy.real")) {
+		t.Fatalf("upgraded wrapper lost the real agy path:\n%s", got)
+	}
+}

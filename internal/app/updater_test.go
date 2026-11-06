@@ -323,6 +323,8 @@ func TestFetchReleaseMetadataFallsBackToSiteSoftwareVersion(t *testing.T) {
 			http.NotFound(w, r)
 		case "/site":
 			_, _ = w.Write([]byte(`<!doctype html><html><head><script type="application/ld+json">{"softwareVersion": "v2.20.1"}</script></head></html>`))
+		case "/download/v2.20.1/checksums.txt":
+			_, _ = w.Write([]byte("abc  agy-swap_v2.20.1_" + runtime.GOOS + "_" + runtime.GOARCH + "\n"))
 		default:
 			http.NotFound(w, r)
 		}
@@ -331,6 +333,9 @@ func TestFetchReleaseMetadataFallsBackToSiteSoftwareVersion(t *testing.T) {
 
 	t.Setenv("AGY_SWAP_UPDATE_URL", srv.URL+"/api-latest")
 	t.Setenv("AGY_SWAP_SITE_URL", srv.URL+"/site")
+	previousBase := releaseDownloadBase
+	releaseDownloadBase = srv.URL + "/download"
+	t.Cleanup(func() { releaseDownloadBase = previousBase })
 
 	var outBuf, errBuf bytes.Buffer
 	app := &Application{
@@ -346,5 +351,90 @@ func TestFetchReleaseMetadataFallsBackToSiteSoftwareVersion(t *testing.T) {
 	}
 	if !strings.Contains(outBuf.String(), "Already up to date (v2.20.1)") {
 		t.Fatalf("expected up-to-date message from site metadata fallback, got %q", outBuf.String())
+	}
+}
+
+func TestSiteVersionFallbackNeedsPublishedStableRelease(t *testing.T) {
+	cases := []struct {
+		name      string
+		site      string
+		checksums bool
+		mirror    bool
+		wantTag   string
+	}{
+		{"published release", "2.99.0", true, false, "v2.99.0"},
+		{"site ahead of the release", "2.99.0", false, false, ""},
+		{"prerelease", "2.99.0-rc.1", true, false, ""},
+		{"checksums only on the mirror", "2.99.0", false, true, "v2.99.0"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.URL.Path == "/site":
+					_, _ = w.Write([]byte(`{"softwareVersion": "v` + tc.site + `"}`))
+				case r.URL.Path == "/download/v"+tc.site+"/checksums.txt" && tc.checksums:
+					_, _ = w.Write([]byte("abc  agy-swap\n"))
+				case r.URL.Path == "/mirror/v"+tc.site+"/checksums.txt" && tc.mirror:
+					_, _ = w.Write([]byte("abc  agy-swap\n"))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+			t.Setenv("AGY_SWAP_UPDATE_URL", srv.URL+"/api-latest")
+			t.Setenv("AGY_SWAP_SITE_URL", srv.URL+"/site")
+			if tc.mirror {
+				t.Setenv("AGY_SWAP_RELEASE_MIRROR", srv.URL+"/mirror")
+			}
+			previousBase := releaseDownloadBase
+			releaseDownloadBase = srv.URL + "/download"
+			t.Cleanup(func() { releaseDownloadBase = previousBase })
+
+			release, err := NewHTTPService(io.Discard).fetchLatestRelease(context.Background())
+			if tc.wantTag == "" {
+				if err == nil {
+					t.Fatalf("fallback announced %q, want an error", release.Tag)
+				}
+				return
+			}
+			if err != nil || release.Tag != tc.wantTag {
+				t.Fatalf("release = %q, err = %v; want %q", release.Tag, err, tc.wantTag)
+			}
+		})
+	}
+}
+
+func TestGoFallbackLdflagsMarkTheBuild(t *testing.T) {
+	flags := goFallbackLdflags("2.99.0")
+	if !strings.Contains(flags, "-X main.version=2.99.0") || !strings.Contains(flags, "-X main.buildID=go-install") {
+		t.Fatalf("ldflags = %q", flags)
+	}
+	if strings.Contains(flags, "buildID=release") {
+		t.Fatalf("a go install build must not claim to be a release build: %q", flags)
+	}
+}
+
+func TestGoFallbackDoesNotClaimVerification(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fallback does not run on Windows")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	current := filepath.Join(dir, "agy-swap")
+	if err := os.WriteFile(current, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("AGY_SWAP_GO_FALLBACK", "1")
+	var out bytes.Buffer
+	a := &Application{Version: "2.20.1", Out: &out, Err: io.Discard, p: makePalette(false)}
+	if a.tryGoToolchainFallback(context.Background(), "2.99.0", current, "", errors.New("download failed")) {
+		t.Fatal("fallback reported success with a failing go command")
+	}
+	if strings.Contains(out.String(), "verified") || !strings.Contains(out.String(), "not checked against the release checksum") {
+		t.Fatalf("fallback message = %q", out.String())
 	}
 }

@@ -4,11 +4,12 @@
 
 ### Changes
 
-- Switching accounts now switches the Antigravity IDE too, on macOS and Linux. agy-swap writes the session the IDE reads, updates the account name the IDE shows, and restarts the IDE's background `agy` service so the new account takes effect without restarting the IDE. To do this it wraps `~/.gemini/bin/agy` the same way it already wraps `~/.local/bin/agy`; the original binary is kept as `.agy.real` beside it.
+- Switching accounts now switches the Antigravity IDE too, on macOS and Linux. agy-swap writes the session the IDE reads, updates the account name the IDE shows, and restarts the IDE's background `agy` service so the new account takes effect without restarting the IDE. To do this it wraps `~/.gemini/bin/agy` the same way it already wraps `~/.local/bin/agy`; the original binary is kept as `.agy.real` beside it. Work an agent is doing in the IDE when you switch stops.
+- If the IDE or `agy` is signed in to an account you have not saved, agy-swap leaves that session alone. After you sign out, agy-swap does not sign you back in.
 - On macOS and Linux the active session is also copied into the system keychain, because the IDE reads it from there. On macOS this runs `/usr/bin/security` again, which v2.17.1 had stopped doing.
 - `agy-swap update` and the installers work on networks that inspect TLS or block GitHub downloads. Set `AGY_SWAP_RELEASE_MIRROR` to a copy of the release files (both installers and `update`). Point `AGY_SWAP_CA_BUNDLE` at your company's root certificate (shell installer and `update`). After a TLS error that looks like a redirected DNS answer, `update` looks the host up again over DNS-over-HTTPS (`AGY_SWAP_DOH_URL`) and ignores private addresses; the shell installer retries once with curl's DNS-over-HTTPS.
-- When GitHub's release information cannot be reached, `update` reads the latest version from agy-swap.aklkbqx.com. Checksums are downloaded before the binary, and the update stops if the checksum file does not list the binary.
-- If a TLS certificate error blocks the download and Go is installed, `update` builds the release with `go install` instead (not on Windows). That binary is not compared with the release checksum. Set `AGY_SWAP_NO_GO_FALLBACK=1` to turn it off.
+- When GitHub's release information cannot be reached, `update` reads the latest version from agy-swap.aklkbqx.com. It uses that version only when it is a stable release whose checksum file can be downloaded. Checksums are downloaded before the binary, and the update stops if the checksum file does not list the binary.
+- If a TLS certificate error blocks the download and Go is installed, `update` builds the release with `go install` instead (not on Windows). That binary is not compared with the release checksum, and its build ID reads `go-install`. Set `AGY_SWAP_NO_GO_FALLBACK=1` to turn it off.
 
 ### Fixes
 
