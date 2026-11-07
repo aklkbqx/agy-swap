@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.22.1
+
+### Changes
+
+- Website update: refine keyboard focus rings on dropdowns and tabs, and synchronize release metadata for v2.22.1.
+- CLI commands, account switching and quota behavior are unchanged.
+
 ## 2.22.0
 
 ### Changes
