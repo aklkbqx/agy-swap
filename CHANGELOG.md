@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.22.2
+
+### Changes
+
+- Website update: synchronize release metadata and translations for v2.22.2.
+- CLI commands, account switching and quota behavior are unchanged.
+
 ## 2.22.1
 
 ### Changes
