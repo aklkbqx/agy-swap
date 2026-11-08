@@ -18,6 +18,7 @@ type fakeSite struct {
 	shellVersion   string
 	psVersion      string
 	overrides      map[string]string
+	edgeCached     map[string]bool
 	missing        map[string]bool
 	notFoundStatus int
 	installerHost  string
@@ -66,8 +67,15 @@ func (f *fakeSite) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body, ok := f.overrides[name]; ok {
-		_, _ = w.Write([]byte(body))
-		return
+		if r.URL.Query().Get("v") == "" && f.edgeCached != nil && f.edgeCached[name] {
+			w.Header().Set("CF-Cache-Status", "HIT")
+			_, _ = w.Write([]byte(body))
+			return
+		}
+		if f.edgeCached == nil || !f.edgeCached[name] {
+			_, _ = w.Write([]byte(body))
+			return
+		}
 	}
 	data, err := os.ReadFile(filepath.Join(f.dist, filepath.FromSlash(name)))
 	if err != nil {
@@ -161,5 +169,19 @@ func TestVerifyLiveIgnoresOnlyTheEdgeAnalyticsBeacon(t *testing.T) {
 	site.overrides["install.html"] = string(page) + `<script src="https://evil.example/x.js"></script>`
 	if err := verifyLive("2.0.0", site.dist, server.URL, server.Client()); err == nil || !strings.Contains(err.Error(), "install.html") {
 		t.Fatalf("other injected markup accepted: %v", err)
+	}
+}
+
+func TestVerifyLiveBypassesEdgeCacheHitWithVersionQuery(t *testing.T) {
+	site, server := newFakeSite(t)
+	mediaPath := filepath.Join(site.dist, "media", "cli.mp4")
+	if err := os.MkdirAll(filepath.Dir(mediaPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, mediaPath, "fresh-mp4-bytes")
+	site.overrides["media/cli.mp4"] = "stale-edge-bytes"
+	site.edgeCached = map[string]bool{"media/cli.mp4": true}
+	if err := verifyLive("2.0.0", site.dist, server.URL, server.Client()); err != nil {
+		t.Fatalf("expected versioned query to bypass stale CF-Cache-Status HIT, got: %v", err)
 	}
 }

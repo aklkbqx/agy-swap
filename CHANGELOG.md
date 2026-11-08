@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.23.2
+
+### Changes
+
+- Website update: append the release version to showcase media URLs so browsers load updated clips and posters immediately (#104).
+- CLI commands, account switching and quota behavior are unchanged.
+
 ## 2.23.1
 
 ### Changes

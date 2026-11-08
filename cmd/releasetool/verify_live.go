@@ -95,9 +95,15 @@ func verifyLive(releaseVersion, dist, baseURL string, client *http.Client) error
 		if err != nil {
 			return err
 		}
-		status, live, _, err := fetch(client, baseURL+"/"+rel)
+		status, live, header, err := fetch(client, baseURL+"/"+rel)
 		if strings.HasSuffix(rel, ".html") {
 			live = edgeAnalyticsBeacon.ReplaceAll(live, nil)
+		}
+		if err == nil && status == http.StatusOK && !bytes.Equal(local, live) && strings.EqualFold(header.Get("CF-Cache-Status"), "HIT") {
+			status, live, _, err = fetch(client, baseURL+"/"+rel+"?v=v"+releaseVersion)
+			if strings.HasSuffix(rel, ".html") {
+				live = edgeAnalyticsBeacon.ReplaceAll(live, nil)
+			}
 		}
 		switch {
 		case err != nil:
