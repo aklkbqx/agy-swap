@@ -82,7 +82,7 @@ type cliArgs struct {
 	verbose, refresh, force, help, version                                      bool
 	legacyAdd, legacyList, legacyNext, legacySwitch, legacyStatus, legacyLogout bool
 	legacyRemove, stringSwitch                                                  string
-	updateCheck                                                                 bool
+	updateCheck, limitClear, groupSet                                           bool
 }
 
 func (a *Application) Run(ctx context.Context, argv []string) int {
@@ -96,7 +96,6 @@ func (a *Application) Run(ctx context.Context, argv []string) int {
 	if isExtendedCommand(argv) {
 		cmdCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 		defer stopSignals()
-		a.reconcileActiveSession(cmdCtx)
 		return a.runExtended(cmdCtx, argv)
 	}
 	args, err := parseCLI(argv)
@@ -198,7 +197,7 @@ Minimal Multi-Account Switcher for Google Antigravity CLI (agy)
 commands:
   add       Log in & add a Google account
   list      List all saved accounts
-  limits    Show account quota limits
+  limits    Refresh and show live quota usage across accounts
   logout    Logout of active session
   next      Rotate to an account with available quota
   switch    Switch to an account
@@ -207,7 +206,7 @@ commands:
   verify    Open Google's verification page for an account
   update    Update agy-swap to the latest version
   version   Show the installed version and build provenance
-  limit     Manage a manual quota cooldown`)
+  limit     Set or clear a manual quota cooldown (limit set|clear)`)
 	fmt.Fprintln(w, `
 extended commands:
   doctor             Check storage, credentials, vault, and platform readiness
@@ -241,8 +240,12 @@ func parseCLI(argv []string) (cliArgs, error) {
 		result.command = argv[0]
 		i = 1
 		if result.command == "limit" {
-			if i >= len(argv) || argv[i] != "set" {
-				return result, fmt.Errorf("limit requires the 'set' subcommand")
+			if i >= len(argv) || (argv[i] != "set" && argv[i] != "clear") {
+				return result, fmt.Errorf("limit requires the 'set' or 'clear' subcommand")
+			}
+			if argv[i] == "clear" {
+				result.limitClear = true
+				result.duration = "0s"
 			}
 			i++
 		}
@@ -306,6 +309,7 @@ func parseCLI(argv []string) (cliArgs, error) {
 				return result, fmt.Errorf("invalid group %q", value)
 			}
 			result.group = value
+			result.groupSet = true
 		case "--switch-to":
 			value, err := take()
 			if err != nil {
@@ -337,7 +341,7 @@ func parseCLI(argv []string) (cliArgs, error) {
 				switch {
 				case result.account == "":
 					result.account = arg
-				case result.duration == "":
+				case !result.limitClear && result.duration == "":
 					result.duration = arg
 				default:
 					return result, fmt.Errorf("too many arguments")
@@ -348,8 +352,13 @@ func parseCLI(argv []string) (cliArgs, error) {
 		}
 		i++
 	}
-	if result.command == "limit" && (result.account == "" || result.duration == "") {
-		return result, fmt.Errorf("limit set requires ACCOUNT and DURATION")
+	if result.command == "limit" {
+		if result.limitClear && result.account == "" {
+			return result, fmt.Errorf("limit clear requires ACCOUNT")
+		}
+		if !result.limitClear && (result.account == "" || result.duration == "") {
+			return result, fmt.Errorf("limit set requires ACCOUNT and DURATION")
+		}
 	}
 	return result, nil
 }

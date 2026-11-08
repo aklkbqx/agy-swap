@@ -383,11 +383,13 @@ func (c *Credentials) writeOAuthFiles(tokenData, email string) bool {
 		return false
 	}
 	if email != "" {
+		prevActive := ""
 		ga := map[string]any{"active": email, "old": []any{}}
 		if data, readErr := os.ReadFile(c.paths.GoogleAccounts); readErr == nil {
 			var existing map[string]any
 			if json.Unmarshal(data, &existing) == nil {
 				oldActive := getString(existing, "active")
+				prevActive = oldActive
 				var oldList []any
 				if raw, ok := existing["old"].([]any); ok {
 					oldList = raw
@@ -408,7 +410,9 @@ func (c *Credentials) writeOAuthFiles(tokenData, email string) bool {
 			_ = restoreFiles(snapshot)
 			return false
 		}
-		syncIDEOnboardingEmail(c.paths.Home, email)
+		if !strings.EqualFold(prevActive, email) {
+			syncIDEOnboardingEmail(c.paths.Home, email)
+		}
 	}
 	return true
 }

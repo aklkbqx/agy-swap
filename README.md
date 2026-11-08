@@ -53,7 +53,7 @@ Requirements: Go 1.27.3 or later. macOS source builds require Xcode Command Line
 ```bash
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-go build -trimpath -ldflags "-s -w -X main.version=2.22.2 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.23.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ./agy-swap version
 ```
 
@@ -179,7 +179,8 @@ Every TUI action is also a command, so you can script it.
 | `switch` | Switch the local session to an account by email, alias, or number |
 | `next` | Refresh, then switch to the next account with quota left |
 | `status` | Show the active account |
-| `limits` | Show quota for every account |
+| `limits` | Show quota and local reserve limits for every account |
+| `limit` | Set or clear a manual cooldown or reserve limit for one account |
 | `verify` | Open Google's verification page for an account that needs it |
 | `profile` / `bind` | Define profiles and bind directories to them |
 | `recommend` | Explain which account is safest to use now |
@@ -239,7 +240,7 @@ agy-swap limits --refresh --verbose
 
 # Set or clear a cooldown by hand
 agy-swap limit set 1 6h --group claude
-agy-swap limit set dev@company.com reset --group claude
+agy-swap limit clear dev@company.com --group claude
 ```
 
 ### Profiles, aliases, and project bindings

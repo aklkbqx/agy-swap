@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,7 +12,11 @@ import (
 )
 
 func tokenRefreshToken(tokenData string) string {
-	inner := tokenObject(decodeToken(tokenData))
+	decoded := decodeToken(tokenData)
+	inner := tokenObject(decoded)
+	if inner == nil {
+		inner = decoded
+	}
 	if inner == nil {
 		return ""
 	}
@@ -58,6 +63,10 @@ func (a *Application) hasAnySurfaceSession() bool {
 	return false
 }
 
+func (a *Application) matchAccountByToken(ctx context.Context, accounts *Accounts, token string) string {
+	return matchAccountByToken(ctx, accounts, a.vault, token)
+}
+
 // matchAccountByToken identifies which saved account owns token using local
 // metadata and vault entries (including matching by refresh_token after
 // Antigravity refreshes access_token in place) without network requests.
@@ -74,6 +83,9 @@ func matchAccountByToken(ctx context.Context, accounts *Accounts, vault AccountV
 	currentHash := hashToken(token)
 	for _, email := range accounts.Order {
 		acc := accounts.ByEmail[email]
+		if strings.TrimSpace(getString(acc, "token_hash")) != "" {
+			continue
+		}
 		stored, err := accountToken(ctx, acc, vault)
 		if err != nil || stored == "" {
 			continue
@@ -89,6 +101,15 @@ func matchAccountByToken(ctx context.Context, accounts *Accounts, vault AccountV
 	matchedEmail := ""
 	for _, email := range accounts.Order {
 		acc := accounts.ByEmail[email]
+		if h := strings.TrimSpace(getString(acc, "refresh_hash")); h != "" {
+			if h == hashToken(currentRefresh) {
+				if matchedEmail != "" && !strings.EqualFold(matchedEmail, email) {
+					return ""
+				}
+				matchedEmail = normalizeEmail(email)
+			}
+			continue
+		}
 		stored, err := accountToken(ctx, acc, vault)
 		if err != nil || stored == "" {
 			continue
@@ -173,12 +194,14 @@ func (a *Application) reconcileActiveSession(ctx context.Context) {
 		}
 		matchedOwners = append(matchedOwners, ownerEmail)
 		if ownerAcc, ok := accounts.Get(ownerEmail); ok {
-			storedOwnerToken, _ := a.accountToken(ctx, ownerAcc)
-			if shouldHarvestToken(storedOwnerToken, diskToken) {
-				oldRef, _ := a.saveAccountSecret(ctx, ownerAcc, diskToken)
-				accounts.Set(ownerEmail, ownerAcc)
-				if saveErr := a.store.Save(accounts); saveErr == nil && oldRef != "" {
-					a.deleteReplacedSecrets(ctx, []string{oldRef})
+			if storedHash := strings.TrimSpace(getString(ownerAcc, "token_hash")); storedHash == "" || storedHash != hashToken(diskToken) {
+				storedOwnerToken, _ := a.accountToken(ctx, ownerAcc)
+				if shouldHarvestToken(storedOwnerToken, diskToken) {
+					oldRef, _ := a.saveAccountSecret(ctx, ownerAcc, diskToken)
+					accounts.Set(ownerEmail, ownerAcc)
+					if saveErr := a.store.Save(accounts); saveErr == nil && oldRef != "" {
+						a.deleteReplacedSecrets(ctx, []string{oldRef})
+					}
 				}
 			}
 		}
@@ -417,6 +440,37 @@ func syncAgyBinarySidecar(agyBin string) {
 	_ = atomicWriteJSON(sidecarPath, sidecar)
 }
 
+func readHeaderBytes(path string, maxBytes int) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	buf := make([]byte, maxBytes)
+	n, err := f.Read(buf)
+	if err != nil && err != io.EOF {
+		return nil, err
+	}
+	return buf[:n], nil
+}
+
+func extractWrapperRealCommand(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "real_command=") {
+			continue
+		}
+		val := strings.TrimSpace(strings.TrimPrefix(line, "real_command="))
+		val = strings.TrimSuffix(strings.TrimPrefix(val, `"`), `"`)
+		unquoted := strings.NewReplacer(`\"`, `"`, `\\`, `\`, `\$`, `$`, "\\`", "`").Replace(val)
+		if unquoted == "$HOME/.local/libexec/agy" {
+			return ""
+		}
+		return unquoted
+	}
+	return ""
+}
+
 func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
 	if a == nil || runtime.GOOS == "windows" || strings.TrimSpace(agyBin) == "" {
 		return
@@ -442,8 +496,14 @@ func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
 		if evalErr != nil || strings.TrimSpace(resolved) == "" || filepath.Clean(resolved) == filepath.Clean(agyBin) {
 			return
 		}
-		targetData, readErr := os.ReadFile(resolved)
-		if readErr != nil || !isNativeExecutable(targetData) {
+		targetData, readErr := readHeaderBytes(resolved, 8192)
+		if readErr != nil || len(targetData) == 0 {
+			return
+		}
+		if !isNativeExecutable(targetData) {
+			if strings.HasPrefix(string(targetData), "#!") {
+				a.ensureAgyLauncherGuardForPath(resolved)
+			}
 			return
 		}
 		script := buildAgyLauncherScriptForPaths(resolved, preferredSwap, a.credentials.hubReloadMarkerPath(), false)
@@ -452,7 +512,7 @@ func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
 		return
 	}
 
-	data, err := os.ReadFile(agyBin)
+	data, err := readHeaderBytes(agyBin, 8192)
 	if err != nil || len(data) == 0 {
 		return
 	}
@@ -481,6 +541,13 @@ func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
 	if strings.Contains(text, "--sync-session") && strings.Contains(text, "WSL_INTEROP") && strings.Contains(text, "hub_pid") && strings.Contains(text, "reload_marker=") && !strings.Contains(text, "python3 -") {
 		syncAgyBinarySidecar(agyBin)
 		return
+	}
+	if existingReal := extractWrapperRealCommand(text); existingReal != "" {
+		if realRef == "" {
+			realRef = existingReal
+		} else if _, statErr := os.Stat(realRef); statErr != nil {
+			realRef = existingReal
+		}
 	}
 	skipPerms := strings.Contains(text, "AGY_NORMAL_MODE") || strings.Contains(text, "--dangerously-skip-permissions")
 	script := buildAgyLauncherScriptForPaths(realRef, preferredSwap, a.credentials.hubReloadMarkerPath(), skipPerms)

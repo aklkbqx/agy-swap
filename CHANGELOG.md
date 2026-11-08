@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.23.0
+
+### Changes
+
+- Add `agy-swap limit clear <account> [--group <family>]` to remove manual cooldown overrides, and clarify `limits` versus `limit` in CLI help and the README (#104).
+- In the terminal UI, press `e` in Backup to start an encrypted export, press `Esc` in sub-views (`Profiles`, `History`, `Settings`, `Doctor`, `Backup`) to return to the Dashboard instead of quitting, and use `f` to create a project binding in Settings so `b` always returns to the Dashboard (#104).
+- Speed up startup and session checks by matching active tokens by hash before reading the vault, caching parsed vault data in memory, reading only the first 8 KB when inspecting `agy` binaries, skipping unchanged IDE onboarding email writes, and appending history records in place when within size and retention limits (#104).
+- Website update: refine theme loading, keyboard focus management, scroll handling, and translations for v2.23.0 (#104).
+
+### Fixes
+
+- Accept binaries built by the `go install` fallback (`go-install` build ID) when `agy-swap update` verifies the new executable (#104).
+- Route extended commands (`profile`, `history`, `doctor`, `backup`, `bind`, `webhook`, `tui`) when preceded by boolean flags such as `--json` or `--no-color`, and print `--help` without refreshing active sessions (#104).
+- Refresh quotas and load the account store once instead of twice when running `agy-swap limits --refresh` (#104).
+- Preserve the resolved binary path when upgrading an existing `agy` wrapper or symlink, persist rotated refresh token hashes after quota checks, fit terminal footer keycaps to narrow widths, and sort `history stats` event counts alphabetically (#104).
+
 ## 2.22.2
 
 ### Changes

@@ -1,4 +1,4 @@
-VERSION ?= 2.22.2
+VERSION ?= 2.23.0
 BUILD_ID ?= dev
 GOCACHE ?= /tmp/agy-swap-go-cache
 TARGET_DIR ?= $(HOME)/.local/bin

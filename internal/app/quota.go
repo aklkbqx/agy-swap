@@ -705,9 +705,12 @@ func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, for
 				}
 			} else {
 				result.item.account["token_hash"] = hashToken(updated)
+				if rh := hashToken(tokenRefreshToken(updated)); rh != "" {
+					result.item.account["refresh_hash"] = rh
+				}
 				rememberTokenExpiry(result.item.account, updated)
 			}
-			for _, key := range []string{"secret_ref", "token_data", "token_hash", "access_expires_at"} {
+			for _, key := range []string{"secret_ref", "token_data", "token_hash", "refresh_hash", "access_expires_at"} {
 				if value, ok := result.item.account[key]; ok {
 					original[key] = value
 				} else {

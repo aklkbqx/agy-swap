@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 )
@@ -18,6 +19,30 @@ type historyEvent struct {
 	Kind   string         `json:"kind"`
 	Email  string         `json:"email,omitempty"`
 	Data   map[string]any `json:"data,omitempty"`
+}
+
+func historyFirstLineFresh(path string, retentionDays int) bool {
+	if retentionDays <= 0 {
+		return true
+	}
+	header, err := readHeaderBytes(path, 2048)
+	if err != nil || len(header) == 0 {
+		return false
+	}
+	firstLine, _, ok := strings.Cut(string(header), "\n")
+	if !ok || strings.TrimSpace(firstLine) == "" {
+		return false
+	}
+	var event historyEvent
+	if json.Unmarshal([]byte(firstLine), &event) != nil {
+		return false
+	}
+	at, parseErr := parseUTC(event.At)
+	if parseErr != nil {
+		return false
+	}
+	cutoff := time.Now().UTC().Add(-time.Duration(retentionDays) * 24 * time.Hour)
+	return !at.Before(cutoff)
 }
 
 func (a *Application) appendHistory(kind, email string, data map[string]any) error {
@@ -44,12 +69,20 @@ func (a *Application) appendHistory(kind, email string, data map[string]any) err
 		return err
 	}
 	_, writeErr := file.Write(encoded)
+	info, statErr := file.Stat()
 	closeErr := file.Close()
 	if writeErr != nil {
 		return writeErr
 	}
 	if closeErr != nil {
 		return closeErr
+	}
+	maxBytes := settings.History.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = maxHistoryBytes
+	}
+	if statErr == nil && info.Size() <= int64(maxBytes) && historyFirstLineFresh(a.paths.History, settings.History.RetentionDays) {
+		return nil
 	}
 	return a.trimHistoryUnlocked(settings.History.MaxBytes, settings.History.RetentionDays)
 }
@@ -212,8 +245,13 @@ func (a *Application) cmdHistoryStats(opts extendedOptions) int {
 		return a.extendedResult("stats", opts, data, nil)
 	}
 	fmt.Fprintf(a.Out, "Events: %d\n", len(events))
-	for key, count := range byKind {
-		fmt.Fprintf(a.Out, "  %-18s %d\n", key, count)
+	keys := make([]string, 0, len(byKind))
+	for key := range byKind {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		fmt.Fprintf(a.Out, "  %-18s %d\n", key, byKind[key])
 	}
 	return 0
 }

@@ -23,6 +23,14 @@ func (a *Application) cmdList(ctx context.Context, args cliArgs) int {
 			fmt.Fprintf(a.Err, "Quota refresh failed for %s: %s\n", email, failure)
 		}
 	}
+	return a.renderAccountList(ctx, accounts, args)
+}
+
+func (a *Application) renderAccountList(ctx context.Context, accounts *Accounts, args cliArgs) int {
+	if accounts.Len() == 0 {
+		fmt.Fprintf(a.Out, "%sNo accounts added yet. Run 'agy-swap add' to save a Google account.%s\n", a.p.Gray, a.p.Reset)
+		return 0
+	}
 	current := a.credentials.Current(ctx)
 	active := a.activeEmail(ctx, accounts, current)
 	now := a.renderTime()
@@ -418,11 +426,15 @@ func (a *Application) cmdSetLimit(_ context.Context, args cliArgs) int {
 	}
 	key := "manual:" + args.group
 	if duration == 0 {
-		delete(limits, key)
-		if len(limits) == 0 {
+		if args.limitClear && !args.groupSet {
 			delete(account, "quota_limits")
 		} else {
-			account["quota_limits"] = limits
+			delete(limits, key)
+			if len(limits) == 0 {
+				delete(account, "quota_limits")
+			} else {
+				account["quota_limits"] = limits
+			}
 		}
 		if err := a.store.Save(accounts); err != nil {
 			return a.storeError(err)
@@ -453,7 +465,7 @@ func (a *Application) cmdLimits(ctx context.Context, args cliArgs) int {
 	if accounts.Len() > 0 {
 		failures = a.quota.Refresh(ctx, accounts, args.refresh, nil)
 	}
-	code := a.cmdList(ctx, args)
+	code := a.renderAccountList(ctx, accounts, args)
 	if len(failures) > 0 {
 		fmt.Fprintf(a.Err, "%sUsage refresh failed for %d account(s); cached data kept.%s\n", a.p.Yellow, len(failures), a.p.Reset)
 	}

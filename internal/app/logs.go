@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -251,8 +252,15 @@ func modelFamily(label string) string {
 	}
 	return ""
 }
+
+var wordRegexCache sync.Map
+
 func wordPresent(value, word string) bool {
+	if cached, ok := wordRegexCache.Load(word); ok {
+		return cached.(*regexp.Regexp).MatchString(value)
+	}
 	re := regexp.MustCompile(`\b` + regexp.QuoteMeta(word) + `\b`)
+	wordRegexCache.Store(word, re)
 	return re.MatchString(value)
 }
 func detectModel(pattern *regexp.Regexp, line string) (modelContext, bool) {

@@ -58,9 +58,10 @@ func tuiActions(state *tuiState) []tuiAction {
 		{ID: "settings-edit", Label: "Edit settings", Description: "Change policy and notification defaults", Shortcut: "e", Section: "Settings", Enabled: state != nil && state.view == tuiViewSettings},
 		{ID: "settings-reset", Label: "Reset settings", Description: "Restore safe default policy and retention", Shortcut: "", Section: "Settings", Enabled: state != nil && state.view == tuiViewSettings},
 		{ID: "alias-create", Label: "Create alias", Description: "Name an account or profile", Shortcut: "a", Section: "Settings", Enabled: state != nil && state.view == tuiViewSettings},
-		{ID: "binding-create", Label: "Create project binding", Description: "Bind a folder to a profile", Shortcut: "b", Section: "Settings", Enabled: state != nil && state.view == tuiViewSettings},
+		{ID: "binding-create", Label: "Create project binding", Description: "Bind a folder to a profile", Shortcut: "f", Section: "Settings", Enabled: state != nil && state.view == tuiViewSettings},
 		{ID: "target-create", Label: "Register target", Description: "Add a compatible CLI target", Shortcut: "t", Section: "Settings", Enabled: state != nil && state.view == tuiViewSettings},
 		{ID: "backup-export", Label: "Export backup", Description: "Write metadata-only or encrypted backup", Shortcut: "x", Section: "Backup", Enabled: state != nil && state.view == tuiViewBackup},
+		{ID: "backup-export-encrypted", Label: "Encrypt export", Description: "Export encrypted backup with secrets", Shortcut: "e", Section: "Backup", Enabled: state != nil && state.view == tuiViewBackup},
 		{ID: "backup-import", Label: "Import backup", Description: "Restore accounts and settings", Shortcut: "i", Section: "Backup", Enabled: state != nil && state.view == tuiViewBackup},
 		{ID: "backup-verify", Label: "Verify backup", Description: "Check a backup file without importing", Shortcut: "v", Section: "Backup", Enabled: state != nil && state.view == tuiViewBackup},
 		{ID: "split-widen", Label: "Widen accounts pane", Description: "Increase left accounts pane width", Shortcut: "]", Section: "Layout", Enabled: true},
@@ -634,9 +635,14 @@ func (a *Application) beginTUIForm(state *tuiState, kind string) {
 	case "history-export":
 		form.Title, form.Description = "EXPORT HISTORY", "Write the local event log as JSON."
 		form.Fields = []tuiFormField{{Key: "path", Label: "Path", Value: "agy-swap-history.json"}}
-	case "backup-export":
+	case "backup-export", "backup-export-encrypted":
+		encrypted := "off"
+		if kind == "backup-export-encrypted" {
+			encrypted = "on"
+		}
+		form.Kind = "backup-export"
 		form.Title, form.Description = "EXPORT BACKUP", "Metadata-only is safe to share; encrypted includes secrets."
-		form.Fields = []tuiFormField{{Key: "path", Label: "Path", Value: firstString(state.backupPath, "agy-swap-backup.json")}, {Key: "encrypted", Label: "Encrypted", Value: "off", Options: []string{"off", "on"}}, {Key: "passphrase", Label: "Passphrase", Secret: true, Help: "Required when encrypted is on."}}
+		form.Fields = []tuiFormField{{Key: "path", Label: "Path", Value: firstString(state.backupPath, "agy-swap-backup.json")}, {Key: "encrypted", Label: "Encrypted", Value: encrypted, Options: []string{"off", "on"}}, {Key: "passphrase", Label: "Passphrase", Secret: true, Help: "Required when encrypted is on."}}
 	case "backup-import":
 		form.Title, form.Description = "IMPORT BACKUP", "Import replaces accounts unless Merge is on."
 		form.Fields = []tuiFormField{{Key: "path", Label: "Path"}, {Key: "merge", Label: "Merge", Value: "on", Options: []string{"off", "on"}}, {Key: "passphrase", Label: "Passphrase", Secret: true}}

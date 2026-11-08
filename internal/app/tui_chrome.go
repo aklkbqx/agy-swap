@@ -128,7 +128,7 @@ func (a *Application) tuiFlashKey(state *tuiState, row string) string {
 	label := map[string]string{
 		"enter": "Enter", "up": "↑↓", "down": "↑↓", "k": "↑↓", "j": "↑↓", "ctrl-k": "^K", ":": "^K",
 		"?": "?", "q": "q", "w": "w", "b": "b", "c": "c", "x": "x", "i": "i", "v": "v", "e": "e",
-		"a": "a", "t": "t", "d": "d", "[": "[ ]", "]": "[ ]",
+		"a": "a", "t": "t", "d": "d", "f": "f", "[": "[ ]", "]": "[ ]",
 	}[state.keyFlash]
 	if label == "" {
 		return row
@@ -195,33 +195,34 @@ func (a *Application) tuiFooterLines(state *tuiState, width int) []string {
 	}
 	footer := a.fitKeycaps(hints, g.contentWidth)
 	if state.view != tuiViewDashboard {
-		footer = formatKeycaps(a.p, "[↑↓]", "Navigate", "[Enter]", "Edit", "[b]", "Dashboard", "[^K]", "Actions", "[?]", "Help")
+		viewHints := []keyHint{{"[↑↓]", "Navigate", 4}, {"[Enter]", "Edit", 5}, {"[b]", "Dashboard", 4}, {"[^K]", "Actions", 2}, {"[?]", "Help", 1}}
 		switch state.view {
 		case tuiViewBackup:
-			footer = formatKeycaps(a.p, "[x]", "Export", "[i]", "Import", "[v]", "Verify", "[b]", "Dashboard", "[^K]", "Actions")
+			viewHints = []keyHint{{"[x]", "Export", 5}, {"[e]", "Encrypt export", 4}, {"[i]", "Import", 5}, {"[v]", "Verify", 3}, {"[b]", "Dashboard", 4}, {"[^K]", "Actions", 2}}
 		case tuiViewHistory:
-			footer = formatKeycaps(a.p, "[c]", "Clear", "[x]", "Export", "[b]", "Dashboard", "[^K]", "Actions")
+			viewHints = []keyHint{{"[c]", "Clear", 5}, {"[x]", "Export", 4}, {"[b]", "Dashboard", 4}, {"[^K]", "Actions", 2}}
 		case tuiViewSettings:
-			footer = formatKeycaps(a.p, "[e]", "Edit", "[a]", "Alias", "[b]", "Binding", "[t]", "Target", "[^K]", "Actions")
+			viewHints = []keyHint{{"[e]", "Edit", 5}, {"[a]", "Alias", 3}, {"[f]", "Binding", 4}, {"[t]", "Target", 3}, {"[b]", "Dashboard", 4}, {"[^K]", "Actions", 2}}
 		case tuiViewDoctor:
-			footer = formatKeycaps(a.p, "[Enter]", "Run again", "[b]", "Dashboard", "[^K]", "Actions")
+			viewHints = []keyHint{{"[Enter]", "Run again", 5}, {"[b]", "Dashboard", 4}, {"[^K]", "Actions", 2}}
 		case tuiViewProfiles:
-			footer = formatKeycaps(a.p, "[c]", "Create", "[Enter]", "Edit", "[d]", "Delete", "[b]", "Dashboard", "[^K]", "Actions")
+			viewHints = []keyHint{{"[c]", "Create", 5}, {"[Enter]", "Edit", 4}, {"[d]", "Delete", 3}, {"[b]", "Dashboard", 4}, {"[^K]", "Actions", 2}}
 		}
+		footer = a.fitKeycaps(viewHints, g.contentWidth)
 	}
 	switch state.mode {
 	case tuiSearch:
-		footer = formatKeycaps(a.p, "[Type]", "Filter", "[Enter]", "Apply", "[Esc]", "Cancel", "[Bksp]", "Erase")
+		footer = a.fitKeycaps([]keyHint{{"[Type]", "Filter", 5}, {"[Enter]", "Apply", 5}, {"[Esc]", "Cancel", 4}, {"[Bksp]", "Erase", 2}}, g.contentWidth)
 	case tuiDialogOpen:
 		if state.dialog != nil && state.dialog.Kind == "help" {
 			footer = a.p.White + "[Any key]" + a.p.Reset + " " + a.p.Gray + "Close help" + a.p.Reset
 		} else {
-			footer = formatKeycaps(a.p, "[←→]", "Choose", "[Enter]", "Select", "[y/n]", "Shortcut", "[Esc]", "Cancel")
+			footer = a.fitKeycaps([]keyHint{{"[←→]", "Choose", 4}, {"[Enter]", "Select", 5}, {"[y/n]", "Shortcut", 2}, {"[Esc]", "Cancel", 4}}, g.contentWidth)
 		}
 	case tuiPalette:
-		footer = formatKeycaps(a.p, "[↑↓]", "Move", "[Enter]", "Run", "[Type]", "Filter", "[Esc]", "Close")
+		footer = a.fitKeycaps([]keyHint{{"[↑↓]", "Move", 4}, {"[Enter]", "Run", 5}, {"[Type]", "Filter", 2}, {"[Esc]", "Close", 4}}, g.contentWidth)
 	case tuiForm:
-		footer = formatKeycaps(a.p, "[↑↓]", "Field", "[←→]", "Choice", "[Enter]", "Next/Save", "[Esc]", "Cancel")
+		footer = a.fitKeycaps([]keyHint{{"[↑↓]", "Field", 4}, {"[←→]", "Choice", 3}, {"[Enter]", "Next/Save", 5}, {"[Esc]", "Cancel", 4}}, g.contentWidth)
 	}
 	return []string{
 		a.barRow("", g),
@@ -505,6 +506,9 @@ func stateVersion(version string) string {
 }
 
 func ioWriteString(writer interface{ Write([]byte) (int, error) }, value string) (int, error) {
+	if writer == nil {
+		return 0, nil
+	}
 	return writer.Write([]byte(value))
 }
 

@@ -360,6 +360,8 @@ func (c *tuiController) runAction(id string) {
 		c.app.beginTUIForm(c.state, "target")
 	case "backup-export":
 		c.app.beginTUIForm(c.state, "backup-export")
+	case "backup-export-encrypted":
+		c.app.beginTUIForm(c.state, "backup-export-encrypted")
 	case "backup-import":
 		c.app.beginTUIForm(c.state, "backup-import")
 	case "backup-verify":
@@ -500,7 +502,14 @@ func (c *tuiController) handleKeyEvent(rawKey, key string, armFrame func()) bool
 	}
 
 	switch key {
-	case "q", "esc", "ctrl-c", "ctrl-d":
+	case "q", "ctrl-c", "ctrl-d":
+		c.finish()
+		return true
+	case "esc":
+		if state.view != tuiViewDashboard {
+			c.setView(tuiViewDashboard)
+			break
+		}
 		c.finish()
 		return true
 	case "ctrl-k", ":":
@@ -620,13 +629,14 @@ func (c *tuiController) handleKeyEvent(rawKey, key string, armFrame func()) bool
 		c.setView(tuiViewDoctor)
 		c.startDoctor(false)
 	case "b":
-		switch state.view {
-		case tuiViewSettings:
-			a.beginTUIForm(state, "binding")
-		case tuiViewDashboard:
+		if state.view == tuiViewDashboard {
 			c.setView(tuiViewBackup)
-		default:
+		} else {
 			c.setView(tuiViewDashboard)
+		}
+	case "f":
+		if state.view == tuiViewSettings {
+			a.beginTUIForm(state, "binding")
 		}
 	case "w":
 		if state.view == tuiViewDashboard {
@@ -648,6 +658,8 @@ func (c *tuiController) handleKeyEvent(rawKey, key string, armFrame func()) bool
 		}
 	case "e":
 		switch state.view {
+		case tuiViewBackup:
+			a.beginTUIForm(state, "backup-export-encrypted")
 		case tuiViewSettings:
 			a.beginTUIForm(state, "settings")
 		case tuiViewProfiles:

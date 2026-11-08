@@ -11,6 +11,7 @@ import (
 )
 
 type extendedOptions struct {
+	Help            bool
 	JSON            bool
 	Force           bool
 	Refresh         bool
@@ -41,11 +42,13 @@ type extendedOptions struct {
 func isExtendedCommand(argv []string) bool {
 	for i := 0; i < len(argv); i++ {
 		arg := argv[i]
-		if arg == "--json" || arg == "--force" || arg == "--refresh" || arg == "--once" || arg == "--apply" || arg == "--merge" || arg == "--open" || arg == "--include-secrets" || arg == "--passphrase-stdin" {
-			continue
+		if arg == "--" {
+			return false
 		}
-		if strings.HasPrefix(arg, "--") || arg == "-d" {
-			i++
+		if strings.HasPrefix(arg, "-") {
+			if extendedOptionTakesValue(arg) {
+				i++
+			}
 			continue
 		}
 		switch arg {
@@ -76,6 +79,8 @@ func parseExtended(argv []string) (string, extendedOptions, []string, error) {
 			return argv[i], nil
 		}
 		switch arg {
+		case "-h", "--help":
+			opts.Help = true
 		case "--json":
 			opts.JSON = true
 		case "--force":
@@ -279,6 +284,11 @@ func (a *Application) runExtended(ctx context.Context, argv []string) int {
 	if err != nil {
 		return a.extendedError(firstString(command, "command"), opts, err)
 	}
+	if opts.Help {
+		a.printUsage(a.Out)
+		return 0
+	}
+	a.reconcileActiveSession(ctx)
 	var code int
 	switch command {
 	case "doctor":
@@ -363,7 +373,12 @@ func (a *Application) allAccountSummaries(ctx context.Context, accounts *Account
 	return result
 }
 
-func (a *Application) loadSettings() (AppSettings, error) { return a.store.LoadSettings() }
+func (a *Application) loadSettings() (AppSettings, error) {
+	if a == nil || a.store == nil {
+		return defaultSettings(), nil
+	}
+	return a.store.LoadSettings()
+}
 
 func resolveConfiguredTarget(target string, accounts *Accounts, settings AppSettings) (string, error) {
 	target = strings.TrimSpace(target)

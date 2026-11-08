@@ -46,8 +46,10 @@ func (osAccountVault) Delete(ctx context.Context, ref string) bool {
 }
 
 type fileAccountVault struct {
-	path string
-	mu   sync.RWMutex
+	path           string
+	mu             sync.RWMutex
+	cached         map[string]string
+	cachedFileInfo os.FileInfo
 }
 
 func NewFileAccountVault(path string) AccountVault {
@@ -56,6 +58,21 @@ func NewFileAccountVault(path string) AccountVault {
 
 func (v *fileAccountVault) lockPath() string {
 	return v.path + ".lock"
+}
+
+func (v *fileAccountVault) updateCache(m map[string]string) {
+	info, err := os.Stat(v.path)
+	if err != nil {
+		v.cached = nil
+		v.cachedFileInfo = nil
+		return
+	}
+	clone := make(map[string]string, len(m))
+	for k, val := range m {
+		clone[k] = val
+	}
+	v.cached = clone
+	v.cachedFileInfo = info
 }
 
 // fileLock serializes readers and writers across processes. create is set for
@@ -107,7 +124,11 @@ func (v *fileAccountVault) writeMap(m map[string]string) error {
 		return err
 	}
 	data = append(data, '\n')
-	return atomicWrite(v.path, data, 0o600)
+	if err := atomicWrite(v.path, data, 0o600); err != nil {
+		return err
+	}
+	v.updateCache(m)
+	return nil
 }
 
 func (v *fileAccountVault) Get(_ context.Context, ref string) (string, bool) {
@@ -115,8 +136,14 @@ func (v *fileAccountVault) Get(_ context.Context, ref string) (string, bool) {
 	if ref == "" {
 		return "", false
 	}
-	v.mu.RLock()
-	defer v.mu.RUnlock()
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.cached != nil && v.cachedFileInfo != nil {
+		if info, statErr := os.Stat(v.path); statErr == nil && os.SameFile(info, v.cachedFileInfo) && info.ModTime().Equal(v.cachedFileInfo.ModTime()) && info.Size() == v.cachedFileInfo.Size() {
+			val, ok := v.cached[ref]
+			return val, ok && val != ""
+		}
+	}
 	lock, err := v.fileLock(false)
 	if err != nil {
 		return "", false
@@ -126,6 +153,7 @@ func (v *fileAccountVault) Get(_ context.Context, ref string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	v.updateCache(m)
 	val, ok := m[ref]
 	return val, ok && val != ""
 }

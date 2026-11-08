@@ -407,7 +407,8 @@ func verifyUpdateBinary(ctx context.Context, path, version string) error {
 		return err
 	}
 	fields := strings.Fields(string(output))
-	if len(fields) < 2 || fields[0] != "agy-swap" || fields[1] != "v"+version {
+	want := "v" + version
+	if len(fields) < 2 || fields[0] != "agy-swap" || (fields[1] != want && fields[1] != want+"-go-install") {
 		return fmt.Errorf("candidate did not report agy-swap v%s", version)
 	}
 	return nil

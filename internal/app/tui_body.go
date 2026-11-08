@@ -53,18 +53,13 @@ func (a *Application) tuiFitPlan(state *tuiState, width, budget int, plan tuiLay
 		if plan.panels == panelsSide {
 			inner = (width-1)/2 - 4
 		}
-		for scale := 2; scale >= 2; scale-- {
-			if bigNumberWidth(3, scale) > inner {
-				continue
-			}
+		if bigNumberWidth(3, 2) <= inner {
 			// The bar stays one full-block row: a second row reads as two bars in
 			// terminals that leave a gap between lines. The extra rows become air.
-			for thick := 1; thick >= 1; thick-- {
-				for gap := 1; gap >= 0; gap-- {
-					candidate := plan
-					candidate.scale, candidate.gap, candidate.thick = scale, gap, thick
-					candidates = append(candidates, candidate)
-				}
+			for gap := 1; gap >= 0; gap-- {
+				candidate := plan
+				candidate.scale, candidate.gap, candidate.thick = 2, gap, 1
+				candidates = append(candidates, candidate)
 			}
 		}
 		with(digitsFive, plan.panels, false)
