@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.23.1
+
+### Changes
+
+- Re-record the terminal UI and CLI showcase demos (`switch`, `dashboard`, and `cli`) to include the `Ctrl+K` action palette, `?` keyboard guide, and `agy-swap donate` (#104).
+- Reorganize the README into quick-reference tables for environment variables, keyboard shortcuts, ranking policies, and network endpoints, and expand the GitHub Sponsors section (#104).
+- Website update: add `agy-swap limit` and `agy-swap donate [--open]` to the command reference and suppress unintended scrollbars on tab strips (#104).
+
 ## 2.23.0
 
 ### Changes

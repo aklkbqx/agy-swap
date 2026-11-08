@@ -29,11 +29,15 @@ Sleep 1.0s
 
 # Open Command Palette with Ctrl+K
 Ctrl+K
-Sleep 1.5s
-Type "quota"
-Sleep 2.0s
-Escape
 Sleep 1.2s
+Type "quota"
+Sleep 1.5s
+Backspace 5
+Sleep 300ms
+Type "sponsor"
+Sleep 1.8s
+Escape
+Sleep 1.0s
 
 # Clean exit
 Type "q"

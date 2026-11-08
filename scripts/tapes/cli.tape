@@ -30,4 +30,8 @@ Sleep 3.0s
 
 # 4. Switch explicitly
 Type "agy-swap switch beta@example.invalid" Enter
-Sleep 2.5s
+Sleep 2.0s
+
+# 5. Print support link
+Type "agy-swap donate" Enter
+Sleep 2.0s
