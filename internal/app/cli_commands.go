@@ -356,7 +356,7 @@ func (a *Application) cmdNext(ctx context.Context, args cliArgs) int {
 }
 
 func (a *Application) cmdSwitch(ctx context.Context, args cliArgs) int {
-	accounts, err := a.store.Load(true)
+	accounts, err := a.store.Load(false)
 	if err != nil {
 		return a.storeError(err)
 	}
@@ -473,7 +473,7 @@ func (a *Application) cmdLimits(ctx context.Context, args cliArgs) int {
 }
 
 func (a *Application) cmdRemove(ctx context.Context, args cliArgs) int {
-	accounts, err := a.store.Load(true)
+	accounts, err := a.store.Load(false)
 	if err != nil {
 		return a.storeError(err)
 	}

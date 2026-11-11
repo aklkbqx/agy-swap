@@ -62,3 +62,32 @@ func TestGatewayBoundsConcurrentSessions(t *testing.T) {
 		t.Fatal("slot was not released")
 	}
 }
+
+func TestClientIPExtractsForwardedHeadersFromLoopbackProxy(t *testing.T) {
+	server := New(Config{})
+	if server.config.MaxPerIP != 2 {
+		t.Fatalf("expected default MaxPerIP = 2 (< MaxSessions 8), got %d", server.config.MaxPerIP)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/demo/ws", nil)
+	req.RemoteAddr = "127.0.0.1:54321"
+	req.Header.Set("X-Forwarded-For", "203.0.113.10, 127.0.0.1")
+	if got := clientIP(req); got != "203.0.113.10" {
+		t.Fatalf("clientIP with loopback X-Forwarded-For = %q, want 203.0.113.10", got)
+	}
+
+	reqReal := httptest.NewRequest(http.MethodGet, "/demo/ws", nil)
+	reqReal.RemoteAddr = "127.0.0.1:54321"
+	reqReal.Header.Set("X-Real-IP", "198.51.100.7")
+	if got := clientIP(reqReal); got != "198.51.100.7" {
+		t.Fatalf("clientIP with loopback X-Real-IP = %q, want 198.51.100.7", got)
+	}
+
+	// Untrusted non-loopback peer cannot spoof X-Forwarded-For.
+	reqSpoof := httptest.NewRequest(http.MethodGet, "/demo/ws", nil)
+	reqSpoof.RemoteAddr = "198.51.100.99:54321"
+	reqSpoof.Header.Set("X-Forwarded-For", "203.0.113.10")
+	if got := clientIP(reqSpoof); got != "198.51.100.99" {
+		t.Fatalf("clientIP from non-loopback peer trusted spoofed XFF: got %q, want 198.51.100.99", got)
+	}
+}

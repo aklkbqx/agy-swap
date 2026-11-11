@@ -153,7 +153,7 @@ func TestTokenIdentityMatchesTargetAccount(t *testing.T) {
 }
 
 func TestNormalizedReleaseTag(t *testing.T) {
-	for input, want := range map[string]string{"2.23.2": "v2.23.2", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} { //nolint:gocritic // the padded key tests trimming
+	for input, want := range map[string]string{"2.23.3": "v2.23.3", "v2.2.0": "v2.2.0", " 2.2.0 ": "v2.2.0", "": ""} { //nolint:gocritic // the padded key tests trimming
 		if got := normalizedReleaseTag(input); got != want {
 			t.Fatalf("%q normalized to %q, want %q", input, got, want)
 		}
@@ -676,7 +676,7 @@ func TestTUIOverlayKeepsFrameGeometry(t *testing.T) {
 func TestTUISuccessToastKeepsFrameGeometryAndExpires(t *testing.T) {
 	accounts := NewAccounts()
 	accounts.Set("user@example.com", quotaAccount("user@example.com", 0.85, 0.45, time.Now().Add(time.Hour)))
-	a := &Application{Version: "2.23.2", p: makePalette(false), color: false}
+	a := &Application{Version: "2.23.3", p: makePalette(false), color: false}
 	state := newTUIState(accounts, "user@example.com")
 	state.showToast("Switched to user@example.com", "success")
 
@@ -1295,7 +1295,7 @@ func TestExtendedSettingsAliasesAndEncryptedBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	a := &Application{Version: "2.23.2", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
+	a := &Application{Version: "2.23.3", In: strings.NewReader(""), Out: &out, Err: &errOut, paths: paths, store: store, vault: fakeAccountVault{}, p: makePalette(false)}
 	if code := a.Run(context.Background(), []string{"config", "set", "policy.min_remaining_pct", "25"}); code != 0 {
 		t.Fatalf("config set code=%d err=%s", code, errOut.String())
 	}
@@ -1880,13 +1880,13 @@ func TestAccountRowSelection(t *testing.T) {
 }
 
 func TestTUIDisplayVersionDev(t *testing.T) {
-	appDev := &Application{Version: "2.23.2", BuildID: "dev", p: makePalette(false)}
+	appDev := &Application{Version: "2.23.3", BuildID: "dev", p: makePalette(false)}
 	linesDev := appDev.tuiTopLines(newTUIState(NewAccounts(), ""), 80)
 	if !strings.Contains(strings.Join(linesDev, "\n"), "v"+appDev.Version+"-dev") {
 		t.Fatalf("TUI header missing dev tag: %q", linesDev)
 	}
 
-	appRel := &Application{Version: "2.23.2", BuildID: "release-v2.23.2", p: makePalette(false)}
+	appRel := &Application{Version: "2.23.3", BuildID: "release-v2.23.3", p: makePalette(false)}
 	linesRel := appRel.tuiTopLines(newTUIState(NewAccounts(), ""), 80)
 	if !strings.Contains(strings.Join(linesRel, "\n"), "v"+appRel.Version) || strings.Contains(strings.Join(linesRel, "\n"), "v"+appRel.Version+"-") {
 		t.Fatalf("TUI header should not have dev tag for release: %q", linesRel)
@@ -2039,4 +2039,252 @@ func TestTUIDetailAttentionGuidance(t *testing.T) {
 	if !strings.Contains(joined, "ACTION") || !strings.Contains(joined, "agy-swap add") {
 		t.Fatalf("expected ACTION row with re-auth guidance, got:\n%s", joined)
 	}
+}
+
+func TestStatuslineRenderDoesNotHangOnInteractiveTTY(t *testing.T) {
+	f := newCLIFixture(t, "user@example.com")
+	pr, pw := io.Pipe()
+	defer pr.Close()
+	defer pw.Close()
+
+	f.a.In = pr
+	f.a.stdinTTY = true
+
+	done := make(chan int, 1)
+	go func() {
+		done <- f.a.cmdStatusline(context.Background(), extendedOptions{}, []string{"render"})
+	}()
+
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("expected exit code 0, got %d (err: %s)", code, f.errOut.String())
+		}
+		if !strings.Contains(f.out.String(), "agy-swap") {
+			t.Fatalf("expected statusline output containing agy-swap, got %q", f.out.String())
+		}
+	case <-time.After(250 * time.Millisecond):
+		_ = pw.Close()
+		t.Fatal("cmdStatusline hung waiting for EOF on interactive TTY stdin")
+	}
+}
+
+func TestWriteKeyringBypassMarkerSkipsRedundantSyscallsWhenFresh(t *testing.T) {
+	paths := testPaths(t)
+	creds := NewCredentials(paths)
+	creds.writeKeyringBypassMarker()
+
+	marker := creds.keyringMarkerPath()
+	wantTime := time.Now().Add(8 * 365 * 24 * time.Hour).Truncate(time.Second)
+	if err := os.Chtimes(marker, wantTime, wantTime); err != nil {
+		t.Fatalf("chtimes marker: %v", err)
+	}
+
+	creds.writeKeyringBypassMarker()
+	info, err := os.Stat(marker)
+	if err != nil {
+		t.Fatalf("stat marker: %v", err)
+	}
+	if !info.ModTime().Equal(wantTime) {
+		t.Fatalf("expected writeKeyringBypassMarker to skip Chtimes when marker mtime is already far in future (%v), got %v", wantTime, info.ModTime())
+	}
+}
+
+func TestTUISwitchAccountSnapshotAndConcurrentActivityPoll(t *testing.T) {
+	f := newCLIFixture(t, "alpha@example.com", "beta@example.com")
+	accounts, err := f.a.store.Load(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap := copyAccount(accounts.ByEmail["beta@example.com"])
+	message, kind := f.a.tuiSwitchAccount(context.Background(), "beta@example.com", snap)
+	if kind != "success" || !strings.Contains(message, "Switched to beta@example.com") {
+		t.Fatalf("tuiSwitchAccount returned %q (%s)", message, kind)
+	}
+
+	path := filepath.Join(t.TempDir(), "cli.log")
+	if err := os.WriteFile(path, []byte("start\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w := &tuiActivity{list: func() []string { return []string{path} }}
+	now := time.Now().UTC()
+	w.poll(now)
+	w.markRead(now)
+	if w.due(now.Add(time.Minute)) {
+		t.Fatal("expected markRead to clear due state")
+	}
+}
+
+func TestTUIRenderMemoizesVaultLookupsAcrossFrames(t *testing.T) {
+	f := newCLIFixture(t)
+	cv := &countingVault{AccountVault: f.a.vault}
+	f.a.vault = cv
+
+	accounts := NewAccounts()
+	email := "memo@example.com"
+	ref := accountSecretRef(email)
+	tok := tokenBlob(t, email, true, "ref-memo", time.Now().Add(time.Hour))
+	f.a.vault.Set(context.Background(), ref, tok)
+	accounts.Set(email, Account{
+		"email":      email,
+		"name":       "Memo User",
+		"secret_ref": ref,
+		"token_hash": hashToken(tok),
+	})
+
+	state := newTUIState(accounts, tok)
+	state.vault = cv
+	state.selectedEmail = email
+
+	for i := 0; i < 20; i++ {
+		_ = f.a.tuiLines(state, 118, 30)
+	}
+	if got := atomic.LoadInt32(&cv.gets); got > 1 {
+		t.Fatalf("expected at most 1 vault.Get call across 20 TUI frames for %s, got %d", email, got)
+	}
+
+	state.setAccounts(accounts)
+	_ = f.a.tuiLines(state, 118, 30)
+	if got := atomic.LoadInt32(&cv.gets); got != 2 {
+		t.Fatalf("expected setAccounts to invalidate vault cache and trigger 1 fresh lookup (total 2), got %d", got)
+	}
+}
+
+func TestCmdSwitchSkipsLogScanOnDirectSwitch(t *testing.T) {
+	f := newCLIFixture(t, "alpha@example.com", "beta@example.com")
+	logPath := filepath.Join(f.paths.Home, ".gemini", "antigravity-cli", "cli.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	prefix := fmt.Sprintf("I%02d%02d %02d:%02d:%02d", int(now.Month()), now.Day(), now.Hour(), now.Minute(), now.Second())
+	content := strings.Join([]string{
+		prefix + " applyAuthResult: email=alpha@example.com",
+		prefix + ` resolving model claude-sonnet-4`,
+		prefix + ` label = "Claude Sonnet 4"`,
+		prefix + " RESOURCE_EXHAUSTED Resets in 1h",
+	}, "\n") + "\n"
+	if err := os.WriteFile(logPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := f.run("", "switch", "2"); code != 0 {
+		t.Fatalf("switch 2 failed with code %d: %s", code, f.errOut.String())
+	}
+	if _, err := os.Stat(f.paths.LogCache); !os.IsNotExist(err) {
+		t.Fatalf("expected direct switch not to scan logs or create %s, got err=%v", f.paths.LogCache, err)
+	}
+}
+
+func TestCopyAccountDeepCopiesNestedMapsAndSlices(t *testing.T) {
+	orig := Account{
+		"email": "deep@example.com",
+		"quota_limits": map[string]any{
+			"gemini": map[string]any{"family": "gemini", "reset_at": "2030-01-01T00:00:00Z"},
+		},
+		"quota_snapshot": map[string]any{
+			"groups": []any{
+				map[string]any{"id": "gemini", "name": "Gemini"},
+			},
+		},
+		"tags": []string{"prod", "team"},
+	}
+	cloned := copyAccount(orig)
+
+	clonedLimits := getMap(getMap(cloned["quota_limits"])["gemini"])
+	clonedLimits["family"] = "mutated"
+	origLimits := getMap(getMap(orig["quota_limits"])["gemini"])
+	if getString(origLimits, "family") != "gemini" {
+		t.Fatalf("mutating cloned quota_limits mutated orig: %#v", origLimits)
+	}
+
+	clonedGroup := getMap(getSlice(getMap(cloned["quota_snapshot"])["groups"])[0])
+	clonedGroup["name"] = "Mutated Group"
+	origGroup := getMap(getSlice(getMap(orig["quota_snapshot"])["groups"])[0])
+	if getString(origGroup, "name") != "Gemini" {
+		t.Fatalf("mutating cloned quota_snapshot group mutated orig: %#v", origGroup)
+	}
+
+	clonedTags := cloned["tags"].([]string)
+	clonedTags[0] = "changed"
+	if orig["tags"].([]string)[0] != "prod" {
+		t.Fatalf("mutating cloned tags slice mutated orig: %#v", orig["tags"])
+	}
+}
+
+func TestDemoModeBlocksDirectKeyShortcuts(t *testing.T) {
+	a, state := listApp()
+	a.demo = true
+	var notices int
+	c := &tuiController{
+		app:        a,
+		state:      state,
+		ctx:        context.Background,
+		demoNotice: func() { notices++; state.message, state.messageType = errDemoUnavailable.Error(), "info" },
+		finish:     func() {},
+	}
+
+	state.view = tuiViewDashboard
+	c.handleKeyEvent("w", "w", func() {})
+	if notices != 1 || state.message != errDemoUnavailable.Error() {
+		t.Fatalf("expected 'w' in demo mode to trigger demoNotice, got notices=%d msg=%q", notices, state.message)
+	}
+
+	c.handleKeyEvent("u", "u", func() {})
+	if notices != 2 || state.dialog != nil {
+		t.Fatalf("expected 'u' in demo mode to trigger demoNotice without opening dialog, got notices=%d dialog=%#v", notices, state.dialog)
+	}
+
+	state.view = tuiViewSettings
+	c.handleKeyEvent("f", "f", func() {})
+	if notices != 3 || state.form != nil {
+		t.Fatalf("expected 'f' in Settings view in demo mode to trigger demoNotice, got notices=%d form=%#v", notices, state.form)
+	}
+
+	c.handleKeyEvent("t", "t", func() {})
+	if notices != 4 || state.form != nil {
+		t.Fatalf("expected 't' in Settings view in demo mode to trigger demoNotice, got notices=%d form=%#v", notices, state.form)
+	}
+
+	state.view = tuiViewBackup
+	for i, k := range []string{"v", "x", "i", "e"} {
+		c.handleKeyEvent(k, k, func() {})
+		if notices != 5+i || state.form != nil {
+			t.Fatalf("expected %q in Backup view in demo mode to trigger demoNotice, got notices=%d form=%#v", k, notices, state.form)
+		}
+	}
+}
+
+func TestCopyAccountsIsolatesConcurrentActiveEmailResolution(t *testing.T) {
+	f := newCLIFixture(t)
+	tok := tokenBlob(t, "", true, "refresh-1", time.Now().Add(time.Hour))
+	ref := accountSecretRef("race@example.com")
+	f.a.vault.Set(context.Background(), ref, tok)
+	accounts, err := f.a.store.Load(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accounts.Set("race@example.com", Account{
+		"email":      "race@example.com",
+		"name":       "Race User",
+		"secret_ref": ref,
+	})
+	if err := f.a.store.Save(accounts); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	snapshot := copyAccounts(accounts)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 20 {
+			_ = f.a.activeEmail(context.Background(), snapshot, tok)
+		}
+	}()
+	for range 20 {
+		for _, email := range accounts.Order {
+			_ = getString(accounts.ByEmail[email], "token_hash")
+			_ = getString(accounts.ByEmail[email], "email")
+		}
+	}
+	<-done
 }

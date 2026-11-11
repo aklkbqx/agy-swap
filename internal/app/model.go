@@ -15,6 +15,58 @@ import (
 
 type Account map[string]any
 
+func deepCopyValue(v any) any {
+	switch val := v.(type) {
+	case Account:
+		return copyAccount(val)
+	case map[string]any:
+		out := make(map[string]any, len(val))
+		for k, item := range val {
+			out[k] = deepCopyValue(item)
+		}
+		return out
+	case []any:
+		out := make([]any, len(val))
+		for i, item := range val {
+			out[i] = deepCopyValue(item)
+		}
+		return out
+	case []string:
+		out := make([]string, len(val))
+		copy(out, val)
+		return out
+	default:
+		return v
+	}
+}
+
+func copyAccount(account Account) Account {
+	if account == nil {
+		return nil
+	}
+	out := make(Account, len(account))
+	for k, v := range account {
+		out[k] = deepCopyValue(v)
+	}
+	return out
+}
+
+func copyAccounts(accounts *Accounts) *Accounts {
+	if accounts == nil {
+		return nil
+	}
+	out := &Accounts{
+		Order:        append([]string(nil), accounts.Order...),
+		ByEmail:      make(map[string]Account, len(accounts.ByEmail)),
+		Revision:     accounts.Revision,
+		revisionHash: accounts.revisionHash,
+	}
+	for k, v := range accounts.ByEmail {
+		out.ByEmail[k] = copyAccount(v)
+	}
+	return out
+}
+
 type Accounts struct {
 	Order        []string
 	ByEmail      map[string]Account

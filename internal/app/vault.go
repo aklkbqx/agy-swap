@@ -345,9 +345,17 @@ func (a *Application) accountToken(ctx context.Context, account Account) (string
 // the caller must delete only after accounts.json has been saved. A false
 // result means the token stayed in token_data and nothing should be deleted.
 func (a *Application) saveAccountSecret(ctx context.Context, account Account, token string) (string, bool) {
+	var vault AccountVault
+	if a != nil {
+		vault = a.vault
+	}
+	return saveAccountSecretWithVault(ctx, vault, account, token)
+}
+
+func saveAccountSecretWithVault(ctx context.Context, vault AccountVault, account Account, token string) (string, bool) {
 	email := getString(account, "email")
 	token = strings.TrimSpace(token)
-	if email == "" || a.vault == nil || token == "" {
+	if email == "" || vault == nil || token == "" {
 		if token != "" {
 			account["token_data"] = token
 			account["token_hash"] = hashToken(token)
@@ -358,7 +366,7 @@ func (a *Application) saveAccountSecret(ctx context.Context, account Account, to
 	}
 	oldRef := getString(account, "secret_ref")
 	ref := accountSecretRef(email)
-	if !a.vault.Set(ctx, ref, token) {
+	if !vault.Set(ctx, ref, token) {
 		account["token_data"] = token
 		account["token_hash"] = hashToken(token)
 		rememberTokenExpiry(account, token)
@@ -376,7 +384,14 @@ func (a *Application) saveAccountSecret(ctx context.Context, account Account, to
 }
 
 func (a *Application) deleteReplacedSecrets(ctx context.Context, refs []string) {
-	if a == nil || a.vault == nil {
+	if a == nil {
+		return
+	}
+	deleteReplacedSecretsWithVault(ctx, a.vault, refs)
+}
+
+func deleteReplacedSecretsWithVault(ctx context.Context, vault AccountVault, refs []string) {
+	if vault == nil {
 		return
 	}
 	for _, ref := range refs {
@@ -384,7 +399,7 @@ func (a *Application) deleteReplacedSecrets(ctx context.Context, refs []string) 
 		if ref == "" {
 			continue
 		}
-		_ = a.vault.Delete(ctx, ref)
+		_ = vault.Delete(ctx, ref)
 	}
 }
 

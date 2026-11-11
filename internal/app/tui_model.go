@@ -162,6 +162,7 @@ type tuiState struct {
 	backupPath    string
 	quitRequested bool
 	vault         AccountVault
+	vaultCache    map[string]bool
 }
 
 func newTUIState(accounts *Accounts, current string) *tuiState {
@@ -185,7 +186,15 @@ func (s *tuiState) accountNeedsAttention(email string) (bool, string) {
 			ref := getString(account, "secret_ref")
 			tokenData := getString(account, "token_data")
 			if ref != "" && tokenData == "" {
-				if _, ok := s.vault.Get(context.Background(), ref); !ok {
+				if s.vaultCache == nil {
+					s.vaultCache = make(map[string]bool)
+				}
+				present, cached := s.vaultCache[ref]
+				if !cached {
+					_, present = s.vault.Get(context.Background(), ref)
+					s.vaultCache[ref] = present
+				}
+				if !present {
 					return true, "secret vault entry is unavailable"
 				}
 			}
@@ -281,6 +290,7 @@ func (s *tuiState) setAccounts(accounts *Accounts) {
 	if accounts != nil {
 		s.accounts = accounts
 	}
+	s.vaultCache = nil
 	s.clampSelection()
 	if local := localActiveEmail(s.accounts, s.current); local != "" {
 		s.active = local

@@ -28,6 +28,13 @@ func (a *Application) tuiSwitchSelected(ctx context.Context, state *tuiState) (m
 	if !ok {
 		return "", ""
 	}
+	return a.tuiSwitchAccount(ctx, email, account)
+}
+
+func (a *Application) tuiSwitchAccount(ctx context.Context, email string, account Account) (message, kind string) {
+	if email == "" || account == nil {
+		return "", ""
+	}
 	token, err := a.accountToken(ctx, account)
 	if err != nil {
 		return "Switch failed: " + err.Error(), "error"

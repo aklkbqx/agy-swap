@@ -288,7 +288,11 @@ func (a *Application) runExtended(ctx context.Context, argv []string) int {
 		a.printUsage(a.Out)
 		return 0
 	}
-	a.reconcileActiveSession(ctx)
+	switch command {
+	case "completion", "donate", "sponsor", "history", "stats", "config", "alias", "tag", "profile", "bind", "unbind", "target":
+	default:
+		a.reconcileActiveSession(ctx)
+	}
 	var code int
 	switch command {
 	case "doctor":

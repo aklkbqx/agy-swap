@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -54,6 +55,7 @@ func (w *fileWatch) changed() bool {
 
 // tuiActivity follows Antigravity's newest log files.
 type tuiActivity struct {
+	mu       sync.Mutex
 	list     func() []string
 	files    map[string]fileStamp
 	listedAt time.Time
@@ -80,6 +82,8 @@ func newTUIActivity(scanner *LogScanner) *tuiActivity {
 
 // poll looks at the log files and notes activity when one changed.
 func (w *tuiActivity) poll(now time.Time) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.files == nil || now.Sub(w.listedAt) >= tuiActivityList {
 		files := map[string]fileStamp{}
 		for _, path := range w.list() {
@@ -104,7 +108,15 @@ func (w *tuiActivity) poll(now time.Time) {
 // due says the active account should be read: Antigravity wrote since the
 // last such read, has paused for a moment, and the last read is not too recent.
 func (w *tuiActivity) due(now time.Time) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	return w.at.After(w.read) && now.Sub(w.at) >= tuiActivityQuiet && now.Sub(w.read) >= tuiActivityGap
+}
+
+func (w *tuiActivity) markRead(now time.Time) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.read = now
 }
 
 // dueEmails are the accounts whose quota should be read now.

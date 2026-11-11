@@ -115,7 +115,6 @@ func (a *Application) Run(ctx context.Context, argv []string) int {
 		a.printUsage(a.Out)
 		return 0
 	}
-	a.reconcileActiveSession(ctx)
 	command := args.command
 	switch {
 	case args.legacyAdd || args.token != "":
@@ -143,6 +142,7 @@ func (a *Application) Run(ctx context.Context, argv []string) int {
 		}
 		command = "list"
 	}
+	a.reconcileActiveSession(ctx)
 	if (command == "switch" || command == "remove") && args.account == "" && a.stdinTTY && a.stdoutTTY {
 		if command == "switch" {
 			return a.cmdSwitch(ctx, args)

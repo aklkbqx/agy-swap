@@ -33,9 +33,28 @@ func New(config Config) *Server {
 		config.MaxSessions = 8
 	}
 	if config.MaxPerIP <= 0 {
-		config.MaxPerIP = 8
+		config.MaxPerIP = min(2, config.MaxSessions)
 	}
 	return &Server{config: config, perIP: make(map[string]int)}
+}
+
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = strings.TrimSpace(r.RemoteAddr)
+	}
+	if peer := net.ParseIP(host); peer != nil && peer.IsLoopback() {
+		if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); net.ParseIP(realIP) != nil {
+			return realIP
+		}
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			first, _, _ := strings.Cut(xff, ",")
+			if parsed := net.ParseIP(strings.TrimSpace(first)); parsed != nil {
+				return parsed.String()
+			}
+		}
+	}
+	return host
 }
 
 func (s *Server) acquire(ip string) bool {
@@ -81,10 +100,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "websocket upgrade required", http.StatusBadRequest)
 		return
 	}
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		ip = r.RemoteAddr
-	}
+	ip := clientIP(r)
 	if !s.acquire(ip) {
 		http.Error(w, "demo is busy", http.StatusTooManyRequests)
 		return

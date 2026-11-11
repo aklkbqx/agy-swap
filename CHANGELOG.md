@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.23.3
+
+### Fixes
+
+- Run terminal UI credential checks, log activity polling, and account switches in the background, and cache vault presence checks across frames so the interface stays responsive (#104).
+- Read piped JSON in `agy-swap statusline` only when standard input is not a terminal so running the command interactively returns immediately (#104).
+- Skip redundant session reconciliation on interactive terminal UI startup and metadata-only commands, skip log scans on direct `switch` and `remove` commands, and keep parsed log cache data in memory when unchanged (#104).
+- Isolate account state during concurrent quota refreshes and active-session resolution, block direct backup, verification, target, binding, and update shortcuts in demo mode, and enforce per-IP demo session limits behind a loopback reverse proxy (#104).
+- Website update: synchronize release metadata and terminal story frames for v2.23.3 (#104).
+
 ## 2.23.2
 
 ### Changes

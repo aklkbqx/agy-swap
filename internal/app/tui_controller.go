@@ -18,6 +18,7 @@ type tuiController struct {
 	startJob          func(kind, label string, work func(context.Context) tuiJobResult)
 	startRefresh      func(force, quiet bool)
 	invalidateRefresh func()
+	accountsChanged   func()
 	performSwitch     func()
 	confirmSwitch     func()
 	finish            func()
@@ -113,6 +114,9 @@ func (c *tuiController) performDelete(email string) {
 		c.state.message, c.state.messageType = saveErr.Error(), "error"
 		return
 	}
+	if c.accountsChanged != nil {
+		c.accountsChanged()
+	}
 	if ref != "" && c.app.vault != nil {
 		_ = c.app.vault.Delete(c.ctx(), ref)
 	}
@@ -159,6 +163,9 @@ func (c *tuiController) toggleTier() {
 	if saveErr := c.app.store.Save(fresh); saveErr != nil {
 		c.state.message, c.state.messageType = saveErr.Error(), "error"
 		return
+	}
+	if c.accountsChanged != nil {
+		c.accountsChanged()
 	}
 	c.state.setAccounts(fresh)
 	c.state.message, c.state.messageType = "Set tier for "+email+" to "+firstString(plan, "Unknown"), "success"
@@ -596,7 +603,11 @@ func (c *tuiController) handleKeyEvent(rawKey, key string, armFrame func()) bool
 		}
 	case "t":
 		if state.view == tuiViewSettings {
-			a.beginTUIForm(state, "target")
+			if a.demo {
+				c.demoNotice()
+			} else {
+				a.beginTUIForm(state, "target")
+			}
 		} else {
 			c.toggleTier()
 		}
@@ -636,30 +647,58 @@ func (c *tuiController) handleKeyEvent(rawKey, key string, armFrame func()) bool
 		}
 	case "f":
 		if state.view == tuiViewSettings {
-			a.beginTUIForm(state, "binding")
+			if a.demo {
+				c.demoNotice()
+			} else {
+				a.beginTUIForm(state, "binding")
+			}
 		}
 	case "w":
 		if state.view == tuiViewDashboard {
-			a.tuiVerifySelected(c.ctx(), state)
+			if a.demo {
+				c.demoNotice()
+			} else {
+				a.tuiVerifySelected(c.ctx(), state)
+			}
 		}
 	case "v":
 		if state.view == tuiViewBackup {
-			a.beginTUIForm(state, "backup-verify")
+			if a.demo {
+				c.demoNotice()
+			} else {
+				a.beginTUIForm(state, "backup-verify")
+			}
 		}
 	case "x":
 		if state.view == tuiViewBackup {
-			a.beginTUIForm(state, "backup-export")
+			if a.demo {
+				c.demoNotice()
+			} else {
+				a.beginTUIForm(state, "backup-export")
+			}
 		} else if state.view == tuiViewHistory && len(state.history) > 0 {
-			a.beginTUIForm(state, "history-export")
+			if a.demo {
+				c.demoNotice()
+			} else {
+				a.beginTUIForm(state, "history-export")
+			}
 		}
 	case "i":
 		if state.view == tuiViewBackup {
-			a.beginTUIForm(state, "backup-import")
+			if a.demo {
+				c.demoNotice()
+			} else {
+				a.beginTUIForm(state, "backup-import")
+			}
 		}
 	case "e":
 		switch state.view {
 		case tuiViewBackup:
-			a.beginTUIForm(state, "backup-export-encrypted")
+			if a.demo {
+				c.demoNotice()
+			} else {
+				a.beginTUIForm(state, "backup-export-encrypted")
+			}
 		case tuiViewSettings:
 			a.beginTUIForm(state, "settings")
 		case tuiViewProfiles:
@@ -678,7 +717,11 @@ func (c *tuiController) handleKeyEvent(rawKey, key string, armFrame func()) bool
 	case "m":
 		c.suspend(func() int { return a.cmdAccount(c.ctx(), extendedOptions{Force: true}, []string{"migrate"}) })
 	case "u":
-		c.openConfirm("update", "")
+		if a.demo {
+			c.demoNotice()
+		} else {
+			c.openConfirm("update", "")
+		}
 	case "]", ">", "+", "alt-right", "alt-f":
 		state.adjustSplit(2)
 		state.message, state.messageType = state.splitMessage(), "info"

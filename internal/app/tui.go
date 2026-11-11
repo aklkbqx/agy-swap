@@ -33,6 +33,18 @@ type tuiJobEvent struct {
 	doctorChecks  []doctorCheck
 	doctorHealthy bool
 }
+type tuiCredentialEvent struct{ token string }
+type tuiActivityPollEvent struct {
+	busy bool
+	now  time.Time
+}
+type tuiSwitchEvent struct {
+	email   string
+	message string
+	kind    string
+	fresh   *Accounts
+	current string
+}
 
 type tuiJobResult struct {
 	message       string
@@ -43,11 +55,14 @@ type tuiJobResult struct {
 
 type tuiEvent interface{ tuiEvent() }
 
-func (tuiKeyEvent) tuiEvent()      {}
-func (tuiAccountsEvent) tuiEvent() {}
-func (tuiActiveEvent) tuiEvent()   {}
-func (tuiResizeEvent) tuiEvent()   {}
-func (tuiJobEvent) tuiEvent()      {}
+func (tuiKeyEvent) tuiEvent()          {}
+func (tuiAccountsEvent) tuiEvent()     {}
+func (tuiActiveEvent) tuiEvent()       {}
+func (tuiResizeEvent) tuiEvent()       {}
+func (tuiJobEvent) tuiEvent()          {}
+func (tuiCredentialEvent) tuiEvent()   {}
+func (tuiActivityPollEvent) tuiEvent() {}
+func (tuiSwitchEvent) tuiEvent()       {}
 
 func (a *Application) cmdInteractive(rootCtx context.Context) int {
 	tuiCtx := rootCtx
@@ -92,7 +107,6 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 	state := newTUIState(accounts, current)
 	state.startedAt = time.Now() // the screen wipes in once
 	state.vault = a.vault
-	state.active = a.activeHint(accounts, current)
 	var initialSplitOffset, initialStackOffset int
 	if initialSettings, err := a.loadSettings(); err == nil {
 		state.settings = initialSettings
@@ -172,7 +186,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 		}
 		state.active = ""
 		token := current
-		snapshot := state.accounts
+		snapshot := copyAccounts(state.accounts)
 		state.resolvingToken = token
 		go func() {
 			resolveCtx, cancel := context.WithTimeout(workerCtx, 5*time.Second)
@@ -207,6 +221,9 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 			a.renderTUI(state, outFile)
 		}
 		go func() {
+			if revision == 1 && !a.demo {
+				a.reconcileActiveSession(workerCtx)
+			}
 			fresh, loadErr := a.store.Load(!a.demo)
 			errs := map[string]string{}
 			if loadErr == nil && fresh.Len() > 0 && !a.demo {
@@ -378,29 +395,31 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 
 	// performSwitch switches in place: the dashboard stays on screen, with a
 	// status line while the session is written, and a toast with the result.
+	var switching bool
+	var credentialPolling bool
+	var activityPolling bool
 	performSwitch := func() {
-		email, _, ok := state.selectedAccount()
-		if !ok {
+		email, account, ok := state.selectedAccount()
+		if !ok || switching {
 			return
 		}
+		switching = true
+		invalidateRefresh()
+		accountSnap := copyAccount(account)
 		state.message, state.messageType = "Switching to "+email+"…", "info"
 		a.renderTUI(state, outFile)
-		message, kind := a.tuiSwitchSelected(ctx, state)
-		if fresh, loadErr := a.store.Load(false); loadErr == nil {
-			state.setAccounts(fresh)
-		}
-		current = a.credentials.Current(ctx)
-		state.current = current
-		if kind == "error" {
-			state.active = a.activeHint(state.accounts, current)
-		} else {
-			state.active = email
-		}
-		startActiveResolve()
-		state.message, state.messageType = "", "info"
-		state.showToast(message, kind)
-		a.renderTUI(state, outFile)
-		armFrame()
+		go func() {
+			message, kind := a.tuiSwitchAccount(workerCtx, email, accountSnap)
+			fresh, loadErr := a.store.Load(false)
+			if loadErr != nil {
+				fresh = nil
+			}
+			cur := a.credentials.Current(workerCtx)
+			select {
+			case events <- tuiSwitchEvent{email: email, message: message, kind: kind, fresh: fresh, current: cur}:
+			case <-workerCtx.Done():
+			}
+		}()
 	}
 
 	confirmSwitch := func() {
@@ -419,6 +438,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 		startJob:          startJob,
 		startRefresh:      startRefresh,
 		invalidateRefresh: invalidateRefresh,
+		accountsChanged:   func() { accountsWatch.changed() },
 		performSwitch:     performSwitch,
 		confirmSwitch:     confirmSwitch,
 		finish:            finish,
@@ -440,29 +460,40 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 				a.renderTUI(state, outFile)
 			}
 		case <-credentialTicker.C:
-			newToken := a.credentials.Current(ctx)
-			if newToken != current {
-				current = newToken
-				state.current = current
-				state.active = a.activeHint(state.accounts, current)
-				startActiveResolve()
-				a.renderTUI(state, outFile)
+			if credentialPolling || switching {
+				continue
 			}
+			credentialPolling = true
+			go func() {
+				tok := a.credentials.Current(workerCtx)
+				select {
+				case events <- tuiCredentialEvent{token: tok}:
+				case <-workerCtx.Done():
+				}
+			}()
 		case now := <-syncTicker.C:
 			if now.Minute() != lastMinute {
 				lastMinute = now.Minute()
 				a.renderTUI(state, outFile)
 			}
-			if refreshing || a.demo || a.quota == nil {
+			if refreshing || switching || a.demo || a.quota == nil {
 				continue
 			}
 			if accountsWatch.changed() {
 				startRefreshFor([]string{}, false, true) // another process changed the accounts
 				continue
 			}
-			if now.Sub(activityPolled) >= tuiActivityPoll {
-				activity.poll(now)
+			if !activityPolling && now.Sub(activityPolled) >= tuiActivityPoll {
+				activityPolling = true
 				activityPolled = now
+				go func(pollTime time.Time) {
+					activity.poll(pollTime)
+					busy := activity.due(pollTime)
+					select {
+					case events <- tuiActivityPollEvent{busy: busy, now: pollTime}:
+					case <-workerCtx.Done():
+					}
+				}(now)
 			}
 			busy := activity.due(now)
 			if due := state.dueEmails(now, tried, a.quota.BackoffUntil, busy); len(due) > 0 {
@@ -470,7 +501,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 					tried[email] = now
 				}
 				if busy {
-					activity.read = now
+					activity.markRead(now)
 				}
 				startRefreshFor(due, false, true)
 			}
@@ -482,6 +513,45 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 			armFrame()
 		case event := <-events:
 			switch value := event.(type) {
+			case tuiCredentialEvent:
+				credentialPolling = false
+				if value.token != current {
+					current = value.token
+					state.current = current
+					state.active = a.activeHint(state.accounts, current)
+					startActiveResolve()
+					a.renderTUI(state, outFile)
+				}
+			case tuiActivityPollEvent:
+				activityPolling = false
+				if refreshing || switching || a.demo || a.quota == nil || !value.busy {
+					continue
+				}
+				if due := state.dueEmails(value.now, tried, a.quota.BackoffUntil, true); len(due) > 0 {
+					for _, email := range due {
+						tried[email] = value.now
+					}
+					activity.markRead(value.now)
+					startRefreshFor(due, false, true)
+				}
+			case tuiSwitchEvent:
+				switching = false
+				accountsWatch.changed()
+				if value.fresh != nil {
+					state.setAccounts(value.fresh)
+				}
+				current = value.current
+				state.current = current
+				if value.kind == "error" {
+					state.active = a.activeHint(state.accounts, current)
+				} else {
+					state.active = value.email
+				}
+				startActiveResolve()
+				state.message, state.messageType = "", "info"
+				state.showToast(value.message, value.kind)
+				a.renderTUI(state, outFile)
+				armFrame()
 			case tuiAccountsEvent:
 				if value.revision != refreshRevision {
 					// A slower refresh must never overwrite a newer frame.
@@ -528,6 +598,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 					state.doctorChecks, state.doctorHealthy = value.doctorChecks, value.doctorHealthy
 				}
 				if value.kind == "backup-import" && value.err == nil {
+					accountsWatch.changed()
 					fresh, loadErr := a.store.Load(false)
 					if loadErr == nil {
 						state.setAccounts(fresh)

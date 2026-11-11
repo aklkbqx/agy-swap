@@ -650,11 +650,7 @@ func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, for
 				progress(done, accounts.Len(), account, "cached")
 			}
 		} else {
-			copyAccount := make(Account, len(account))
-			for k, v := range account {
-				copyAccount[k] = v
-			}
-			fetch = append(fetch, item{email, copyAccount})
+			fetch = append(fetch, item{email, copyAccount(account)})
 		}
 	}
 	errorsByEmail := make(map[string]string)
@@ -696,8 +692,7 @@ func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, for
 		original := accounts.ByEmail[result.item.email]
 		if updated := getString(result.item.account, "token_data"); updated != "" && updated != getString(original, "token_data") {
 			if q.vault != nil {
-				app := &Application{vault: q.vault}
-				old, ok := app.saveAccountSecret(ctx, result.item.account, updated)
+				old, ok := saveAccountSecretWithVault(ctx, q.vault, result.item.account, updated)
 				if !ok {
 					errorsByEmail["storage"] = "Vault unavailable; refreshed token stored in private accounts file"
 				} else if old != "" {
@@ -746,7 +741,7 @@ func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, for
 		if err := q.store.Save(accounts); err != nil {
 			errorsByEmail["store"] = err.Error()
 		} else if q.vault != nil {
-			(&Application{vault: q.vault}).deleteReplacedSecrets(ctx, replaced)
+			deleteReplacedSecretsWithVault(ctx, q.vault, replaced)
 		}
 	}
 	return errorsByEmail

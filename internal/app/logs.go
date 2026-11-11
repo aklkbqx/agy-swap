@@ -53,7 +53,12 @@ type persistentLogCache struct {
 	Files   map[string]logFileCache `json:"files"`
 }
 
-type LogScanner struct{ paths Paths }
+type LogScanner struct {
+	paths         Paths
+	mu            sync.Mutex
+	memCache      persistentLogCache
+	memCacheMtime int64
+}
 
 func NewLogScanner(paths Paths) *LogScanner { return &LogScanner{paths: paths} }
 
@@ -71,9 +76,13 @@ func (s *LogScanner) discover() []logCandidate {
 			roots = append(roots, filepath.Join(appdata, "Google", "Antigravity", "logs"), filepath.Join(appdata, "Antigravity", "logs"))
 		}
 	}
+	cutoff := time.Now().Add(-maxLimitDuration)
 	seen := make(map[string]struct{})
 	var result []logCandidate
 	add := func(path string, info os.FileInfo) {
+		if info.ModTime().Before(cutoff) {
+			return
+		}
 		clean := filepath.Clean(path)
 		if _, ok := seen[clean]; ok {
 			return
@@ -121,7 +130,21 @@ func (s *LogScanner) selected() []logCandidate {
 	return selected
 }
 
+func clonePersistentLogCache(c persistentLogCache) persistentLogCache {
+	files := make(map[string]logFileCache, len(c.Files))
+	for k, v := range c.Files {
+		files[k] = v
+	}
+	return persistentLogCache{Version: c.Version, Files: files}
+}
+
 func (s *LogScanner) loadCache() persistentLogCache {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	stat, statErr := os.Stat(s.paths.LogCache)
+	if statErr == nil && s.memCache.Version == 1 && s.memCache.Files != nil && s.memCacheMtime == stat.ModTime().UnixNano() {
+		return clonePersistentLogCache(s.memCache)
+	}
 	result := persistentLogCache{Version: 1, Files: make(map[string]logFileCache)}
 	data, err := os.ReadFile(s.paths.LogCache)
 	if err != nil {
@@ -130,7 +153,23 @@ func (s *LogScanner) loadCache() persistentLogCache {
 	if json.Unmarshal(data, &result) != nil || result.Version != 1 || result.Files == nil {
 		return persistentLogCache{Version: 1, Files: make(map[string]logFileCache)}
 	}
+	if statErr == nil {
+		s.memCache = clonePersistentLogCache(result)
+		s.memCacheMtime = stat.ModTime().UnixNano()
+	}
 	return result
+}
+
+func (s *LogScanner) storeCache(next persistentLogCache) {
+	if atomicWriteJSON(s.paths.LogCache, next) != nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if stat, err := os.Stat(s.paths.LogCache); err == nil {
+		s.memCache = clonePersistentLogCache(next)
+		s.memCacheMtime = stat.ModTime().UnixNano()
+	}
 }
 
 func (s *LogScanner) Scan() (map[string]map[string]LimitRecord, map[string]map[string]EvidenceRecord, error) {
@@ -161,7 +200,7 @@ func (s *LogScanner) Scan() (map[string]map[string]LimitRecord, map[string]map[s
 		changed = true
 	}
 	if changed {
-		_ = atomicWriteJSON(s.paths.LogCache, next)
+		s.storeCache(next)
 	}
 	merged := make(map[string]map[string]EvidenceRecord)
 	for _, file := range next.Files {

@@ -108,9 +108,13 @@ func (a *Application) cmdStatusline(ctx context.Context, opts extendedOptions, p
 	}
 	switch sub {
 	case "render", "run":
-		data, readErr := io.ReadAll(io.LimitReader(a.In, maxTokenBytes+1))
-		if readErr != nil {
-			return a.extendedError("statusline render", opts, readErr)
+		var data []byte
+		if !a.stdinTTY && a.In != nil {
+			var readErr error
+			data, readErr = io.ReadAll(io.LimitReader(a.In, maxTokenBytes+1))
+			if readErr != nil {
+				return a.extendedError("statusline render", opts, readErr)
+			}
 		}
 		if len(data) > maxTokenBytes {
 			return a.extendedError("statusline render", opts, errors.New("statusline input exceeds limit"))

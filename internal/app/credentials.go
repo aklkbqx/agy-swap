@@ -228,6 +228,9 @@ func (c *Credentials) keyringMarkerPaths() []string {
 func (c *Credentials) writeKeyringBypassMarker() {
 	future := time.Now().Add(10 * 365 * 24 * time.Hour)
 	for _, marker := range c.keyringMarkerPaths() {
+		if info, err := os.Stat(marker); err == nil && time.Until(info.ModTime()) > 5*365*24*time.Hour {
+			continue
+		}
 		if err := ensurePrivateDir(filepath.Dir(marker)); err != nil {
 			continue
 		}
