@@ -138,11 +138,15 @@ func (v *fileAccountVault) Get(_ context.Context, ref string) (string, bool) {
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.cached != nil && v.cachedFileInfo != nil {
-		if info, statErr := os.Stat(v.path); statErr == nil && os.SameFile(info, v.cachedFileInfo) && info.ModTime().Equal(v.cachedFileInfo.ModTime()) && info.Size() == v.cachedFileInfo.Size() {
-			val, ok := v.cached[ref]
-			return val, ok && val != ""
-		}
+	info, statErr := os.Stat(v.path)
+	if errors.Is(statErr, os.ErrNotExist) {
+		v.cached = nil
+		v.cachedFileInfo = nil
+		return "", false
+	}
+	if statErr == nil && v.cached != nil && v.cachedFileInfo != nil && os.SameFile(info, v.cachedFileInfo) && info.ModTime().Equal(v.cachedFileInfo.ModTime()) && info.Size() == v.cachedFileInfo.Size() {
+		val, ok := v.cached[ref]
+		return val, ok && val != ""
 	}
 	lock, err := v.fileLock(false)
 	if err != nil {
@@ -203,24 +207,46 @@ func (v *fileAccountVault) Delete(_ context.Context, ref string) bool {
 }
 
 type hybridVault struct {
-	primary  AccountVault
-	fallback AccountVault
+	mu              sync.Mutex
+	primary         AccountVault
+	fallback        AccountVault
+	fallbackChecked map[string]bool
 }
 
 func (h *hybridVault) Get(ctx context.Context, ref string) (string, bool) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", false
+	}
 	if val, ok := h.primary.Get(ctx, ref); ok && val != "" {
 		return val, true
 	}
 	if h.fallback != nil {
+		h.mu.Lock()
+		alreadyChecked := h.fallbackChecked[ref]
+		h.mu.Unlock()
+		if alreadyChecked {
+			return "", false
+		}
 		if val, ok := h.fallback.Get(ctx, ref); ok && val != "" {
 			_ = h.primary.Set(ctx, ref, val)
 			return val, true
 		}
+		h.mu.Lock()
+		if h.fallbackChecked == nil {
+			h.fallbackChecked = make(map[string]bool)
+		}
+		h.fallbackChecked[ref] = true
+		h.mu.Unlock()
 	}
 	return "", false
 }
 
 func (h *hybridVault) Set(ctx context.Context, ref, token string) bool {
+	ref = strings.TrimSpace(ref)
+	h.mu.Lock()
+	delete(h.fallbackChecked, ref)
+	h.mu.Unlock()
 	ok := h.primary.Set(ctx, ref, token)
 	if ok && h.fallback != nil {
 		_ = h.fallback.Delete(ctx, ref)
@@ -229,6 +255,10 @@ func (h *hybridVault) Set(ctx context.Context, ref, token string) bool {
 }
 
 func (h *hybridVault) Delete(ctx context.Context, ref string) bool {
+	ref = strings.TrimSpace(ref)
+	h.mu.Lock()
+	delete(h.fallbackChecked, ref)
+	h.mu.Unlock()
 	pOk := h.primary.Delete(ctx, ref)
 	fOk := true
 	if h.fallback != nil {

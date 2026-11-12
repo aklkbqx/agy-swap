@@ -55,6 +55,7 @@ func (w *fileWatch) changed() bool {
 
 // tuiActivity follows Antigravity's newest log files.
 type tuiActivity struct {
+	pollMu   sync.Mutex
 	mu       sync.Mutex
 	list     func() []string
 	files    map[string]fileStamp
@@ -82,26 +83,38 @@ func newTUIActivity(scanner *LogScanner) *tuiActivity {
 
 // poll looks at the log files and notes activity when one changed.
 func (w *tuiActivity) poll(now time.Time) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	w.pollMu.Lock()
+	defer w.pollMu.Unlock()
 	if w.files == nil || now.Sub(w.listedAt) >= tuiActivityList {
 		files := map[string]fileStamp{}
+		atChanged := false
 		for _, path := range w.list() {
 			if stamp, ok := stampOf(path); ok {
 				files[path] = stamp
 				if old, known := w.files[path]; w.files != nil && (!known || old != stamp) {
-					w.at = now
+					atChanged = true
 				}
 			}
 		}
 		w.files, w.listedAt = files, now
+		if atChanged {
+			w.mu.Lock()
+			w.at = now
+			w.mu.Unlock()
+		}
 		return
 	}
+	atChanged := false
 	for path, old := range w.files {
 		if stamp, ok := stampOf(path); ok && stamp != old {
 			w.files[path] = stamp
-			w.at = now
+			atChanged = true
 		}
+	}
+	if atChanged {
+		w.mu.Lock()
+		w.at = now
+		w.mu.Unlock()
 	}
 }
 

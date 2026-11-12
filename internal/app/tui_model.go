@@ -287,14 +287,37 @@ func (s *tuiState) clampSelection() {
 }
 
 func (s *tuiState) setAccounts(accounts *Accounts) {
+	s.setAccountsWithVaultCache(accounts, nil)
+}
+
+func (s *tuiState) setAccountsWithVaultCache(accounts *Accounts, vaultCache map[string]bool) {
 	if accounts != nil {
 		s.accounts = accounts
 	}
-	s.vaultCache = nil
+	s.vaultCache = vaultCache
 	s.clampSelection()
 	if local := localActiveEmail(s.accounts, s.current); local != "" {
 		s.active = local
 	}
+}
+
+func (a *Application) warmVaultCache(ctx context.Context, accounts *Accounts) map[string]bool {
+	cache := make(map[string]bool)
+	if a == nil || a.vault == nil || accounts == nil {
+		return cache
+	}
+	for _, email := range accounts.Order {
+		account := accounts.ByEmail[email]
+		ref := getString(account, "secret_ref")
+		tokenData := getString(account, "token_data")
+		if ref != "" && tokenData == "" {
+			if _, seen := cache[ref]; !seen {
+				_, present := a.vault.Get(ctx, ref)
+				cache[ref] = present
+			}
+		}
+	}
+	return cache
 }
 
 func (s *tuiState) showToast(message, kind string) {

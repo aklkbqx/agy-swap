@@ -8,12 +8,12 @@ Historical documentation covers all versions; security fixes support only latest
 
 | Version | GitHub record | Published UTC | Assets | Matching Site tag observed | Evidence |
 | --- | --- | --- | ---: | --- | --- |
-| v2.23.3 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.23.3) | 2026-11-11T04:54:31Z | 7 | Yes | Recorded metadata |
-| v2.23.2 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.23.2) | 2026-11-08T13:15:40Z | 7 | Yes | Recorded metadata |
-| v2.23.1 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.23.1) | 2026-11-08T13:02:33Z | 7 | Yes | Recorded metadata |
-| v2.23.0 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.23.0) | 2026-11-08T12:24:30Z | 7 | Yes | Recorded metadata |
+| v2.23.3 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.23.3) | 2026-11-11T04:54:31Z | 7 | Yes | [Delivery summary](v2.23.3.md) |
+| v2.23.2 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.23.2) | 2026-11-08T13:15:40Z | 7 | Yes | [Delivery summary](v2.23.2.md) |
+| v2.23.1 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.23.1) | 2026-11-08T13:02:33Z | 7 | Yes | [Delivery summary](v2.23.1.md) |
+| v2.23.0 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.23.0) | 2026-11-08T12:24:30Z | 7 | Yes | [Delivery summary](v2.23.0.md) |
 | v2.22.2 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.22.2) | 2026-11-07T20:58:53Z | 7 | Yes | Recorded metadata |
-| v2.22.1 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.22.1) | 2026-11-07T10:31:07Z | 7 | Yes | Recorded metadata |
+| v2.22.1 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.22.1) | 2026-11-07T10:31:07Z | 7 | Yes | [Delivery summary](v2.22.1.md) |
 | v2.22.0 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.22.0) | 2026-11-06T11:28:00Z | 7 | Yes | [Delivery summary](v2.22.0.md) |
 | v2.21.0 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.21.0) | 2026-11-06T07:10:23Z | 7 | Yes | [Delivery summary](v2.21.0.md) |
 | v2.20.1 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.20.1) | 2026-10-30T18:53:23Z | 7 | Yes | Recorded metadata |

@@ -28,7 +28,7 @@ const (
 	tuiCaretBlink    = 530 * time.Millisecond
 	tuiRefreshSweep  = 1100 * time.Millisecond // one pass of the light while a refresh runs
 	tuiBreathPeriod  = 3 * time.Second         // one breath of the active dot
-	tuiAmbientFrame  = 50 * time.Millisecond   // frames while only the dot breathes
+	tuiAmbientFrame  = 250 * time.Millisecond  // frames while only the dot breathes
 )
 
 type tuiTween struct {

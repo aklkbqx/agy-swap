@@ -355,3 +355,111 @@ func TestMatchAccountByTokenUsesRefreshHashWithoutVaultRead(t *testing.T) {
 		t.Fatalf("expected 0 vault.Get calls when refresh_hash is present, got %d", got)
 	}
 }
+
+func TestTUIActivityDueDoesNotBlockWhilePollWalksSlowDisk(t *testing.T) {
+	enteredList := make(chan struct{})
+	releaseList := make(chan struct{})
+	w := &tuiActivity{
+		list: func() []string {
+			close(enteredList)
+			<-releaseList
+			return nil
+		},
+	}
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	pollDone := make(chan struct{})
+	go func() {
+		defer close(pollDone)
+		w.poll(now)
+	}()
+	<-enteredList
+
+	dueDone := make(chan bool, 1)
+	go func() {
+		dueDone <- w.due(now)
+	}()
+	select {
+	case <-dueDone:
+	case <-time.After(50 * time.Millisecond):
+		close(releaseList)
+		<-pollDone
+		t.Fatal("tuiActivity.due blocked on mutex while poll was executing slow filesystem list()")
+	}
+	close(releaseList)
+	<-pollDone
+}
+
+func TestHybridVaultCachesNegativeFallbackLookups(t *testing.T) {
+	primary := newMemoryVault()
+	fallbackBase := newMemoryVault()
+	fallback := &countingVault{AccountVault: fallbackBase}
+	h := &hybridVault{primary: primary, fallback: fallback}
+	ctx := context.Background()
+
+	ref := "account:missing@example.com"
+	for i := 0; i < 10; i++ {
+		if val, ok := h.Get(ctx, ref); ok || val != "" {
+			t.Fatalf("expected missing secret on attempt %d, got %q", i, val)
+		}
+	}
+	if got := atomic.LoadInt32(&fallback.gets); got != 1 {
+		t.Fatalf("expected hybridVault to query fallback at most once for missing secret, got %d", got)
+	}
+
+	// If fallback later receives a value and Delete clears negative cache, it can be queried again.
+	fallbackBase.Set(ctx, ref, "recovered-token")
+	h.Delete(ctx, ref)
+	fallbackBase.Set(ctx, ref, "recovered-token")
+	if val, ok := h.Get(ctx, ref); !ok || val != "recovered-token" {
+		t.Fatalf("expected recovered-token after cache reset, got %q (ok=%v)", val, ok)
+	}
+}
+
+func TestSetAccountsWithVaultCacheSkipsMainThreadVaultLookups(t *testing.T) {
+	f := newCLIFixture(t)
+	cv := &countingVault{AccountVault: f.a.vault}
+	f.a.vault = cv
+
+	accounts := NewAccounts()
+	email := "warm@example.com"
+	ref := accountSecretRef(email)
+	tok := tokenBlob(t, email, true, "ref-warm", time.Now().Add(time.Hour))
+	f.a.vault.Set(context.Background(), ref, tok)
+	accounts.Set(email, Account{
+		"email":      email,
+		"name":       "Warm User",
+		"secret_ref": ref,
+		"token_hash": hashToken(tok),
+	})
+
+	state := newTUIState(NewAccounts(), tok)
+	state.vault = cv
+
+	// Background goroutine warms the vault cache before sending tuiAccountsEvent.
+	warmed := f.a.warmVaultCache(context.Background(), accounts)
+	atomic.StoreInt32(&cv.gets, 0)
+
+	// Main UI thread applies accounts with the pre-warmed cache and renders.
+	state.setAccountsWithVaultCache(accounts, warmed)
+	_ = f.a.tuiLines(state, 118, 30)
+	if got := atomic.LoadInt32(&cv.gets); got != 0 {
+		t.Fatalf("expected 0 vault.Get calls on main UI thread after setAccountsWithVaultCache, got %d", got)
+	}
+}
+
+func TestCoalescePointerKeyEventDrainsQueuedMouseMovesWithoutDroppingKeys(t *testing.T) {
+	events := make(chan tuiEvent, 16)
+	events <- tuiKeyEvent{key: "mouse:move:2:3"}
+	events <- tuiKeyEvent{key: "mouse:move:4:5"}
+	events <- tuiKeyEvent{key: "mouse:move:8:9"}
+	events <- tuiKeyEvent{key: "j"}
+
+	got, staged := coalescePointerKeyEvent(tuiKeyEvent{key: "mouse:move:1:1"}, events)
+	if got.key != "mouse:move:8:9" {
+		t.Fatalf("coalesced mouse move = %q, want mouse:move:8:9", got.key)
+	}
+	stagedKey, ok := staged.(tuiKeyEvent)
+	if !ok || stagedKey.key != "j" {
+		t.Fatalf("staged event = %#v, want tuiKeyEvent{key: \"j\"}", staged)
+	}
+}

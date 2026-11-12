@@ -57,8 +57,8 @@
         }
       ],
       "siteTagPresent": true,
-      "evidence": "historical-metadata",
-      "evidenceDocument": null
+      "evidence": "verified-delivery-summary",
+      "evidenceDocument": "v2.23.3.md"
     },
     {
       "tag": "v2.23.2",
@@ -113,8 +113,8 @@
         }
       ],
       "siteTagPresent": true,
-      "evidence": "historical-metadata",
-      "evidenceDocument": null
+      "evidence": "verified-delivery-summary",
+      "evidenceDocument": "v2.23.2.md"
     },
     {
       "tag": "v2.23.1",
@@ -169,8 +169,8 @@
         }
       ],
       "siteTagPresent": true,
-      "evidence": "historical-metadata",
-      "evidenceDocument": null
+      "evidence": "verified-delivery-summary",
+      "evidenceDocument": "v2.23.1.md"
     },
     {
       "tag": "v2.23.0",
@@ -225,8 +225,8 @@
         }
       ],
       "siteTagPresent": true,
-      "evidence": "historical-metadata",
-      "evidenceDocument": null
+      "evidence": "verified-delivery-summary",
+      "evidenceDocument": "v2.23.0.md"
     },
     {
       "tag": "v2.22.2",
@@ -337,8 +337,8 @@
         }
       ],
       "siteTagPresent": true,
-      "evidence": "historical-metadata",
-      "evidenceDocument": null
+      "evidence": "verified-delivery-summary",
+      "evidenceDocument": "v2.22.1.md"
     },
     {
       "tag": "v2.22.0",

@@ -37,6 +37,11 @@ func (a *Application) tuiPoolBody(state *tuiState, width, height int) []string {
 // tuiFitPlan keeps the richest digit mode whose detail fits the rows on offer,
 // so a short terminal shows plain limit lines instead of a cut-off panel.
 func (a *Application) tuiFitPlan(state *tuiState, width, budget int, plan tuiLayoutPlan) tuiLayoutPlan {
+	fitted, _ := a.tuiFitPlanWithDetail(state, width, budget, plan)
+	return fitted
+}
+
+func (a *Application) tuiFitPlanWithDetail(state *tuiState, width, budget int, plan tuiLayoutPlan) (tuiLayoutPlan, []string) {
 	var candidates []tuiLayoutPlan
 	with := func(digits tuiDigits, panels tuiPanels, tight bool) {
 		candidate := plan
@@ -72,12 +77,14 @@ func (a *Application) tuiFitPlan(state *tuiState, width, budget int, plan tuiLay
 	}
 	with(digitsNone, plan.panels, false)
 	with(digitsNone, plan.panels, true)
+	var lastDetail []string
 	for _, candidate := range candidates {
-		if len(a.tuiGaugeDetail(state, width, 0, candidate)) <= budget {
-			return candidate
+		lastDetail = a.tuiGaugeDetail(state, width, 0, candidate)
+		if len(lastDetail) <= budget {
+			return candidate, lastDetail
 		}
 	}
-	return candidates[len(candidates)-1]
+	return candidates[len(candidates)-1], lastDetail
 }
 
 // tuiEmptyBody is the first screen: no accounts, so one column of welcome text
@@ -132,8 +139,11 @@ func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLa
 	if hoverUnselected && len(hits) > 0 && strings.EqualFold(hits[len(hits)-1], state.hover.key) && len(list) < available {
 		list = append(list, a.tuiHoverRow("", g.leftWidth))
 	}
-	plan = a.tuiFitPlan(state, g.rightWidth, available, plan)
-	details := a.tuiScrollDetail(state, a.tuiGaugeDetail(state, g.rightWidth, available, plan), available, g.rightWidth, func(width int) []string {
+	plan, fittedDetail := a.tuiFitPlanWithDetail(state, g.rightWidth, available, plan)
+	if available > 0 && len(fittedDetail) > available {
+		fittedDetail = fittedDetail[:available]
+	}
+	details := a.tuiScrollDetail(state, fittedDetail, available, g.rightWidth, func(width int) []string {
 		return a.tuiGaugeDetail(state, width, available, plan)
 	})
 	state.bodySplit = g.leftWidth + 4
@@ -190,8 +200,8 @@ func (a *Application) tuiPoolColumnBody(state *tuiState, g tuiGeometry, plan tui
 	air := g.bodyRows >= tuiStackAirRows
 	if air && hasSelected {
 		minList := minInt(len(list), plan.listLines*2)
-		airy := a.tuiFitPlan(state, g.contentWidth, maxInt(1, avail-4-minList), plan)
-		air = len(a.tuiGaugeDetail(state, g.contentWidth, 0, airy)) <= avail-4-minInt(len(list), plan.listLines*3)
+		_, airyDetail := a.tuiFitPlanWithDetail(state, g.contentWidth, maxInt(1, avail-4-minList), plan)
+		air = len(airyDetail) <= avail-4-minInt(len(list), plan.listLines*3)
 	}
 	if air {
 		lines = append(lines, frameRow("", g, a.p))
@@ -207,8 +217,7 @@ func (a *Application) tuiPoolColumnBody(state *tuiState, g tuiGeometry, plan tui
 	var detail []string
 	if hasSelected {
 		minList := minInt(len(list), plan.listLines*2)
-		fitted := a.tuiFitPlan(state, g.contentWidth, maxInt(1, avail-ruleRows-minList), plan)
-		detail = a.tuiGaugeDetail(state, g.contentWidth, 0, fitted)
+		_, detail = a.tuiFitPlanWithDetail(state, g.contentWidth, maxInt(1, avail-ruleRows-minList), plan)
 	}
 	listBudget, detailBudget := len(list), 0
 	if len(detail) > 0 {
@@ -229,7 +238,7 @@ func (a *Application) tuiPoolColumnBody(state *tuiState, g tuiGeometry, plan tui
 			if shown := a.tuiAccountRowsMeasure(state, g.contentWidth, listBudget, plan.listLines, true); len(shown) > 0 {
 				natural = minInt(listBudget, len(shown))
 			}
-			whole := len(a.tuiAccountRowsMeasure(state, g.contentWidth, 1000, plan.listLines, true))
+			whole := len(list)
 			lo := minInt(natural, maxInt(maxInt(1, plan.listLines), room-len(detail)))
 			hi := maxInt(natural, minInt(whole, room-minInt(len(detail), 3)))
 			listBudget = maxInt(lo, minInt(hi, natural+state.stackOffset))
@@ -238,9 +247,9 @@ func (a *Application) tuiPoolColumnBody(state *tuiState, g tuiGeometry, plan tui
 			state.stackRuleBase = len(lines) + natural + ruleRows/2
 			// A smaller detail picks the richest form that still fits, and
 			// scrolls when even that is too tall.
-			fitted := a.tuiFitPlan(state, g.contentWidth, detailBudget, plan)
+			fitted, fittedDetail := a.tuiFitPlanWithDetail(state, g.contentWidth, detailBudget, plan)
 			if detailBudget < len(detail) {
-				detail = a.tuiGaugeDetail(state, g.contentWidth, 0, fitted)
+				detail = fittedDetail
 			}
 			detail = a.tuiScrollDetail(state, detail, detailBudget, g.contentWidth, func(width int) []string {
 				return a.tuiGaugeDetail(state, width, 0, fitted)

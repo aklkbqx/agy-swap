@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.23.4
+
+### Fixes
+
+- Pre-warm vault presence checks and resolve active-account hints in background workers so rendering and account updates never block on keychain or file lookups, and cache missing fallback lookups until the vault entry changes (#105).
+- Coalesce queued mouse movement and drag events so fast pointer motion updates to the latest position without delaying keyboard input (#105).
+- Keep terminal UI ticks unblocked while background log-activity checks walk slow disks, skip redundant log scans when another process updates the account list, reuse fitted gauge-panel measurements during layout sizing, and lower the idle active-indicator frame rate (#105).
+- Link recorded delivery summaries for `v2.22.1` and `v2.23.0` through `v2.23.3` in the release history index and remove a stale version note from the project overview (#105).
+- Require Go 1.27.4 or newer for builds and `go install` to address standard-library HTTP vulnerability GO-2026-6859 (#105).
+- Website update: synchronize the Go 1.27.4 requirement, release metadata, and terminal story frames for v2.23.4 (#105).
+
 ## 2.23.3
 
 ### Fixes

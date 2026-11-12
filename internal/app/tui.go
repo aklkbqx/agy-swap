@@ -17,6 +17,7 @@ import (
 type tuiKeyEvent struct{ key string }
 type tuiAccountsEvent struct {
 	accounts    *Accounts
+	vaultCache  map[string]bool
 	quotaErrors map[string]string
 	revision    uint64
 }
@@ -39,11 +40,12 @@ type tuiActivityPollEvent struct {
 	now  time.Time
 }
 type tuiSwitchEvent struct {
-	email   string
-	message string
-	kind    string
-	fresh   *Accounts
-	current string
+	email      string
+	message    string
+	kind       string
+	fresh      *Accounts
+	vaultCache map[string]bool
+	current    string
 }
 
 type tuiJobResult struct {
@@ -107,6 +109,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 	state := newTUIState(accounts, current)
 	state.startedAt = time.Now() // the screen wipes in once
 	state.vault = a.vault
+	state.vaultCache = a.warmVaultCache(ctx, accounts)
 	var initialSplitOffset, initialStackOffset int
 	if initialSettings, err := a.loadSettings(); err == nil {
 		state.settings = initialSettings
@@ -162,7 +165,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 				select {
 				case <-done:
 					return
-				case <-time.After(10 * time.Millisecond):
+				default:
 				}
 				continue
 			}
@@ -174,24 +177,35 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 		}
 	}()
 
+	var resolvedToken, resolvedEmail string
 	startActiveResolve := func() {
-		local := a.activeHint(state.accounts, current)
+		local := localActiveEmail(state.accounts, current)
 		if local != "" || current == "" {
 			state.active = local
 			state.resolvingToken = ""
+			resolvedToken, resolvedEmail = current, local
 			return
+		}
+		if current == resolvedToken && resolvedEmail != "" && state.accounts != nil {
+			if _, ok := state.accounts.Get(resolvedEmail); ok {
+				state.active = resolvedEmail
+				state.resolvingToken = ""
+				return
+			}
 		}
 		if state.resolvingToken == current {
 			return
 		}
-		state.active = ""
 		token := current
 		snapshot := copyAccounts(state.accounts)
 		state.resolvingToken = token
 		go func() {
-			resolveCtx, cancel := context.WithTimeout(workerCtx, 5*time.Second)
-			email := a.activeEmail(resolveCtx, snapshot, token)
-			cancel()
+			email := a.activeHint(snapshot, token)
+			if email == "" {
+				resolveCtx, cancel := context.WithTimeout(workerCtx, 5*time.Second)
+				email = a.activeEmail(resolveCtx, snapshot, token)
+				cancel()
+			}
 			select {
 			case events <- tuiActiveEvent{token: token, email: email}:
 			case <-workerCtx.Done():
@@ -206,7 +220,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 	refreshQuiet := false
 	// startRefreshFor reads the quota of these accounts (every account when
 	// emails is nil, none when it is empty: then it only reloads the store).
-	startRefreshFor := func(emails []string, force, quiet bool) {
+	startRefreshFor := func(emails []string, force, quiet, syncLogs bool) {
 		if refreshing {
 			return
 		}
@@ -224,7 +238,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 			if revision == 1 && !a.demo {
 				a.reconcileActiveSession(workerCtx)
 			}
-			fresh, loadErr := a.store.Load(!a.demo)
+			fresh, loadErr := a.store.Load(!a.demo && syncLogs)
 			errs := map[string]string{}
 			if loadErr == nil && fresh.Len() > 0 && !a.demo {
 				switch {
@@ -237,13 +251,17 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 			if loadErr != nil {
 				errs["store"] = loadErr.Error()
 			}
+			var vaultCache map[string]bool
+			if loadErr == nil && fresh != nil {
+				vaultCache = a.warmVaultCache(workerCtx, fresh)
+			}
 			select {
-			case events <- tuiAccountsEvent{accounts: fresh, quotaErrors: errs, revision: revision}:
+			case events <- tuiAccountsEvent{accounts: fresh, vaultCache: vaultCache, quotaErrors: errs, revision: revision}:
 			case <-workerCtx.Done():
 			}
 		}()
 	}
-	startRefresh := func(force, quiet bool) { startRefreshFor(nil, force, quiet) }
+	startRefresh := func(force, quiet bool) { startRefreshFor(nil, force, quiet, true) }
 	invalidateRefresh := func() {
 		// Mutating actions must invalidate an in-flight snapshot. Otherwise a
 		// slower quota response could repaint accounts that were just changed.
@@ -366,11 +384,12 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 		state.lastFrame = nil // the screen was left, so the next frame is painted whole
 		fresh, loadErr := a.store.Load(false)
 		if loadErr == nil {
-			state.setAccounts(fresh)
+			state.setAccountsWithVaultCache(fresh, a.warmVaultCache(ctx, fresh))
 		}
 		current = a.credentials.Current(ctx)
 		state.current = current
-		state.active = a.activeHint(state.accounts, current)
+		resolvedToken, resolvedEmail = "", ""
+		state.active = localActiveEmail(state.accounts, current)
 		startActiveResolve()
 		a.renderTUI(state, outFile)
 		return code
@@ -411,12 +430,15 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 		go func() {
 			message, kind := a.tuiSwitchAccount(workerCtx, email, accountSnap)
 			fresh, loadErr := a.store.Load(false)
+			var vaultCache map[string]bool
 			if loadErr != nil {
 				fresh = nil
+			} else if fresh != nil {
+				vaultCache = a.warmVaultCache(workerCtx, fresh)
 			}
 			cur := a.credentials.Current(workerCtx)
 			select {
-			case events <- tuiSwitchEvent{email: email, message: message, kind: kind, fresh: fresh, current: cur}:
+			case events <- tuiSwitchEvent{email: email, message: message, kind: kind, fresh: fresh, vaultCache: vaultCache, current: cur}:
 			case <-workerCtx.Done():
 			}
 		}()
@@ -444,220 +466,264 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 		finish:            finish,
 	}
 
+	var stagedEvent tuiEvent
 	for {
 		// A render can start motion (a new target, a dialog, a toast); keep
 		// frames coming until it settles.
 		if frameC == nil && (state.moving(time.Now()) || state.ambient) {
 			armFrame()
 		}
-		select {
-		case <-tuiCtx.Done():
-			finish()
-			return 0
-		case <-resizeTicker.C:
-			width, height, sizeErr := termSize(outFile)
-			if sizeErr == nil && (width != state.width || height != state.height) {
-				a.renderTUI(state, outFile)
-			}
-		case <-credentialTicker.C:
-			if credentialPolling || switching {
-				continue
-			}
-			credentialPolling = true
-			go func() {
-				tok := a.credentials.Current(workerCtx)
-				select {
-				case events <- tuiCredentialEvent{token: tok}:
-				case <-workerCtx.Done():
+		var event tuiEvent
+		if stagedEvent != nil {
+			event = stagedEvent
+			stagedEvent = nil
+		} else {
+			select {
+			case <-tuiCtx.Done():
+				finish()
+				return 0
+			case <-resizeTicker.C:
+				width, height, sizeErr := termSize(outFile)
+				if sizeErr == nil && (width != state.width || height != state.height) {
+					a.renderTUI(state, outFile)
 				}
-			}()
-		case now := <-syncTicker.C:
-			if now.Minute() != lastMinute {
-				lastMinute = now.Minute()
-				a.renderTUI(state, outFile)
-			}
-			if refreshing || switching || a.demo || a.quota == nil {
 				continue
-			}
-			if accountsWatch.changed() {
-				startRefreshFor([]string{}, false, true) // another process changed the accounts
-				continue
-			}
-			if !activityPolling && now.Sub(activityPolled) >= tuiActivityPoll {
-				activityPolling = true
-				activityPolled = now
-				go func(pollTime time.Time) {
-					activity.poll(pollTime)
-					busy := activity.due(pollTime)
+			case <-credentialTicker.C:
+				if credentialPolling || switching {
+					continue
+				}
+				credentialPolling = true
+				go func() {
+					tok := a.credentials.Current(workerCtx)
 					select {
-					case events <- tuiActivityPollEvent{busy: busy, now: pollTime}:
+					case events <- tuiCredentialEvent{token: tok}:
 					case <-workerCtx.Done():
 					}
-				}(now)
+				}()
+				continue
+			case now := <-syncTicker.C:
+				if now.Minute() != lastMinute {
+					lastMinute = now.Minute()
+					a.renderTUI(state, outFile)
+				}
+				if refreshing || switching || a.demo || a.quota == nil {
+					continue
+				}
+				if accountsWatch.changed() {
+					startRefreshFor([]string{}, false, true, false) // another process changed the accounts
+					continue
+				}
+				if !activityPolling && now.Sub(activityPolled) >= tuiActivityPoll {
+					activityPolling = true
+					activityPolled = now
+					go func(pollTime time.Time) {
+						activity.poll(pollTime)
+						busy := activity.due(pollTime)
+						select {
+						case events <- tuiActivityPollEvent{busy: busy, now: pollTime}:
+						case <-workerCtx.Done():
+						}
+					}(now)
+				}
+				busy := activity.due(now)
+				if due := state.dueEmails(now, tried, a.quota.BackoffUntil, busy); len(due) > 0 {
+					for _, email := range due {
+						tried[email] = now
+					}
+					if busy {
+						activity.markRead(now)
+					}
+					startRefreshFor(due, false, true, busy)
+				}
+				continue
+			case <-frameC:
+				now := time.Now()
+				state.expireToast(now)
+				state.advanceAnimation(now)
+				a.renderTUI(state, outFile)
+				armFrame()
+				continue
+			case ev := <-events:
+				event = ev
 			}
-			busy := activity.due(now)
-			if due := state.dueEmails(now, tried, a.quota.BackoffUntil, busy); len(due) > 0 {
+		}
+		switch value := event.(type) {
+		case tuiCredentialEvent:
+			credentialPolling = false
+			if value.token != current {
+				current = value.token
+				state.current = current
+				resolvedToken, resolvedEmail = "", ""
+				state.active = localActiveEmail(state.accounts, current)
+				startActiveResolve()
+				a.renderTUI(state, outFile)
+			}
+		case tuiActivityPollEvent:
+			activityPolling = false
+			if refreshing || switching || a.demo || a.quota == nil || !value.busy {
+				continue
+			}
+			if due := state.dueEmails(value.now, tried, a.quota.BackoffUntil, true); len(due) > 0 {
 				for _, email := range due {
-					tried[email] = now
+					tried[email] = value.now
 				}
-				if busy {
-					activity.markRead(now)
-				}
-				startRefreshFor(due, false, true)
+				activity.markRead(value.now)
+				startRefreshFor(due, false, true, true)
 			}
-		case <-frameC:
-			now := time.Now()
-			state.expireToast(now)
-			state.advanceAnimation(now)
+		case tuiSwitchEvent:
+			switching = false
+			accountsWatch.changed()
+			if value.fresh != nil {
+				state.setAccountsWithVaultCache(value.fresh, value.vaultCache)
+			}
+			current = value.current
+			state.current = current
+			if value.kind == "error" {
+				resolvedToken, resolvedEmail = "", ""
+				state.active = localActiveEmail(state.accounts, current)
+			} else {
+				resolvedToken, resolvedEmail = current, value.email
+				state.active = value.email
+			}
+			startActiveResolve()
+			state.message, state.messageType = "", "info"
+			state.showToast(value.message, value.kind)
 			a.renderTUI(state, outFile)
 			armFrame()
-		case event := <-events:
-			switch value := event.(type) {
-			case tuiCredentialEvent:
-				credentialPolling = false
-				if value.token != current {
-					current = value.token
-					state.current = current
-					state.active = a.activeHint(state.accounts, current)
-					startActiveResolve()
-					a.renderTUI(state, outFile)
-				}
-			case tuiActivityPollEvent:
-				activityPolling = false
-				if refreshing || switching || a.demo || a.quota == nil || !value.busy {
-					continue
-				}
-				if due := state.dueEmails(value.now, tried, a.quota.BackoffUntil, true); len(due) > 0 {
-					for _, email := range due {
-						tried[email] = value.now
-					}
-					activity.markRead(value.now)
-					startRefreshFor(due, false, true)
-				}
-			case tuiSwitchEvent:
-				switching = false
-				accountsWatch.changed()
-				if value.fresh != nil {
-					state.setAccounts(value.fresh)
-				}
-				current = value.current
-				state.current = current
-				if value.kind == "error" {
-					state.active = a.activeHint(state.accounts, current)
-				} else {
-					state.active = value.email
-				}
-				startActiveResolve()
-				state.message, state.messageType = "", "info"
-				state.showToast(value.message, value.kind)
-				a.renderTUI(state, outFile)
-				armFrame()
-			case tuiAccountsEvent:
-				if value.revision != refreshRevision {
-					// A slower refresh must never overwrite a newer frame.
-					continue
-				}
-				refreshing = false
-				state.refreshing = false
-				accountsWatch.changed() // this refresh's own save is not another process
-				state.setAccounts(value.accounts)
-				state.quotaErrors = value.quotaErrors
-				if message, kind, animate := refreshNotice(refreshQuiet, value.quotaErrors); message != "" {
-					state.message, state.messageType = message, kind
-					if animate {
-						state.beginAnimation(map[string]string{"success": "success", "warning": "error"}[kind], 360*time.Millisecond)
-					}
-				}
-				startActiveResolve()
-				a.renderTUI(state, outFile)
-				armFrame()
-			case tuiActiveEvent:
-				if value.token == current {
-					state.active, state.resolvingToken = value.email, ""
-					a.renderTUI(state, outFile)
-				}
-			case tuiResizeEvent:
-				state.width, state.height = maxInt(28, value.width), maxInt(12, value.height)
-				a.renderTUI(state, outFile)
-			case tuiJobEvent:
-				if state.job == nil || state.job.ID != value.id {
-					continue
-				}
-				state.job.Done = true
-				state.job.Message = value.message
-				state.job.Error = ""
-				if value.err != nil {
-					state.job.Error = value.err.Error()
-					state.message, state.messageType = value.err.Error(), "error"
-					state.beginAnimation("error", 360*time.Millisecond)
-				} else {
-					state.message, state.messageType = value.message, "success"
-					state.beginAnimation("success", 360*time.Millisecond)
-				}
-				if value.kind == "doctor" {
-					state.doctorChecks, state.doctorHealthy = value.doctorChecks, value.doctorHealthy
-				}
-				if value.kind == "backup-import" && value.err == nil {
-					accountsWatch.changed()
-					fresh, loadErr := a.store.Load(false)
-					if loadErr == nil {
-						state.setAccounts(fresh)
-					}
-					current = a.credentials.Current(ctx)
-					state.current = current
-					startActiveResolve()
-				}
-				a.renderTUI(state, outFile)
-				armFrame()
-			case tuiKeyEvent:
-				key := strings.ToLower(value.key)
-				if dir, wheelCol, wheelRow := wheelEvent(key); dir != 0 {
-					// The wheel scrolls the view under the pointer when it does not
-					// all fit; otherwise it moves the selection, as it always has.
-					line, x := state.pointerAt(wheelCol, wheelRow)
-					scrolled := false
-					if hit, ok := state.hitAt(line, x, hitScroll, hitScrollbar); ok && wheelRow > 0 {
-						scrolled = state.scrollBy(hit.key, 3*dir)
-					}
-					if !scrolled {
-						switch {
-						case state.mode == tuiPalette:
-							state.movePalette(dir)
-						case state.mode != tuiBrowse:
-						case state.view == tuiViewProfiles:
-							state.moveProfile(dir)
-						case state.view == tuiViewHistory:
-							state.moveHistory(dir)
-						default:
-							state.move(dir)
-						}
-					}
-					a.renderTUI(state, outFile)
-					armFrame()
-					continue
-				}
-				if strings.HasPrefix(key, "mouse:") {
-					if a.tuiPointer(state, key, &tuiPointerState{
-						dragging: &draggingSplit, thumb: &draggingThumb, grab: &thumbGrab, thumbTop: &thumbTop,
-						lastTime: &lastClickTime, lastCol: &lastClickCol, lastRow: &lastClickRow,
-						press: func(k string) {
-							select {
-							case events <- tuiKeyEvent{key: k}:
-							default:
-							}
-						},
-						confirmSwitch: confirmSwitch,
-						shape:         func(shape string) { fmt.Fprint(outFile, "\x1b]22;"+shape+"\x1b\\") },
-					}) {
-						a.renderTUI(state, outFile)
-						armFrame()
-					}
-					continue
-				}
-				if ctrl.handleKeyEvent(value.key, key, armFrame) {
-					return 0
+		case tuiAccountsEvent:
+			if value.revision != refreshRevision {
+				// A slower refresh must never overwrite a newer frame.
+				continue
+			}
+			refreshing = false
+			state.refreshing = false
+			accountsWatch.changed() // this refresh's own save is not another process
+			state.setAccountsWithVaultCache(value.accounts, value.vaultCache)
+			state.quotaErrors = value.quotaErrors
+			if message, kind, animate := refreshNotice(refreshQuiet, value.quotaErrors); message != "" {
+				state.message, state.messageType = message, kind
+				if animate {
+					state.beginAnimation(map[string]string{"success": "success", "warning": "error"}[kind], 360*time.Millisecond)
 				}
 			}
+			startActiveResolve()
+			a.renderTUI(state, outFile)
+			armFrame()
+		case tuiActiveEvent:
+			if value.token == current {
+				resolvedToken, resolvedEmail = value.token, value.email
+				state.active, state.resolvingToken = value.email, ""
+				a.renderTUI(state, outFile)
+			}
+		case tuiResizeEvent:
+			state.width, state.height = maxInt(28, value.width), maxInt(12, value.height)
+			a.renderTUI(state, outFile)
+		case tuiJobEvent:
+			if state.job == nil || state.job.ID != value.id {
+				continue
+			}
+			state.job.Done = true
+			state.job.Message = value.message
+			state.job.Error = ""
+			if value.err != nil {
+				state.job.Error = value.err.Error()
+				state.message, state.messageType = value.err.Error(), "error"
+				state.beginAnimation("error", 360*time.Millisecond)
+			} else {
+				state.message, state.messageType = value.message, "success"
+				state.beginAnimation("success", 360*time.Millisecond)
+			}
+			if value.kind == "doctor" {
+				state.doctorChecks, state.doctorHealthy = value.doctorChecks, value.doctorHealthy
+			}
+			if value.kind == "backup-import" && value.err == nil {
+				accountsWatch.changed()
+				fresh, loadErr := a.store.Load(false)
+				if loadErr == nil {
+					state.setAccountsWithVaultCache(fresh, a.warmVaultCache(ctx, fresh))
+				}
+				current = a.credentials.Current(ctx)
+				state.current = current
+				resolvedToken, resolvedEmail = "", ""
+				startActiveResolve()
+			}
+			a.renderTUI(state, outFile)
+			armFrame()
+		case tuiKeyEvent:
+			value, stagedEvent = coalescePointerKeyEvent(value, events)
+			key := strings.ToLower(value.key)
+			if dir, wheelCol, wheelRow := wheelEvent(key); dir != 0 {
+				// The wheel scrolls the view under the pointer when it does not
+				// all fit; otherwise it moves the selection, as it always has.
+				line, x := state.pointerAt(wheelCol, wheelRow)
+				scrolled := false
+				if hit, ok := state.hitAt(line, x, hitScroll, hitScrollbar); ok && wheelRow > 0 {
+					scrolled = state.scrollBy(hit.key, 3*dir)
+				}
+				if !scrolled {
+					switch {
+					case state.mode == tuiPalette:
+						state.movePalette(dir)
+					case state.mode != tuiBrowse:
+					case state.view == tuiViewProfiles:
+						state.moveProfile(dir)
+					case state.view == tuiViewHistory:
+						state.moveHistory(dir)
+					default:
+						state.move(dir)
+					}
+				}
+				a.renderTUI(state, outFile)
+				armFrame()
+				continue
+			}
+			if strings.HasPrefix(key, "mouse:") {
+				if a.tuiPointer(state, key, &tuiPointerState{
+					dragging: &draggingSplit, thumb: &draggingThumb, grab: &thumbGrab, thumbTop: &thumbTop,
+					lastTime: &lastClickTime, lastCol: &lastClickCol, lastRow: &lastClickRow,
+					press: func(k string) {
+						select {
+						case events <- tuiKeyEvent{key: k}:
+						default:
+						}
+					},
+					confirmSwitch: confirmSwitch,
+					shape:         func(shape string) { fmt.Fprint(outFile, "\x1b]22;"+shape+"\x1b\\") },
+				}) {
+					a.renderTUI(state, outFile)
+					armFrame()
+				}
+				continue
+			}
+			if ctrl.handleKeyEvent(value.key, key, armFrame) {
+				return 0
+			}
+		}
+	}
+}
+
+func coalescePointerKeyEvent(first tuiKeyEvent, events <-chan tuiEvent) (tuiKeyEvent, tuiEvent) {
+	lower := strings.ToLower(first.key)
+	var prefix string
+	switch {
+	case strings.HasPrefix(lower, "mouse:move:"):
+		prefix = "mouse:move:"
+	case strings.HasPrefix(lower, "mouse:drag:"):
+		prefix = "mouse:drag:"
+	default:
+		return first, nil
+	}
+	latest := first
+	for {
+		select {
+		case next := <-events:
+			if nextKey, ok := next.(tuiKeyEvent); ok && strings.HasPrefix(strings.ToLower(nextKey.key), prefix) {
+				latest = nextKey
+				continue
+			}
+			return latest, next
+		default:
+			return latest, nil
 		}
 	}
 }

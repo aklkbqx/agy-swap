@@ -60,16 +60,16 @@ irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex
 go install github.com/aklkbqx/agy-swap/v2/cmd/agy-swap@latest
 ```
 
-The module requires Go 1.27.3 or newer (with the default `GOTOOLCHAIN=auto`, an older `go` command downloads it first). Published binaries use the same toolchain floor.
+The module requires Go 1.27.4 or newer (with the default `GOTOOLCHAIN=auto`, an older `go` command downloads it first). Published binaries use the same toolchain floor.
 
 ### Build from source
 
-Requirements: Go 1.27.3 or later. macOS source builds require Xcode Command Line Tools and `CGO_ENABLED=1` for Keychain writes.
+Requirements: Go 1.27.4 or later. macOS source builds require Xcode Command Line Tools and `CGO_ENABLED=1` for Keychain writes.
 
 ```bash
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-go build -trimpath -ldflags "-s -w -X main.version=2.23.3 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.23.4 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ./agy-swap version
 ```
 
