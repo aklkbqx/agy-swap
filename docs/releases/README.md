@@ -1,6 +1,6 @@
 # Release history
 
-All 82 observed Tool version tags are recorded: 81 published stable Releases and 1 tag-only versions. Latest stable: **v2.23.4**.
+All 83 observed Tool version tags are recorded: 82 published stable Releases and 1 tag-only versions. Latest stable: **v2.23.5**.
 
 The [JSON inventory](index.json) contains public Tool commits and actual asset metadata. Historical metadata is not retrospective installation/deployment verification. Missing Site tags mean no matching tag was observed, not that no deployment occurred.
 
@@ -8,6 +8,7 @@ Historical documentation covers all versions; security fixes support only latest
 
 | Version | GitHub record | Published UTC | Assets | Matching Site tag observed | Evidence |
 | --- | --- | --- | ---: | --- | --- |
+| v2.23.5 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.23.5) | 2026-11-12T13:44:51Z | 7 | Yes | [Delivery summary](v2.23.5.md) |
 | v2.23.4 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.23.4) | 2026-11-12T05:05:10Z | 7 | Yes | [Delivery summary](v2.23.4.md) |
 | v2.23.3 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.23.3) | 2026-11-11T04:54:31Z | 7 | Yes | [Delivery summary](v2.23.3.md) |
 | v2.23.2 | [published](https://github.com/aklkbqx/agy-swap/releases/tag/v2.23.2) | 2026-11-08T13:15:40Z | 7 | Yes | [Delivery summary](v2.23.2.md) |
