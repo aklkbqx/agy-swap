@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.23.5
+
+### Fixes
+
+- Keep the manual quota refresh light inside the top header bar and wrap live terminal diffs in synchronized-output markers (`DECSET 2026`), so refreshing no longer repaints unchanged account rows or tears across frames (#106).
+- Let a manual refresh (`r` or the action palette) cancel and replace an in-flight background quota read so forced refreshes always run and `"Refreshing quota…"` never stays stuck on the status bar (#106).
+- Stream quota updates into the terminal UI as each account finishes instead of waiting for the slowest account in the batch, skip stale disk writes when a refresh has been cancelled, and keep cached vault presence state across local tier and delete actions (#106).
+- Coalesce queued mouse-wheel bursts, prioritize pending input events ahead of frame timers, and cut per-frame rendering allocations so scrolling and key navigation stay responsive during sync (#106).
+- Write frames to the terminal outside the input loop and keep only the newest unsent frame, so keys, mouse input and quitting respond at once when the terminal reads output slowly during a refresh, and the screen catches up to the final state instead of replaying old frames (#107).
+- Repaint only the changed part of a row, so a selection move or a refresh frame sends 36 to 65 percent fewer bytes to the terminal and stays smoother on a slow one (#107).
+- Website update: synchronize release metadata and terminal story frames for v2.23.5 (#106).
+
 ## 2.23.4
 
 ### Fixes

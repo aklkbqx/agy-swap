@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -190,21 +191,34 @@ func tintColumns(line string, bgAt func(col int) string) string {
 	return out.String()
 }
 
-// tuiRefreshSweep draws the light that crosses the screen while a refresh
+// tuiRefreshSweep draws the light that crosses the header bar while a refresh
 // the user asked for runs: a soft band, brightest in its middle, leaning so
-// lower rows trail, looping until the answer arrives.
+// lower header rows trail, looping until the answer arrives without tainting
+// body rows in tuiPaintDiff.
 func (a *Application) tuiRefreshSweep(state *tuiState, lines []string, width int, now time.Time) []string {
-	if !state.refreshing || !state.motionEnabled || a.p.BodyBg == "" || a.p.KeyBg == "" {
+	fromBg := firstString(a.p.BarBg, a.p.BodyBg)
+	if !state.refreshing || !state.motionEnabled || fromBg == "" || a.p.KeyBg == "" {
+		return lines
+	}
+	if oneOfMode(state.mode, tuiDialogOpen, tuiPalette, tuiForm) {
+		return lines
+	}
+	headerRows := state.bodyTop
+	if headerRows <= 0 {
+		headerRows = minInt(4, len(lines))
+	}
+	headerRows = minInt(headerRows, len(lines))
+	if headerRows == 0 {
 		return lines
 	}
 	elapsed := max(0, now.Sub(state.refreshStartedAt))
 	const halfRadius = 3.0
-	span := float64(width) + float64(len(lines))*0.5 + 2*halfRadius
+	span := float64(width) + float64(headerRows)*0.5 + 2*halfRadius
 	head := (float64(elapsed%tuiRefreshSweep)/float64(tuiRefreshSweep))*span - halfRadius
-	for i, line := range lines {
+	for i := 0; i < headerRows; i++ {
 		center := head - float64(i)*0.5
 		peakCol := int(math.Round(center))
-		lines[i] = tintColumns(line, func(col int) string {
+		lines[i] = tintColumns(lines[i], func(col int) string {
 			if col == peakCol {
 				return a.p.KeyBg
 			}
@@ -213,21 +227,62 @@ func (a *Application) tuiRefreshSweep(state *tuiState, lines []string, width int
 				return ""
 			}
 			level := 0.5 * (1 + math.Cos(math.Pi*dist/halfRadius))
-			return lerpColor(a.p.BodyBg, a.p.KeyBg, level)
+			return lerpColor(fromBg, a.p.KeyBg, level)
 		})
 	}
 	return lines
 }
 
+func parseTruecolorSGR(s string) (kind byte, r, g, b int, ok bool) {
+	if len(s) < 13 || s[0] != 0x1b || s[1] != '[' || (s[2] != '3' && s[2] != '4') || s[3] != '8' || s[4] != ';' || s[5] != '2' || s[6] != ';' || s[len(s)-1] != 'm' {
+		return 0, 0, 0, 0, false
+	}
+	idx := 7
+	nextInt := func() (int, byte, bool) {
+		if idx >= len(s)-1 {
+			return 0, 0, false
+		}
+		val, digits := 0, 0
+		for idx < len(s) {
+			c := s[idx]
+			idx++
+			if c >= '0' && c <= '9' {
+				val = val*10 + int(c-'0')
+				digits++
+				if val > 255 || digits > 3 {
+					return 0, 0, false
+				}
+				continue
+			}
+			if digits == 0 {
+				return 0, 0, false
+			}
+			return val, c, true
+		}
+		return 0, 0, false
+	}
+	var sep byte
+	if r, sep, ok = nextInt(); !ok || sep != ';' {
+		return 0, 0, 0, 0, false
+	}
+	if g, sep, ok = nextInt(); !ok || sep != ';' {
+		return 0, 0, 0, 0, false
+	}
+	if b, sep, ok = nextInt(); !ok || sep != 'm' || idx != len(s) {
+		return 0, 0, 0, 0, false
+	}
+	return s[2], r, g, b, true
+}
+
 // lerpColor mixes two truecolor codes of the same kind (foreground or
 // background). Anything else, a 256-colour code or none, gives the end colour.
 func lerpColor(from, to string, t float64) string {
-	var fr, fg, fb, tr, tg, tb int
-	var fk, tk string
-	if n, _ := fmt.Sscanf(strings.TrimPrefix(from, "\x1b["), "%2s;2;%d;%d;%dm", &fk, &fr, &fg, &fb); n != 4 {
+	fk, fr, fg, fb, fok := parseTruecolorSGR(from)
+	if !fok {
 		return to
 	}
-	if n, _ := fmt.Sscanf(strings.TrimPrefix(to, "\x1b["), "%2s;2;%d;%d;%dm", &tk, &tr, &tg, &tb); n != 4 || fk != tk {
+	tk, tr, tg, tb, tok := parseTruecolorSGR(to)
+	if !tok || fk != tk {
 		return to
 	}
 	if t >= 1 {
@@ -235,7 +290,18 @@ func lerpColor(from, to string, t float64) string {
 	}
 	t = max(0, t)
 	mix := func(a, b int) int { return a + int(math.Round(float64(b-a)*t)) }
-	return fmt.Sprintf("\x1b[%s;2;%d;%d;%dm", tk, mix(fr, tr), mix(fg, tg), mix(fb, tb))
+	var buf [24]byte
+	n := copy(buf[:], "\x1b[")
+	buf[n] = tk
+	n++
+	n += copy(buf[n:], "8;2;")
+	out := strconv.AppendInt(buf[:n], int64(mix(fr, tr)), 10)
+	out = append(out, ';')
+	out = strconv.AppendInt(out, int64(mix(fg, tg)), 10)
+	out = append(out, ';')
+	out = strconv.AppendInt(out, int64(mix(fb, tb)), 10)
+	out = append(out, 'm')
+	return string(out)
 }
 
 // tuiPaintDiff rewrites only the rows that changed since prev. Without a

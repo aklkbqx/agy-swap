@@ -60,6 +60,12 @@ func tuiHealthToneForGroups(groups []quotaGroupHealth, account Account, now time
 }
 
 func (a *Application) tuiAccountView(state *tuiState, email string, now time.Time) tuiAccountView {
+	if state != nil && state.frameViews != nil {
+		if cached, ok := state.frameViews[email]; ok {
+			cached.selected = strings.EqualFold(email, state.selectedEmail)
+			return cached
+		}
+	}
 	account := state.accounts.ByEmail[email]
 	name := firstString(tuiText(getString(account, "name")), "Google User")
 	groups := quotaGroupHealths(account)
@@ -114,6 +120,9 @@ func (a *Application) tuiAccountView(state *tuiState, email string, now time.Tim
 		}
 		state.statusSeen[email] = view.status
 		view.statusFlash = state.fxProgress(state.statusChangedAt[email], tuiMotionStatus, now) < 1
+		if state.frameViews != nil {
+			state.frameViews[email] = view
+		}
 	}
 	return view
 }

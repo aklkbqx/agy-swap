@@ -621,11 +621,17 @@ func (q *QuotaService) refreshSelected(ctx context.Context, accounts *Accounts, 
 
 // RefreshEmails reads the quota of these accounts now, however fresh it is.
 func (q *QuotaService) RefreshEmails(ctx context.Context, accounts *Accounts, emails []string) map[string]string {
+	return q.RefreshEmailsWithProgress(ctx, accounts, emails, nil)
+}
+
+// RefreshEmailsWithProgress reads the quota of these accounts now and reports
+// each account to progress as soon as its HTTP exchange finishes.
+func (q *QuotaService) RefreshEmailsWithProgress(ctx context.Context, accounts *Accounts, emails []string, progress quotaProgress) map[string]string {
 	want := make(map[string]bool, len(emails))
 	for _, email := range emails {
 		want[email] = true
 	}
-	return q.refreshWhere(ctx, accounts, true, nil, func(email string) bool { return want[email] })
+	return q.refreshWhere(ctx, accounts, true, progress, func(email string) bool { return want[email] })
 }
 
 func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, force bool, progress quotaProgress, pick func(email string) bool) map[string]string {
@@ -647,7 +653,7 @@ func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, for
 		if age, ok := quotaAge(account, now); !force && ok && age < quotaCache-quotaDueSlack {
 			done++
 			if progress != nil {
-				progress(done, accounts.Len(), account, "cached")
+				progress(done, accounts.Len(), copyAccount(account), "cached")
 			}
 		} else {
 			fetch = append(fetch, item{email, copyAccount(account)})
@@ -671,6 +677,9 @@ func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, for
 		go func() {
 			defer wg.Done()
 			for it := range jobs {
+				if ctx.Err() != nil {
+					continue
+				}
 				snapshot, err := q.Fetch(ctx, it.account)
 				results <- result{it, snapshot, err}
 			}
@@ -733,11 +742,11 @@ func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, for
 			original["quota_snapshot"] = result.snapshot
 			changed = true
 		}
-		if progress != nil {
-			progress(done, accounts.Len(), original, state)
+		if progress != nil && ctx.Err() == nil {
+			progress(done, accounts.Len(), copyAccount(original), state)
 		}
 	}
-	if changed {
+	if changed && ctx.Err() == nil {
 		if err := q.store.Save(accounts); err != nil {
 			errorsByEmail["store"] = err.Error()
 		} else if q.vault != nil {

@@ -120,7 +120,8 @@ func (c *tuiController) performDelete(email string) {
 	if ref != "" && c.app.vault != nil {
 		_ = c.app.vault.Delete(c.ctx(), ref)
 	}
-	c.state.setAccounts(fresh)
+	delete(c.state.vaultCache, ref)
+	c.state.setAccountsKeepingVaultCache(fresh)
 	c.state.active = c.app.activeHint(c.state.accounts, c.current())
 	c.state.message, c.state.messageType = "Removed account "+email, "success"
 	c.state.beginAnimation("success", 360*time.Millisecond)
@@ -167,7 +168,7 @@ func (c *tuiController) toggleTier() {
 	if c.accountsChanged != nil {
 		c.accountsChanged()
 	}
-	c.state.setAccounts(fresh)
+	c.state.setAccountsKeepingVaultCache(fresh)
 	c.state.message, c.state.messageType = "Set tier for "+email+" to "+firstString(plan, "Unknown"), "success"
 	c.state.beginAnimation("success", 360*time.Millisecond)
 }

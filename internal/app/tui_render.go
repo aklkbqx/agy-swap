@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"golang.org/x/term"
 )
 
 const tuiCredit = "credit: aklkbqx"
@@ -134,6 +136,25 @@ func (a *Application) tuiScreen(state *tuiState, width, height int) []string {
 	return screen
 }
 
+// frameTick says whether a timer frame should be drawn now. A frame that falls
+// due while the terminal still holds the last one is skipped and owed: motion
+// follows the clock, so nothing is lost, and the screen is drawn again as soon
+// as the terminal has caught up instead of stopping on a stale frame.
+func (s *tuiState) frameTick() bool {
+	if s.frames.busy() {
+		s.frameOwed = true
+		return false
+	}
+	return true
+}
+
+// repaintWhole makes the next frame a whole paint, after the screen was left
+// to another program.
+func (s *tuiState) repaintWhole() {
+	s.lastFrame = nil
+	s.frames.repaintNext()
+}
+
 func (a *Application) renderTUI(state *tuiState, out *os.File) {
 	width, height, err := termSize(out)
 	if err != nil {
@@ -144,10 +165,23 @@ func (a *Application) renderTUI(state *tuiState, out *os.File) {
 	if tuiUseASCII(os.Getenv) {
 		lines = asciiLines(lines)
 	}
+	state.frameOwed = false
+	if state.frames != nil {
+		state.frames.submit(lines, state.width)
+		return
+	}
 	if state.lastFrameWidth != state.width {
 		state.lastFrame = nil // a new size is painted whole
 	}
-	_, _ = ioWriteString(a.Out, tuiPaintDiff(state.lastFrame, lines, state.width))
+	if diff := tuiPaintDiff(state.lastFrame, lines, state.width); diff != "" {
+		if out != nil && term.IsTerminal(int(out.Fd())) {
+			// DEC private mode 2026 batches the entire diff into one atomic vblank
+			// update on supporting terminals; older terminals ignore it cleanly.
+			_, _ = ioWriteString(a.Out, "\x1b[?2026h"+diff+"\x1b[?2026l")
+		} else {
+			_, _ = ioWriteString(a.Out, diff)
+		}
+	}
 	state.lastFrame, state.lastFrameWidth = lines, state.width
 }
 
@@ -253,6 +287,14 @@ func (a *Application) tuiWipe(state *tuiState, lines []string, footerStart, widt
 
 // tuiFrameLines draws the frame inside the rails and reports the first footer row.
 func (a *Application) tuiFrameLines(state *tuiState, width, height int) ([]string, int) {
+	if state != nil {
+		capHint := 8
+		if state.accounts != nil && state.accounts.Len() > capHint {
+			capHint = state.accounts.Len()
+		}
+		state.frameViews = make(map[string]tuiAccountView, capHint)
+		defer func() { state.frameViews = nil }()
+	}
 	g := newTUIGeometry(width, height)
 	state.hits = state.hits[:0]
 	lines := a.tuiTopLines(state, g.innerWidth)

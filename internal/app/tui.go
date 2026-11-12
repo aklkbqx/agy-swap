@@ -99,7 +99,11 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 	}
 	leaveScreen := func() { fmt.Fprint(a.Out, mouseOff+"\x1b[?1049l\x1b[?25h") }
 	enterScreen()
+	// From here to the end every frame goes through frames, so the loop never
+	// waits for the terminal. It is closed before the screen is handed back.
+	var frames *tuiFrameWriter
 	defer func() {
+		frames.close()
 		if raw {
 			origTerm.Restore(false)
 		}
@@ -107,6 +111,8 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 	}()
 
 	state := newTUIState(accounts, current)
+	frames = newTUIFrameWriter(a.Out, true)
+	state.frames = frames
 	state.startedAt = time.Now() // the screen wipes in once
 	state.vault = a.vault
 	state.vaultCache = a.warmVaultCache(ctx, accounts)
@@ -128,7 +134,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 			}
 		}
 	}()
-	events := make(chan tuiEvent, 32)
+	events := make(chan tuiEvent, 256)
 	done := make(chan struct{})
 	workerCtx, cancelWorkers := context.WithCancel(tuiCtx)
 	var stopRecreatedTUI func()
@@ -212,70 +218,26 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 			}
 		}()
 	}
-	refreshing := false
-	var refreshRevision uint64
-	// startRefresh reloads quota in the background. A quiet refresh (on start,
-	// on the timer, after adding an account) shows nothing unless it fails;
-	// only a refresh the user asked for shows its progress and result.
-	refreshQuiet := false
-	// startRefreshFor reads the quota of these accounts (every account when
-	// emails is nil, none when it is empty: then it only reloads the store).
-	startRefreshFor := func(emails []string, force, quiet, syncLogs bool) {
-		if refreshing {
-			return
-		}
-		refreshRevision++
-		revision := refreshRevision
-		refreshing = true
-		refreshQuiet = quiet
-		if !quiet {
-			state.refreshing = true
-			state.refreshStartedAt = time.Now()
-			state.beginAnimation("refresh", 0)
-			a.renderTUI(state, outFile)
-		}
-		go func() {
-			if revision == 1 && !a.demo {
-				a.reconcileActiveSession(workerCtx)
-			}
-			fresh, loadErr := a.store.Load(!a.demo && syncLogs)
-			errs := map[string]string{}
-			if loadErr == nil && fresh.Len() > 0 && !a.demo {
-				switch {
-				case emails == nil:
-					errs = a.quota.Refresh(workerCtx, fresh, force, nil)
-				case len(emails) > 0:
-					errs = a.quota.RefreshEmails(workerCtx, fresh, emails)
-				}
-			}
-			if loadErr != nil {
-				errs["store"] = loadErr.Error()
-			}
-			var vaultCache map[string]bool
-			if loadErr == nil && fresh != nil {
-				vaultCache = a.warmVaultCache(workerCtx, fresh)
-			}
-			select {
-			case events <- tuiAccountsEvent{accounts: fresh, vaultCache: vaultCache, quotaErrors: errs, revision: revision}:
-			case <-workerCtx.Done():
-			}
-		}()
-	}
-	startRefresh := func(force, quiet bool) { startRefreshFor(nil, force, quiet, true) }
-	invalidateRefresh := func() {
-		// Mutating actions must invalidate an in-flight snapshot. Otherwise a
-		// slower quota response could repaint accounts that were just changed.
-		refreshRevision++
-		refreshing = false
-		state.refreshing = false
-	}
+	accountsWatch := &fileWatch{path: a.paths.Accounts}
+	accountsWatch.changed()
+	refreshCoord := newTUIRefreshCoordinator(
+		workerCtx,
+		a,
+		state,
+		events,
+		func() { a.renderTUI(state, outFile) },
+		func() { accountsWatch.changed() },
+	)
+	startRefreshFor := refreshCoord.startFor
+	startRefresh := refreshCoord.start
+	invalidateRefresh := refreshCoord.invalidate
 
 	var frameTimer *time.Timer
 	var frameC <-chan time.Time
 	armFrame := func() {
 		now := time.Now()
 		moving := state.moving(now)
-		if !state.animation.active && !state.toastActive(now) && !moving && !state.ambient {
+		if !state.animation.active && !state.toastActive(now) && !moving && !state.ambient && !state.frameOwed {
 			frameC = nil
 			if frameTimer != nil {
 				frameTimer.Stop()
@@ -284,7 +246,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 		}
 		interval := 50 * time.Millisecond
 		switch {
-		case moving:
+		case moving || state.frameOwed:
 			interval = tuiFrameInterval
 		case state.ambient && !state.animation.active && !state.toastActive(now):
 			interval = tuiAmbientFrame // only the dot breathes
@@ -316,8 +278,6 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 	if a.store != nil {
 		activity = newTUIActivity(a.store.scanner)
 	}
-	accountsWatch := &fileWatch{path: a.paths.Accounts}
-	accountsWatch.changed()
 	tried := map[string]time.Time{}
 	var activityPolled time.Time
 	lastMinute := time.Now().Minute()
@@ -352,6 +312,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 		resetPlatformInputState()
 		a.resetTerminalLineReader()
 		defer inputPaused.Store(false)
+		frames.flush() // the terminal has everything before another program takes it
 		origTerm.Restore(false)
 		raw = false
 		leaveScreen()
@@ -366,6 +327,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 			}
 			tuiCtx, stopRecreatedTUI = signal.NotifyContext(context.WithoutCancel(tuiCtx), syscall.SIGTERM)
 			workerCtx, cancelWorkers = context.WithCancel(tuiCtx)
+			refreshCoord.setWorkerContext(workerCtx)
 		}
 		ctx = tuiCtx
 		switch {
@@ -381,7 +343,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 		}
 		enableTUIRawOutput(outFile)
 		enterScreen()
-		state.lastFrame = nil // the screen was left, so the next frame is painted whole
+		state.repaintWhole() // the screen was left, so the next frame is painted whole
 		fresh, loadErr := a.store.Load(false)
 		if loadErr == nil {
 			state.setAccountsWithVaultCache(fresh, a.warmVaultCache(ctx, fresh))
@@ -467,17 +429,28 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 	}
 
 	var stagedEvent tuiEvent
+	eventsBurst := 0
 	for {
 		// A render can start motion (a new target, a dialog, a toast); keep
 		// frames coming until it settles.
-		if frameC == nil && (state.moving(time.Now()) || state.ambient) {
+		if frameC == nil && (state.moving(time.Now()) || state.ambient || state.frameOwed) {
 			armFrame()
 		}
 		var event tuiEvent
 		if stagedEvent != nil {
 			event = stagedEvent
 			stagedEvent = nil
-		} else {
+			eventsBurst++
+		} else if eventsBurst < 8 {
+			select {
+			case ev := <-events:
+				event = ev
+				eventsBurst++
+			default:
+			}
+		}
+		if event == nil {
+			eventsBurst = 0
 			select {
 			case <-tuiCtx.Done():
 				finish()
@@ -506,7 +479,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 					lastMinute = now.Minute()
 					a.renderTUI(state, outFile)
 				}
-				if refreshing || switching || a.demo || a.quota == nil {
+				if refreshCoord.busy() || switching || a.demo || a.quota == nil {
 					continue
 				}
 				if accountsWatch.changed() {
@@ -540,7 +513,9 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 				now := time.Now()
 				state.expireToast(now)
 				state.advanceAnimation(now)
-				a.renderTUI(state, outFile)
+				if state.frameTick() {
+					a.renderTUI(state, outFile)
+				}
 				armFrame()
 				continue
 			case ev := <-events:
@@ -560,7 +535,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 			}
 		case tuiActivityPollEvent:
 			activityPolling = false
-			if refreshing || switching || a.demo || a.quota == nil || !value.busy {
+			if refreshCoord.busy() || switching || a.demo || a.quota == nil || !value.busy {
 				continue
 			}
 			if due := state.dueEmails(value.now, tried, a.quota.BackoffUntil, true); len(due) > 0 {
@@ -590,21 +565,16 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 			state.showToast(value.message, value.kind)
 			a.renderTUI(state, outFile)
 			armFrame()
-		case tuiAccountsEvent:
-			if value.revision != refreshRevision {
-				// A slower refresh must never overwrite a newer frame.
+		case tuiAccountProgressEvent:
+			if !refreshCoord.applyProgress(value) {
 				continue
 			}
-			refreshing = false
-			state.refreshing = false
-			accountsWatch.changed() // this refresh's own save is not another process
-			state.setAccountsWithVaultCache(value.accounts, value.vaultCache)
-			state.quotaErrors = value.quotaErrors
-			if message, kind, animate := refreshNotice(refreshQuiet, value.quotaErrors); message != "" {
-				state.message, state.messageType = message, kind
-				if animate {
-					state.beginAnimation(map[string]string{"success": "success", "warning": "error"}[kind], 360*time.Millisecond)
-				}
+			a.renderTUI(state, outFile)
+			armFrame()
+		case tuiAccountsEvent:
+			if !refreshCoord.applyDone(value) {
+				// A slower refresh must never overwrite a newer frame.
+				continue
 			}
 			startActiveResolve()
 			a.renderTUI(state, outFile)
@@ -652,29 +622,42 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 		case tuiKeyEvent:
 			value, stagedEvent = coalescePointerKeyEvent(value, events)
 			key := strings.ToLower(value.key)
-			if dir, wheelCol, wheelRow := wheelEvent(key); dir != 0 {
-				// The wheel scrolls the view under the pointer when it does not
-				// all fit; otherwise it moves the selection, as it always has.
-				line, x := state.pointerAt(wheelCol, wheelRow)
-				scrolled := false
-				if hit, ok := state.hitAt(line, x, hitScroll, hitScrollbar); ok && wheelRow > 0 {
-					scrolled = state.scrollBy(hit.key, 3*dir)
+			if steps, wheelCol, wheelRow, nextAfterWheel := coalesceWheelKeyEvent(value, events); steps != 0 || strings.HasPrefix(key, "wheel-") {
+				if stagedEvent == nil {
+					stagedEvent = nextAfterWheel
 				}
-				if !scrolled {
-					switch {
-					case state.mode == tuiPalette:
-						state.movePalette(dir)
-					case state.mode != tuiBrowse:
-					case state.view == tuiViewProfiles:
-						state.moveProfile(dir)
-					case state.view == tuiViewHistory:
-						state.moveHistory(dir)
-					default:
-						state.move(dir)
+				if steps != 0 {
+					// The wheel scrolls the view under the pointer when it does not
+					// all fit; otherwise it moves the selection, as it always has.
+					line, x := state.pointerAt(wheelCol, wheelRow)
+					scrolled := false
+					if hit, ok := state.hitAt(line, x, hitScroll, hitScrollbar); ok && wheelRow > 0 {
+						scrolled = state.scrollBy(hit.key, 3*steps)
 					}
+					if !scrolled {
+						stepDir := 1
+						count := steps
+						if steps < 0 {
+							stepDir = -1
+							count = -steps
+						}
+						for range count {
+							switch {
+							case state.mode == tuiPalette:
+								state.movePalette(stepDir)
+							case state.mode != tuiBrowse:
+							case state.view == tuiViewProfiles:
+								state.moveProfile(stepDir)
+							case state.view == tuiViewHistory:
+								state.moveHistory(stepDir)
+							default:
+								state.move(stepDir)
+							}
+						}
+					}
+					a.renderTUI(state, outFile)
+					armFrame()
 				}
-				a.renderTUI(state, outFile)
-				armFrame()
 				continue
 			}
 			if strings.HasPrefix(key, "mouse:") {
@@ -688,7 +671,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 						}
 					},
 					confirmSwitch: confirmSwitch,
-					shape:         func(shape string) { fmt.Fprint(outFile, "\x1b]22;"+shape+"\x1b\\") },
+					shape:         func(shape string) { frames.send("\x1b]22;" + shape + "\x1b\\") },
 				}) {
 					a.renderTUI(state, outFile)
 					armFrame()
@@ -698,6 +681,28 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 			if ctrl.handleKeyEvent(value.key, key, armFrame) {
 				return 0
 			}
+		}
+	}
+}
+
+func coalesceWheelKeyEvent(first tuiKeyEvent, events <-chan tuiEvent) (dir, col, row int, staged tuiEvent) {
+	dir, col, row = wheelEvent(strings.ToLower(first.key))
+	if dir == 0 {
+		return 0, 0, 0, nil
+	}
+	for {
+		select {
+		case next := <-events:
+			if nextKey, ok := next.(tuiKeyEvent); ok {
+				nextDir, nextCol, nextRow := wheelEvent(strings.ToLower(nextKey.key))
+				if nextDir != 0 && nextCol == col && nextRow == row {
+					dir += nextDir
+					continue
+				}
+			}
+			return dir, col, row, next
+		default:
+			return dir, col, row, nil
 		}
 	}
 }

@@ -104,6 +104,8 @@ type tuiState struct {
 	toastUntil     time.Time
 	quotaErrors    map[string]string
 	refreshing     bool
+	refreshDone    int
+	refreshTotal   int
 	resolvingToken string
 	width          int
 	height         int
@@ -128,6 +130,12 @@ type tuiState struct {
 	// The last painted frame, so a redraw rewrites only changed rows.
 	lastFrame      []string
 	lastFrameWidth int
+	// frames sends frames to the terminal for the interactive screen. Without
+	// it (a test, a single paint) renderTUI writes the frame itself.
+	frames *tuiFrameWriter
+	// frameOwed says a timer frame was skipped because the terminal was still
+	// taking the last one; frames keep coming until one is drawn.
+	frameOwed      bool
 	animation      tuiAnimation
 	job            *tuiJobState
 	settings       AppSettings
@@ -163,6 +171,7 @@ type tuiState struct {
 	quitRequested bool
 	vault         AccountVault
 	vaultCache    map[string]bool
+	frameViews    map[string]tuiAccountView
 }
 
 func newTUIState(accounts *Accounts, current string) *tuiState {
@@ -288,6 +297,21 @@ func (s *tuiState) clampSelection() {
 
 func (s *tuiState) setAccounts(accounts *Accounts) {
 	s.setAccountsWithVaultCache(accounts, nil)
+}
+
+func (s *tuiState) setAccountsKeepingVaultCache(accounts *Accounts) {
+	var preserved map[string]bool
+	if len(s.vaultCache) > 0 && accounts != nil {
+		preserved = make(map[string]bool, len(s.vaultCache))
+		for _, email := range accounts.Order {
+			if ref := getString(accounts.ByEmail[email], "secret_ref"); ref != "" {
+				if present, ok := s.vaultCache[ref]; ok {
+					preserved[ref] = present
+				}
+			}
+		}
+	}
+	s.setAccountsWithVaultCache(accounts, preserved)
 }
 
 func (s *tuiState) setAccountsWithVaultCache(accounts *Accounts, vaultCache map[string]bool) {

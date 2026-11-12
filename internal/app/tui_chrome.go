@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"unicode/utf8"
@@ -27,7 +28,11 @@ func (a *Application) tuiStatusLines(state *tuiState, width int) []string {
 	case state.job != nil && !state.job.Done:
 		content = a.p.Cyan + "◐ " + cleanText(state.job.Label) + "…" + a.p.Reset
 	case state.refreshing:
-		content = a.p.Cyan + "◐ Syncing usage…" + a.p.Reset
+		if state.refreshTotal > 1 && state.refreshDone > 0 {
+			content = a.p.Cyan + fmt.Sprintf("◐ Syncing usage (%d/%d)…", state.refreshDone, state.refreshTotal) + a.p.Reset
+		} else {
+			content = a.p.Cyan + "◐ Syncing usage…" + a.p.Reset
+		}
 	case state.resolvingToken != "":
 		content = a.p.Cyan + "⌁ Resolving active session…" + a.p.Reset
 	case state.message != "":

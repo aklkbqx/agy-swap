@@ -342,12 +342,14 @@ func TestStartUpAndViewChangesWipeIn(t *testing.T) {
 
 func TestAManualRefreshSweepsALightAcrossTheScreen(t *testing.T) {
 	a, state := truecolorApp()
+	a.p.BarBg = "\x1b[48;2;28;33;40m"
 	a.p.BodyBg = "\x1b[48;2;10;12;16m"
 	a.p.KeyBg = "\x1b[48;2;55;62;71m"
-	// band is the left-most column drawn on the brightest shade in rows 8–11.
+	// band is the left-most column drawn on the brightest shade in the header bar.
 	band := func(lines []string) int {
 		first := -1
-		for _, line := range lines[8:12] {
+		headerEnd := minInt(maxInt(1, state.bodyTop), len(lines))
+		for _, line := range lines[:headerEnd] {
 			for col, bg := range cellBackgrounds(line) {
 				if bg == "\x1b[48;2;55;62;71m" && (first < 0 || col < first) {
 					first = col
@@ -364,9 +366,20 @@ func TestAManualRefreshSweepsALightAcrossTheScreen(t *testing.T) {
 		t.Fatal("a sweep without a refresh")
 	}
 	state.refreshing, state.refreshStartedAt = true, poolNow
-	early, later := band(frame(tuiRefreshSweep/4)), band(frame(tuiRefreshSweep/2))
+	earlyFrame, laterFrame := frame(tuiRefreshSweep/4), frame(tuiRefreshSweep/2)
+	early, later := band(earlyFrame), band(laterFrame)
 	if early < 0 || later <= early {
-		t.Fatalf("the light should move right: %d then %d", early, later)
+		t.Fatalf("the light should move right across the header: %d then %d", early, later)
+	}
+	// Body rows stay untouched across consecutive refresh frames so tuiPaintDiff
+	// only repaints the header bar instead of flooding the PTY with every row.
+	state.active = ""
+	f1 := frame(tuiRefreshSweep / 4)
+	f2 := frame(tuiRefreshSweep/4 + tuiFrameInterval)
+	for row := state.bodyTop; row < len(f1)-4; row++ {
+		if f1[row] != f2[row] {
+			t.Fatalf("body row %d changed during refresh sweep, defeating diff paint:\n%q\nvs\n%q", row, f1[row], f2[row])
+		}
 	}
 	if !state.moving(poolNow.Add(tuiRefreshSweep * 3)) {
 		t.Fatal("the sweep keeps going while the refresh runs")

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -99,8 +100,8 @@ func TestCmdLimitsRefreshOnlyFetchesQuotaOnce(t *testing.T) {
 		"project_id":  "p",
 		"last_active": 1,
 	})
-	if err := f.a.store.Save(accounts); err != nil {
-		t.Fatal(err)
+	if saveErr := f.a.store.Save(accounts); saveErr != nil {
+		t.Fatal(saveErr)
 	}
 
 	var out bytes.Buffer
@@ -461,5 +462,297 @@ func TestCoalescePointerKeyEventDrainsQueuedMouseMovesWithoutDroppingKeys(t *tes
 	stagedKey, ok := staged.(tuiKeyEvent)
 	if !ok || stagedKey.key != "j" {
 		t.Fatalf("staged event = %#v, want tuiKeyEvent{key: \"j\"}", staged)
+	}
+}
+
+func TestCoalesceWheelKeyEventBatchesBurstWithoutDroppingKeys(t *testing.T) {
+	events := make(chan tuiEvent, 16)
+	events <- tuiKeyEvent{key: "wheel-down:20:10"}
+	events <- tuiKeyEvent{key: "wheel-down:20:10"}
+	events <- tuiKeyEvent{key: "wheel-up:20:10"}
+	events <- tuiKeyEvent{key: "wheel-down:20:10"}
+	events <- tuiKeyEvent{key: "k"}
+
+	dir, col, row, staged := coalesceWheelKeyEvent(tuiKeyEvent{key: "wheel-down:20:10"}, events)
+	// 1 + 1 + 1 - 1 + 1 = +3 down steps at (20, 10)
+	if dir != 3 || col != 20 || row != 10 {
+		t.Fatalf("coalesced wheel = (dir=%d, col=%d, row=%d), want (3, 20, 10)", dir, col, row)
+	}
+	stagedKey, ok := staged.(tuiKeyEvent)
+	if !ok || stagedKey.key != "k" {
+		t.Fatalf("staged event = %#v, want tuiKeyEvent{key: \"k\"}", staged)
+	}
+}
+
+func TestSetAccountsPreservesExistingVaultCache(t *testing.T) {
+	f := newCLIFixture(t)
+	cv := &countingVault{AccountVault: f.a.vault}
+	f.a.vault = cv
+
+	accounts := NewAccounts()
+	for _, email := range []string{"keep@example.com", "drop@example.com"} {
+		ref := accountSecretRef(email)
+		tok := tokenBlob(t, email, true, "ref-"+email, time.Now().Add(time.Hour))
+		f.a.vault.Set(context.Background(), ref, tok)
+		accounts.Set(email, Account{
+			"email":      email,
+			"name":       email,
+			"secret_ref": ref,
+			"token_hash": hashToken(tok),
+		})
+	}
+	state := newTUIState(NewAccounts(), "")
+	state.vault = cv
+	warmed := f.a.warmVaultCache(context.Background(), accounts)
+	state.setAccountsWithVaultCache(accounts, warmed)
+	atomic.StoreInt32(&cv.gets, 0)
+
+	// Simulate local edit/delete calling state.setAccountsKeepingVaultCache(updated) on the UI thread.
+	updated := copyAccounts(accounts)
+	updated.Delete("drop@example.com")
+	state.setAccountsKeepingVaultCache(updated)
+	_ = f.a.tuiLines(state, 118, 30)
+	if got := atomic.LoadInt32(&cv.gets); got != 0 {
+		t.Fatalf("expected setAccounts to preserve warmed vault cache for remaining accounts (0 vault.Get calls), got %d", got)
+	}
+}
+
+func TestLerpColorFastZeroSscanf(t *testing.T) {
+	from := "\x1b[48;2;28;33;40m"
+	to := "\x1b[48;2;55;62;71m"
+	if got := lerpColor(from, to, 0); got != "\x1b[48;2;28;33;40m" {
+		t.Fatalf("t=0 got %q", got)
+	}
+	if got := lerpColor(from, to, 1); got != to {
+		t.Fatalf("t=1 got %q, want %q", got, to)
+	}
+	if got := lerpColor("\x1b[38;2;139;148;158m", "\x1b[38;2;84;93;104m", 0.5); got != "\x1b[38;2;111;120;131m" {
+		t.Fatalf("t=0.5 fg got %q", got)
+	}
+	if got := lerpColor("\x1b[38;2;10;20;30m", "\x1b[48;2;40;50;60m", 0.5); got != "\x1b[48;2;40;50;60m" {
+		t.Fatalf("mismatched fg/bg got %q", got)
+	}
+	allocs := testing.AllocsPerRun(200, func() {
+		_ = lerpColor(from, to, 0.4)
+	})
+	if allocs > 1 {
+		t.Fatalf("lerpColor allocated %.1f objects/call, want <= 1 (no fmt.Sscanf reflection)", allocs)
+	}
+}
+
+func TestManualRefreshOverridesInFlightQuietRefresh(t *testing.T) {
+	f := newCLIFixture(t)
+	quietEntered := make(chan struct{})
+	quietCancelled := make(chan struct{})
+	var callNum int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/loadCodeAssist":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cloudaicompanionProject":"p","paidTier":{"id":"g1-pro-tier"}}`))
+		case "/retrieveUserQuotaSummary":
+			_, _ = io.Copy(io.Discard, r.Body)
+			n := atomic.AddInt32(&callNum, 1)
+			if n == 1 {
+				close(quietEntered)
+				<-r.Context().Done()
+				close(quietCancelled)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"gemini-weekly","window":"weekly","remainingFraction":0.75,"resetTime":"2030-01-01T00:00:00Z"}]}]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	f.a.http.oauthURL = srv.URL + "/oauth"
+	f.a.http.cloudAPI = srv.URL + "/"
+	f.a.quota = NewQuotaService(f.a.http, f.a.store)
+	f.a.quota.vault = f.a.vault
+
+	accounts, err := f.a.store.Load(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	email := "override@example.com"
+	tok := tokenBlob(t, email, true, "ref-override", time.Now().Add(time.Hour))
+	ref := accountSecretRef(email)
+	f.a.vault.Set(context.Background(), ref, tok)
+	accounts.Set(email, Account{
+		"email":      email,
+		"name":       "Override User",
+		"secret_ref": ref,
+		"token_hash": hashToken(tok),
+	})
+	if saveErr := f.a.store.Save(accounts); saveErr != nil {
+		t.Fatal(saveErr)
+	}
+
+	state := newTUIState(accounts, tok)
+	state.vault = f.a.vault
+	events := make(chan tuiEvent, 32)
+	workerCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	coord := newTUIRefreshCoordinator(workerCtx, f.a, state, events, func() {}, func() {})
+	// 1. Start a quiet background refresh (as startup and syncTicker do).
+	coord.startFor([]string{email}, false, true, false)
+	<-quietEntered
+	if state.refreshing {
+		t.Fatal("quiet refresh must not light state.refreshing")
+	}
+
+	// 2. User presses 'r' while quiet refresh is still stuck in flight.
+	state.message, state.messageType = "Refreshing quota…", "info"
+	coord.start(true, false)
+	if !state.refreshing {
+		t.Fatal("manual refresh during quiet refresh was swallowed; state.refreshing remained false")
+	}
+
+	select {
+	case <-quietCancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("quiet refresh HTTP request was not cancelled when manual refresh took over")
+	}
+
+	deadline := time.After(3 * time.Second)
+	for coord.busy() {
+		select {
+		case ev := <-events:
+			switch v := ev.(type) {
+			case tuiAccountProgressEvent:
+				coord.applyProgress(v)
+			case tuiAccountsEvent:
+				coord.applyDone(v)
+			}
+		case <-deadline:
+			t.Fatal("manual refresh did not finish")
+		}
+	}
+	if state.refreshing {
+		t.Fatal("state.refreshing stayed true after manual refresh completed")
+	}
+	if state.message != "Usage refreshed" || state.messageType != "success" {
+		t.Fatalf("status message = %q (%s), want \"Usage refreshed\" (success)", state.message, state.messageType)
+	}
+}
+
+func TestQuotaRefreshStreamsAccountsProgressivelyAndSkipsCancelledSave(t *testing.T) {
+	f := newCLIFixture(t)
+	releaseSlow := make(chan struct{})
+	slowEntered := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/loadCodeAssist":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cloudaicompanionProject":"p","paidTier":{"id":"g1-pro-tier"}}`))
+		case "/retrieveUserQuotaSummary":
+			_, _ = io.Copy(io.Discard, r.Body)
+			if strings.Contains(r.Header.Get("Authorization"), "slow-access") {
+				select {
+				case <-slowEntered:
+				default:
+					close(slowEntered)
+				}
+				select {
+				case <-releaseSlow:
+				case <-r.Context().Done():
+					return
+				}
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"gemini-weekly","window":"weekly","remainingFraction":0.64,"resetTime":"2030-01-01T00:00:00Z"}]}]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	f.a.http.oauthURL = srv.URL + "/oauth"
+	f.a.http.cloudAPI = srv.URL + "/"
+	f.a.quota = NewQuotaService(f.a.http, f.a.store)
+	f.a.quota.vault = f.a.vault
+
+	makeCustomToken := func(email, access string) string {
+		payload := map[string]any{
+			"token": map[string]any{
+				"access_token":  access,
+				"refresh_token": "ref-" + email,
+				"expiry":        time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+			},
+		}
+		raw, _ := json.Marshal(payload)
+		return string(raw)
+	}
+
+	accounts, err := f.a.store.Load(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []struct{ email, access string }{
+		{"fast@example.com", "fast-access"},
+		{"slow@example.com", "slow-access"},
+	} {
+		tok := makeCustomToken(item.email, item.access)
+		ref := accountSecretRef(item.email)
+		f.a.vault.Set(context.Background(), ref, tok)
+		accounts.Set(item.email, Account{
+			"email":      item.email,
+			"name":       item.email,
+			"secret_ref": ref,
+			"token_hash": hashToken(tok),
+		})
+	}
+	if saveErr := f.a.store.Save(accounts); saveErr != nil {
+		t.Fatal(saveErr)
+	}
+
+	state := newTUIState(copyAccounts(accounts), "")
+	state.vault = f.a.vault
+	events := make(chan tuiEvent, 32)
+	workerCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	coord := newTUIRefreshCoordinator(workerCtx, f.a, state, events, func() {}, func() {})
+	coord.start(true, false)
+
+	// Wait until slow@example.com is blocked in HTTP, and verify fast@example.com
+	// has ALREADY streamed into state.accounts without waiting for slow@example.com!
+	<-slowEntered
+	deadline := time.After(2 * time.Second)
+	fastUpdated := false
+	for !fastUpdated {
+		select {
+		case ev := <-events:
+			if prog, ok := ev.(tuiAccountProgressEvent); ok {
+				coord.applyProgress(prog)
+				if getMap(state.accounts.ByEmail["fast@example.com"]["quota_snapshot"]) != nil {
+					fastUpdated = true
+				}
+			}
+		case <-deadline:
+			t.Fatal("fast@example.com did not stream progressively while slow@example.com was still blocked")
+		}
+	}
+	if state.refreshDone < 1 || state.refreshTotal != 2 {
+		t.Fatalf("progress counters = %d/%d, want >=1/2", state.refreshDone, state.refreshTotal)
+	}
+
+	// Now invalidate the refresh mid-flight (e.g. user deletes an account or switches)
+	// and verify the cancelled refresh does NOT write partial snapshots to disk!
+	coord.invalidate()
+	close(releaseSlow)
+	time.Sleep(80 * time.Millisecond)
+
+	onDisk, err := f.a.store.Load(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap := getMap(onDisk.ByEmail["fast@example.com"]["quota_snapshot"]); snap != nil {
+		t.Fatalf("cancelled refresh unexpectedly overwrote disk store with %v", snap)
 	}
 }
