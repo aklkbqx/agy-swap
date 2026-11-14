@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.23.6
+
+### Changes
+
+- Document multi-account workflows, canonical installer URLs, and isolated concurrent `agy` CLI sessions in `README.md`, and update the Homebrew formula description and homepage (#108).
+- Website update: add a Homebrew install tab, rename the Go install tab to `Source` across all supported languages, and expand install and FAQ documentation (#108).
+
 ## 2.23.5
 
 ### Fixes

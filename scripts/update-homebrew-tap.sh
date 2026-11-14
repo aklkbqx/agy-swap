@@ -40,8 +40,8 @@ linux_amd64=$(platform_checksum linux_amd64)
 formula="${dist%/}.rb"
 cat > "$formula" <<EOF
 class AgySwap < Formula
-  desc "Fast account switcher and quota monitor for Google Antigravity CLI"
-  homepage "https://github.com/aklkbqx/agy-swap"
+  desc "Switch Google Antigravity CLI and IDE accounts and monitor model quotas"
+  homepage "https://agy-swap.aklkbqx.com"
   version "$version"
   license "MIT"
 

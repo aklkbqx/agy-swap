@@ -18,6 +18,7 @@
 </a>
 
 <p>
+  <a href="#why-agy-swap">Why agy-swap</a> ·
   <a href="#install">Install</a> ·
   <a href="#first-run">First run</a> ·
   <a href="#switch-the-cli-and-the-ide-together">IDE switching</a> ·
@@ -30,7 +31,17 @@
 
 </div>
 
-agy-swap keeps several Google Antigravity accounts on one machine, shows each account's remaining quota and reset time, and switches both the `agy` CLI and the Antigravity IDE (on macOS and Linux) from one terminal. Everything runs locally on your machine. Saved tokens stay in `vault.json` (`0600`), which is not encrypted, or in your OS credential store when you set `AGY_SWAP_VAULT=keychain`.
+agy-swap manages multiple Google Antigravity accounts on one machine, displays live 5-hour and weekly quota across Gemini, Claude/GPT, and Gemini 4 Argon pools with local reset times, and switches both the `agy` CLI and the Antigravity IDE (on macOS and Linux) from one terminal without signing out or opening a browser. Everything runs locally on your machine. Saved tokens stay in `vault.json` (`0600`), which is not encrypted, or in your OS credential store when you set `AGY_SWAP_VAULT=keychain`.
+
+## Why agy-swap
+
+| Problem with multiple Antigravity accounts | How agy-swap solves it |
+| :--- | :--- |
+| Signing out and re-authenticating in a browser when a pool runs out | Save every Google account once with `agy-swap add`, then switch the `agy` CLI and, on macOS and Linux, the Antigravity IDE in place with `Enter` or `agy-swap switch` |
+| Guessing which account still has Gemini, Claude/GPT, or Argon quota left | Live 5-hour and weekly quota gauges, local reset countdowns, and `READY` / `LOW` / `GEMINI ONLY` / `CLAUDE/GPT ONLY` / `LIMITED` / `VERIFY` badges |
+| Hitting rate limits mid-task during automated or heavy coding sessions | Rotate automatically with `agy-swap next --family claude`, set reserve thresholds or manual cooldowns with `agy-swap limit`, and bind folders with `profile` and `bind` |
+| Open `agy` processes in other folders overwriting the newly switched account | Launcher session guard (`--sync-session`) harvests background token refreshes into the matching vault entry while keeping your active session intact |
+| Installing `agy` on a new machine or behind corporate TLS inspection | One-command `agy-swap install-agy` with SHA-512 verification, `statusline` for Starship/tmux/zsh, AES-GCM encrypted backups, and `AGY_SWAP_CA_BUNDLE` / mirror support |
 
 ## Install
 
@@ -39,7 +50,7 @@ Shell and PowerShell installers verify downloaded release binaries against SHA-2
 ### macOS and Linux
 
 ```bash
-curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh | bash
+curl -fsSL --proto '=https' --tlsv1.2 https://agy-swap.aklkbqx.com/install.sh | bash
 ```
 
 ### Homebrew (macOS and Linux)
@@ -51,25 +62,21 @@ brew install aklkbqx/agy-swap/agy-swap
 ### Windows (PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex
+irm https://agy-swap.aklkbqx.com/install.ps1 | iex
 ```
 
-### Go install
+### Build from source or Go install
+
+Requirements: Go 1.27.4 or later (with the default `GOTOOLCHAIN=auto`, an older `go` command downloads it first). macOS source builds require Xcode Command Line Tools and `CGO_ENABLED=1` for Keychain writes.
 
 ```bash
+# Install directly from module source
 go install github.com/aklkbqx/agy-swap/v2/cmd/agy-swap@latest
-```
 
-The module requires Go 1.27.4 or newer (with the default `GOTOOLCHAIN=auto`, an older `go` command downloads it first). Published binaries use the same toolchain floor.
-
-### Build from source
-
-Requirements: Go 1.27.4 or later. macOS source builds require Xcode Command Line Tools and `CGO_ENABLED=1` for Keychain writes.
-
-```bash
+# Or clone and build a local binary
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-go build -trimpath -ldflags "-s -w -X main.version=2.23.5 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.23.6 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ./agy-swap version
 ```
 
@@ -89,7 +96,7 @@ Corporate networks that inspect TLS (Zscaler, Fortinet, Netskope), block GitHub 
 Trust your company's root certificate:
 
 ```bash
-curl -fsSL --cacert /path/to/company-ca.pem https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.sh \
+curl -fsSL --cacert /path/to/company-ca.pem https://agy-swap.aklkbqx.com/install.sh \
   | AGY_SWAP_CA_BUNDLE=/path/to/company-ca.pem bash
 ```
 
@@ -260,6 +267,23 @@ agy-swap bind set /path/to/my-repo work-profile --mode recommend
 agy-swap recommend --profile work-profile --refresh
 agy-swap run now
 ```
+
+### Run two agy CLI sessions on different accounts at once
+
+Antigravity stores one shared session per OS user under `~/.gemini` and the login keychain. To run a second `agy` CLI terminal concurrently on another Google account on macOS or Linux without touching your active `agy-swap` session or keychain, give that terminal an isolated `HOME` directory and enable `agy`'s file-backed token store inside it:
+
+```bash
+AGY_BIN="$HOME/.local/libexec/agy"
+[ -x "$AGY_BIN" ] || AGY_BIN="$(command -v agy)"
+
+PROFILE_HOME="$HOME/.agy-homes/account-b"
+mkdir -p "$PROFILE_HOME/.gemini/antigravity-cli/cache"
+touch -t 203601010000 "$PROFILE_HOME/.gemini/antigravity-cli/cache/antigravity-keyring-unavailable"
+
+HOME="$PROFILE_HOME" AGY_SWAP_SKIP_SYNC=1 WSL_INTEROP=1 "$AGY_BIN"
+```
+
+On the first run, `agy` signs in for `$PROFILE_HOME` and keeps that session in `$PROFILE_HOME/.gemini`, while your normal terminals and the Antigravity IDE continue switching through `agy-swap`.
 
 ### Diagnostics, statusline, backups, and support
 
