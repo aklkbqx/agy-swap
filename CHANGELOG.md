@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.23.7
+
+### Fixes
+
+- Wait for the terminal input poller to stop before restoring terminal state and returning from the interactive UI, preventing a file-descriptor race on exit and preserving buffered shell keystrokes.
+- Website update: add search engine ownership verification metadata and synchronize release frames for v2.23.7.
+
 ## 2.23.6
 
 ### Changes

@@ -146,13 +146,20 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 	}()
 	var inputPaused atomic.Bool
 	var inputBusy atomic.Bool
+	inputExited := make(chan struct{})
 	var closeDone sync.Once
 	finish := func() {
+		inputPaused.Store(true)
 		closeDone.Do(func() { close(done) })
 		cancelWorkers()
 	}
+	defer func() {
+		finish()
+		<-inputExited
+	}()
 
 	go func() {
+		defer close(inputExited)
 		for {
 			if inputPaused.Load() {
 				select {
