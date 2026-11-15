@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.23.8
+
+### Changes
+
+- Website update: add localized Thai, Japanese, and Chinese home and install pages, multilingual sitemap alternates, author metadata, and release frames for v2.23.8.
+- Link the author open-source hub (`aklkbqx.com`) in `README.md`.
+
 ## 2.23.7
 
 ### Fixes
