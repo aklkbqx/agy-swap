@@ -1,11 +1,11 @@
-VERSION ?= 2.23.8
+VERSION ?= 2.24.0
 BUILD_ID ?= dev
 GOCACHE ?= /tmp/agy-swap-go-cache
 TARGET_DIR ?= $(HOME)/.local/bin
 GOLANGCI_LINT_VERSION ?= v2.14.0
 GOVULNCHECK_VERSION ?= v1.9.0
 
-.PHONY: help status release-check release-notes release-evidence build test race vet lint vuln benchmark tui-smoke qa bump install release-assets publish-homebrew-tap live site-preview site-release site-verify-live media
+.PHONY: help status release-check release-notes release-evidence build test race vet lint vuln benchmark tui-smoke qa bump install release-assets publish-homebrew-tap live site-preview site-release site-verify-live site-indexnow media
 
 help:
 	@echo "Available make targets:"
@@ -60,6 +60,9 @@ site-release:
 
 site-verify-live:
 	GOCACHE=$(GOCACHE) ./scripts/site-verify-live.sh $(VERSION)
+
+site-indexnow:
+	node site/scripts/indexnow.mjs
 
 media:
 	GOCACHE=$(GOCACHE) VERSION=$(VERSION) ./scripts/record-media.sh

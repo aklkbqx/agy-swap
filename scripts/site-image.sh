@@ -19,7 +19,7 @@ smoke() { # IMAGE VERSION
     tries=$((tries + 1)); [ "$tries" -lt 30 ] || { echo "site never became healthy" >&2; return 1; }
     sleep 1
   done
-  for path in / /install.html /og-panorama.png /sitemap.xml /robots.txt; do
+  for path in / /ko/ /install.html /guides/ /guides/antigravity-quota-limits/ /compare/ /security/ /commands/ /llms-full.txt /og-panorama.png /sitemap.xml /robots.txt; do
     code=$(curl -s -o /dev/null -w '%{http_code}' "$base$path"); [ "$code" = 200 ] || { echo "$path returned $code" >&2; return 1; }
   done
   for path in /install.sh /install.ps1; do

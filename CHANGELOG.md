@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.24.0
+
+### Changes
+
+- Add Thai, Japanese, Chinese (Simplified), and Korean README translations (`docs/i18n/README.*.md`) with a language selector bar and guide links in `README.md` (#109).
+- Website update: add Korean localization (`/ko/`), complete localized crawler shells and translated structured data, nine workflow and reference guides (`/guides/`, `/compare/`, `/security/`, `/commands/`), video structured data, expanded AI crawler references (`/llms-full.txt`), and release frames for v2.24.0.
+
 ## 2.23.8
 
 ### Changes

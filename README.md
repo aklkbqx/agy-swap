@@ -18,6 +18,14 @@
 </a>
 
 <p>
+  <strong>English</strong> ·
+  <a href="docs/i18n/README.th.md">ไทย</a> ·
+  <a href="docs/i18n/README.ja.md">日本語</a> ·
+  <a href="docs/i18n/README.zh-CN.md">简体中文</a> ·
+  <a href="docs/i18n/README.ko.md">한국어</a>
+</p>
+
+<p>
   <a href="#why-agy-swap">Why agy-swap</a> ·
   <a href="#install">Install</a> ·
   <a href="#first-run">First run</a> ·
@@ -26,6 +34,7 @@
   <a href="#commands">Commands</a> ·
   <a href="#walkthrough">Walkthrough</a> ·
   <a href="#security-and-privacy">Security</a> ·
+  <a href="https://agy-swap.aklkbqx.com/guides/">Guides</a> ·
   <a href="#support">Support</a>
 </p>
 
@@ -76,7 +85,7 @@ go install github.com/aklkbqx/agy-swap/v2/cmd/agy-swap@latest
 # Or clone and build a local binary
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-go build -trimpath -ldflags "-s -w -X main.version=2.23.8 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.24.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ./agy-swap version
 ```
 
@@ -380,7 +389,7 @@ TLS certificates are always verified unless you explicitly set `AGY_SWAP_INSECUR
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [docs/development.md](docs/development.md) for build and test workflows, and [docs/architecture.md](docs/architecture.md) for package structure.
+See [CONTRIBUTING.md](CONTRIBUTING.md), [docs/development.md](docs/development.md) for build and test workflows, [docs/architecture.md](docs/architecture.md) for package structure, and the online [user guides](https://agy-swap.aklkbqx.com/guides/) for quota limits, troubleshooting, and workflow comparisons.
 
 ## Support
 
