@@ -85,7 +85,7 @@ go install github.com/aklkbqx/agy-swap/v2/cmd/agy-swap@latest
 # Or clone and build a local binary
 git clone https://github.com/aklkbqx/agy-swap.git
 cd agy-swap
-go build -trimpath -ldflags "-s -w -X main.version=2.24.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.25.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
 ./agy-swap version
 ```
 
@@ -375,17 +375,17 @@ Directory bindings apply when running `agy-swap run now` (overridden by `--accou
 - Config writes use advisory file locks (`flock` on Unix, `LockFileEx` on Windows) and atomic temp-file renames. OAuth tokens are redacted from CLI logs and terminal output.
 
 ### Network endpoints
-agy-swap sends no telemetry. It contacts only the endpoints required for the command you run:
+agy-swap sends no usage telemetry. It contacts only operational endpoints needed for updates and the command you run:
 
 | Endpoint | When contacted |
 | :--- | :--- |
 | Google OAuth & Code Assist APIs | Sign-in, token refresh, verified email check, and quota polling |
 | GitHub Releases | `agy-swap update` and `agy-swap doctor --refresh` |
-| `agy-swap.aklkbqx.com` | Fallback version check during `agy-swap update` when GitHub is unreachable |
+| `agy-swap.aklkbqx.com` | Cached 24-hour `/version.json` check on eligible commands (`TUI`, `watch`, `limits`, `add`, `next`), plus fallback version lookup during `agy-swap update` when GitHub is unreachable |
 | DNS-over-HTTPS (`1.1.1.1`, `8.8.8.8`, or `AGY_SWAP_DOH_URL`) | Host lookup retry only after a TLS error |
 | Custom mirror, Go proxy, or Google CLI download | Only when `AGY_SWAP_RELEASE_MIRROR`, the `go install` fallback, or `install-agy` is used |
 
-TLS certificates are always verified unless you explicitly set `AGY_SWAP_INSECURE=1` (installer) or `AGY_SWAP_INSECURE_TLS=1` (binary); prefer `AGY_SWAP_CA_BUNDLE`. To report a security issue, see [SECURITY.md](SECURITY.md).
+Set `AGY_SWAP_NO_UPDATE_CHECK=1` or `DO_NOT_TRACK=1` to disable the daily version check (also skipped automatically in dev builds, CI, and `demo` mode). TLS certificates are always verified unless you explicitly set `AGY_SWAP_INSECURE=1` (installer) or `AGY_SWAP_INSECURE_TLS=1` (binary); prefer `AGY_SWAP_CA_BUNDLE`. To report a security issue, see [SECURITY.md](SECURITY.md).
 
 ## Contributing
 

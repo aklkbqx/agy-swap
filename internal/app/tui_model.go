@@ -84,32 +84,33 @@ type tuiAnimation struct {
 const tuiToastDuration = 3 * time.Second
 
 type tuiState struct {
-	accounts       *Accounts
-	current        string
-	active         string
-	selectedEmail  string
-	selectedBefore string
-	search         string
-	searchPrevious string
-	mode           tuiMode
-	view           tuiView
-	dialog         *tuiDialog
-	paletteQuery   string
-	paletteIndex   int
-	form           *tuiFormState
-	message        string
-	messageType    string
-	toast          string
-	toastType      string
-	toastUntil     time.Time
-	quotaErrors    map[string]string
-	refreshing     bool
-	refreshDone    int
-	refreshTotal   int
-	resolvingToken string
-	width          int
-	height         int
-	motionEnabled  bool
+	accounts        *Accounts
+	current         string
+	active          string
+	selectedEmail   string
+	selectedBefore  string
+	search          string
+	searchPrevious  string
+	mode            tuiMode
+	view            tuiView
+	dialog          *tuiDialog
+	paletteQuery    string
+	paletteIndex    int
+	form            *tuiFormState
+	message         string
+	messageType     string
+	toast           string
+	toastType       string
+	toastUntil      time.Time
+	quotaErrors     map[string]string
+	refreshing      bool
+	refreshDone     int
+	refreshTotal    int
+	resolvingToken  string
+	availableUpdate string
+	width           int
+	height          int
+	motionEnabled   bool
 	// Motion: tweens by key, and when each one-off effect began.
 	tweens          map[string]*tuiTween
 	startedAt       time.Time

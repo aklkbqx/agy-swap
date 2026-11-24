@@ -69,10 +69,12 @@ func TestLoginCommandGetsAndReturnsTheTerminal(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- helper.Wait() }()
 	select {
-	case <-done:
+	case waitErr := <-done:
+		_ = waitErr
 	case <-time.After(30 * time.Second):
 		_ = syscall.Kill(-helper.Process.Pid, syscall.SIGKILL)
-		<-done
+		waitErr := <-done
+		_ = waitErr
 		t.Fatal("helper did not finish")
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -260,7 +262,8 @@ func TestTUISuspendPreservesCookedTerminalAfterRawLoginChild(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		_ = syscall.Kill(-helper.Process.Pid, syscall.SIGKILL)
-		<-done
+		waitErr := <-done
+		_ = waitErr
 		t.Fatalf("TUI helper did not exit cleanly on q:\n%q", snapshot())
 	}
 }
@@ -402,7 +405,8 @@ func TestTUICtrlCAtAddLoginPromptReturnsToDashboard(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		_ = syscall.Kill(-helper.Process.Pid, syscall.SIGKILL)
-		<-done
+		waitErr := <-done
+		_ = waitErr
 		t.Fatalf("TUI helper did not exit cleanly on q after Ctrl+C cancellation:\n%q", snapshot())
 	}
 }

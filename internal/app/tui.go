@@ -48,6 +48,10 @@ type tuiSwitchEvent struct {
 	current    string
 }
 
+type tuiUpdateEvent struct {
+	latest string
+}
+
 type tuiJobResult struct {
 	message       string
 	err           error
@@ -65,6 +69,7 @@ func (tuiJobEvent) tuiEvent()          {}
 func (tuiCredentialEvent) tuiEvent()   {}
 func (tuiActivityPollEvent) tuiEvent() {}
 func (tuiSwitchEvent) tuiEvent()       {}
+func (tuiUpdateEvent) tuiEvent()       {}
 
 func (a *Application) cmdInteractive(rootCtx context.Context) int {
 	tuiCtx := rootCtx
@@ -303,6 +308,16 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 	var lastClickCol, lastClickRow int
 	startActiveResolve()
 	startRefresh(false, true)
+	if !a.shouldSkipUpdateCheck() {
+		go func() {
+			if latest := a.checkForUpdate(workerCtx); latest != "" {
+				select {
+				case events <- tuiUpdateEvent{latest: latest}:
+				case <-workerCtx.Done():
+				}
+			}
+		}()
+	}
 	armFrame()
 	demoNotice := func() {
 		state.message, state.messageType = errDemoUnavailable.Error(), "info"
@@ -551,6 +566,11 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 				}
 				activity.markRead(value.now)
 				startRefreshFor(due, false, true, true)
+			}
+		case tuiUpdateEvent:
+			if value.latest != "" && state.availableUpdate != value.latest {
+				state.availableUpdate = value.latest
+				a.renderTUI(state, outFile)
 			}
 		case tuiSwitchEvent:
 			switching = false

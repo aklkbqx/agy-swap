@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.25.0
+
+### Changes
+
+- Add a quiet daily version check against `https://agy-swap.aklkbqx.com/version.json` cached for 24 hours (`update-check.json`) on interactive TUI and CLI runs, showing `vX.Y.Z ↑` in the TUI header when a newer stable release is available; sends only the tool version, OS, CPU architecture, and install channel (`brew`, `binary`, or `go-install`) with no account data or identifiers, and can be disabled with `AGY_SWAP_NO_UPDATE_CHECK=1` or `DO_NOT_TRACK=1` (#110).
+- Update `README.md`, `SECURITY.md`, `docs/architecture.md`, and localized README files (`docs/i18n/README.*.md`) to document the daily version check and opt-out environment variables (#110).
+- Website update: update localized copy, guides, and terminal frames for v2.25.0 and document the daily version check.
+
 ## 2.24.0
 
 ### Changes

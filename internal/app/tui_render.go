@@ -357,6 +357,9 @@ func (a *Application) tuiFrameLines(state *tuiState, width, height int) ([]strin
 func (a *Application) tuiHeaderLinesWithVersion(version string, state *tuiState, width int) []string {
 	g := newTUIGeometry(width, 12)
 	left := tuiWordmark(a.p) + "  " + a.p.Gray + "v" + tuiText(stateVersion(version)) + a.p.Reset
+	if state != nil && state.availableUpdate != "" {
+		left += "  " + a.p.Yellow + "v" + tuiText(state.availableUpdate) + " ↑" + a.p.Reset
+	}
 	sync := a.p.Gray + "LOCAL" + a.p.Reset
 	if state != nil {
 		switch {

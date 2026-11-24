@@ -74,4 +74,4 @@ macOS 또는 Linux에서 두 개의 `agy` CLI 터미널을 서로 다른 Google 
 
 ## 보안 및 토큰 저장
 
-`agy-swap`은 로컬에서만 동작하며 텔레메트리를 전송하지 않습니다. 저장된 계정 토큰은 본인만 읽을 수 있는 `vault.json`(권한 `0600`, 암호화되지 않음)에 저장되며, macOS Keychain, Windows 자격 증명 관리자 또는 Linux Secret Service를 사용하려면 `AGY_SWAP_VAULT=keychain`을 설정하세요. 자세한 내용은 [SECURITY.md](../../SECURITY.md)에 정리되어 있습니다.
+`agy-swap`은 로컬에서만 동작하며 사용 텔레메트리나 충돌 보고를 전송하지 않습니다. 대화형 TUI 및 네트워크 명령 실행 시에만 캐시된 일일 버전 확인(`GET https://agy-swap.aklkbqx.com/version.json`, 버전·OS·아키텍처·설치 경로만 전송하며 계정이나 기기 식별자는 포함하지 않음)을 수행하며, `AGY_SWAP_NO_UPDATE_CHECK=1` 또는 `DO_NOT_TRACK=1`로 끌 수 있습니다. 저장된 계정 토큰은 본인만 읽을 수 있는 `vault.json`(권한 `0600`, 암호화되지 않음)에 저장되며, macOS Keychain, Windows 자격 증명 관리자 또는 Linux Secret Service를 사용하려면 `AGY_SWAP_VAULT=keychain`을 설정하세요. 자세한 내용은 [SECURITY.md](../../SECURITY.md)에 정리되어 있습니다.

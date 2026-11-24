@@ -58,6 +58,9 @@ func verifyLive(releaseVersion, dist, baseURL string, client *http.Client) error
 	for _, path := range []string{"/install.html", "/robots.txt", "/sitemap.xml", "/llms.txt"} {
 		expect(path, http.StatusOK)
 	}
+	if ver := expect("/version.json", http.StatusOK); !bytes.Contains(ver, []byte(`"version":"`+releaseVersion+`"`)) {
+		fault("/version.json does not report %s", releaseVersion)
+	}
 	if home := expect("/", http.StatusOK); !bytes.Contains(home, []byte(`"softwareVersion": "v`+releaseVersion+`"`)) {
 		fault("homepage softwareVersion is not v%s", releaseVersion)
 	}

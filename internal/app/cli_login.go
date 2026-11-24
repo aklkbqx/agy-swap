@@ -56,7 +56,8 @@ func stopLoginCommand(command *exec.Cmd, done <-chan error) {
 		return
 	}
 	select {
-	case <-done:
+	case waitErr := <-done:
+		_ = waitErr
 		return
 	default:
 	}
@@ -79,7 +80,8 @@ func waitForLoginCommand(done <-chan error, timeout time.Duration) bool {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
-	case <-done:
+	case waitErr := <-done:
+		_ = waitErr
 		return true
 	case <-timer.C:
 		return false
@@ -91,6 +93,8 @@ func newAccount(email, name, token string) Account {
 }
 
 func (a *Application) cmdAdd(ctx context.Context, args cliArgs) int {
+	stopUpdateCheck := a.startBackgroundUpdateCheck(ctx)
+	defer stopUpdateCheck()
 	if args.token == "-" {
 		raw, err := io.ReadAll(io.LimitReader(a.In, maxTokenBytes+1))
 		if err != nil || len(raw) > maxTokenBytes {

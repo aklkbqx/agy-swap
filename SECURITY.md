@@ -30,10 +30,11 @@ Security fixes are released only for the latest stable version. When a new stabl
    - Session files are swapped using atomic file replacement operations (`os.Rename` on POSIX systems, `MoveFileEx` with replace flags on Windows) guarded by system file locks (`flock` / `LockFileEx`) to prevent partial writes, corruption, or race conditions.
 
 3. **No Telemetry & Network Use**:
-   - `agy-swap` does not collect telemetry, analytics, or crash reports.
+   - `agy-swap` does not collect usage telemetry, analytics, or crash reports.
    - Google requests support OAuth login, token refresh, account identity verification, and quota checks. Login receives the browser callback through a local loopback listener.
    - Quota polling and token refresh can run automatically while a user-invoked TUI, watch, recommendation, or bound-run session is active.
    - GitHub requests support release checks, download verification, and self-updates. These requests are operational network traffic, not telemetry.
+   - Eligible interactive and networked commands (`agy-swap` TUI, `watch`, `limits`, `add`, `next`) perform a cached daily version check (`GET https://agy-swap.aklkbqx.com/version.json`) in the background to show an update hint (`vX.Y.Z ↑`) in the TUI. Only the current binary version, OS, CPU architecture, and install channel are sent in the HTTP `User-Agent` header; no account, session, or machine identifiers are sent, and no errors are printed if offline. Local dev builds, `demo` mode, CI environments, `DO_NOT_TRACK=1`, and `AGY_SWAP_NO_UPDATE_CHECK=1` skip this check.
 
 ---
 

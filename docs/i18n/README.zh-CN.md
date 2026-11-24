@@ -74,4 +74,4 @@ agy-swap doctor                 # 检查本地存储、凭证状态与网络连�
 
 ## 安全与凭证存储
 
-`agy-swap` 完全在本地运行，不发送任何遥测数据。已保存的账号令牌默认存储在仅当前用户可读的 `vault.json` 文件（权限 `0600`，未加密）中；设置 `AGY_SWAP_VAULT=keychain` 可改为保存到 macOS Keychain、Windows 凭据管理器或 Linux Secret Service。详细说明见 [SECURITY.md](../../SECURITY.md)。
+`agy-swap` 完全在本地运行，不发送任何使用遥测或崩溃报告。仅在交互界面及联网命令期间每 24 小时执行一次带缓存的新版本检查 (`GET https://agy-swap.aklkbqx.com/version.json`，仅发送版本号、系统、架构和安装渠道，不包含账号或设备标识)，可通过设置 `AGY_SWAP_NO_UPDATE_CHECK=1` 或 `DO_NOT_TRACK=1` 关闭。已保存的账号令牌默认存储在仅当前用户可读的 `vault.json` 文件（权限 `0600`，未加密）中；设置 `AGY_SWAP_VAULT=keychain` 可改为保存到 macOS Keychain、Windows 凭据管理器或 Linux Secret Service。详细说明见 [SECURITY.md](../../SECURITY.md)。

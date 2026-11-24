@@ -19,9 +19,10 @@ smoke() { # IMAGE VERSION
     tries=$((tries + 1)); [ "$tries" -lt 30 ] || { echo "site never became healthy" >&2; return 1; }
     sleep 1
   done
-  for path in / /ko/ /install.html /guides/ /guides/antigravity-quota-limits/ /compare/ /security/ /commands/ /llms-full.txt /og-panorama.png /sitemap.xml /robots.txt; do
+  for path in / /ko/ /install.html /guides/ /guides/antigravity-quota-limits/ /compare/ /security/ /commands/ /llms-full.txt /og-panorama.png /sitemap.xml /robots.txt /version.json; do
     code=$(curl -s -o /dev/null -w '%{http_code}' "$base$path"); [ "$code" = 200 ] || { echo "$path returned $code" >&2; return 1; }
   done
+  curl -fsS "$base/version.json" | grep -q "\"version\":\"$2\"" || { echo "/version.json does not report version $2" >&2; return 1; }
   for path in /install.sh /install.ps1; do
     code=$(curl -s -o /dev/null -w '%{http_code}' "$base$path"); [ "$code" = 302 ] || { echo "$path returned $code, want 302" >&2; return 1; }
   done

@@ -24,7 +24,7 @@
 
 ## Network
 
-The CLI talks to Google for sign-in, account, and quota data, and to GitHub for release checks and updates. It sends no telemetry.
+The CLI talks to Google for sign-in, account, and quota data, to GitHub for release checks and updates, and (at most once every 24 hours on eligible interactive or networked commands) to `agy-swap.aklkbqx.com/version.json` to check for a newer release unless `AGY_SWAP_NO_UPDATE_CHECK=1` or `DO_NOT_TRACK=1` is set. It sends no usage telemetry.
 
 ## TUI
 

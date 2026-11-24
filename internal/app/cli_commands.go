@@ -309,6 +309,8 @@ func nextEligible(ranked []recommendation, active string) (recommendation, bool)
 }
 
 func (a *Application) cmdNext(ctx context.Context, args cliArgs) int {
+	stopUpdateCheck := a.startBackgroundUpdateCheck(ctx)
+	defer stopUpdateCheck()
 	accounts, err := a.store.Load(true)
 	if err != nil {
 		return a.storeError(err)
@@ -457,6 +459,8 @@ func (a *Application) cmdSetLimit(_ context.Context, args cliArgs) int {
 }
 
 func (a *Application) cmdLimits(ctx context.Context, args cliArgs) int {
+	stopUpdateCheck := a.startBackgroundUpdateCheck(ctx)
+	defer stopUpdateCheck()
 	accounts, err := a.store.Load(true)
 	if err != nil {
 		return a.storeError(err)

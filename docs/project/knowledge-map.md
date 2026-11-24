@@ -10,7 +10,7 @@ Reconciled 2026-10-11 against source, existing docs and published v2.11.4 delive
 | CLI commands and selection | [README](../../README.md#commands) | `internal/app/cli.go`, `extended.go`, selection/quota code | Retain canonical command examples |
 | TUI and color/layout contracts | [TUI design](tui-design.md), [development](../development.md) | `display.go`, `tui_*.go`, renderer tests and four smoke sizes | Curate public design record |
 | Installation, update and uninstall | [README](../../README.md#install), [public install page](https://agy-swap.aklkbqx.com/install.html) | Reviewed shell/PowerShell installers and `internal/app/updater.go` | Retain existing public instructions |
-| Security support and network behavior | [Security](../../SECURITY.md) | Google operational requests, GitHub update requests; no telemetry | Latest stable only; all older history archived |
+| Security support and network behavior | [Security](../../SECURITY.md) | Google operational requests, GitHub updates, cached daily `version.json` check (`AGY_SWAP_NO_UPDATE_CHECK=1` opts out); no usage telemetry | Latest stable only; all older history archived |
 | QA and reproducible story frames | [Development](../development.md) | `story_frames_test.go`, Go QA, Site tests | Retain and correct sequential build/test ordering |
 | Site design and four translations | Private Site docs and source | Site design tokens, locale source/tests | Keep private implementation detail in Site |
 | Local demo/PTY vs production | [Development](../development.md#34-website-story-frames-and-local-agy-live) | `cmd/agy-swap-demo-server`, `internal/demoserver`; static production routes | Retain explicit local-only boundary |

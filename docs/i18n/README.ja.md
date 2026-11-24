@@ -74,4 +74,4 @@ macOS や Linux で 2 つの `agy` CLI セッションを別アカウントで�
 
 ## セキュリティとトークン保存
 
-`agy-swap` は完全にローカルで動作しテレメトリを送信しません。保存したアカウントトークンは本人のみ読み取り可能な `vault.json`（パーミッション `0600`、暗号化なし）に保管されます。macOS Keychain・Windows 資格情報マネージャー・Linux Secret Service を使う場合は `AGY_SWAP_VAULT=keychain` を設定してください。詳細は [SECURITY.md](../../SECURITY.md) を参照してください。
+`agy-swap` は完全にローカルで動作し、利用テレメトリやクラッシュレポートを送信しません。対話画面やネットワーク系コマンド実行時のみ、キャッシュ付きの 24 時間ごとの最新バージョン確認 (`GET https://agy-swap.aklkbqx.com/version.json`、送信するのはバージョン・OS・CPU アーキテクチャ・導入経路のみでアカウントや端末 ID は含みません) を行います。この確認は `AGY_SWAP_NO_UPDATE_CHECK=1` または `DO_NOT_TRACK=1` で無効化できます。保存したアカウントトークンは本人のみ読み取り可能な `vault.json`（パーミッション `0600`、暗号化なし）に保管されます。macOS Keychain・Windows 資格情報マネージャー・Linux Secret Service を使う場合は `AGY_SWAP_VAULT=keychain` を設定してください。詳細は [SECURITY.md](../../SECURITY.md) を参照してください。

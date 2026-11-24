@@ -472,6 +472,8 @@ func (a *Application) watchOnce(ctx context.Context, opts extendedOptions) (map[
 }
 
 func (a *Application) cmdWatch(ctx context.Context, opts extendedOptions, positional []string) int {
+	stopUpdateCheck := a.startBackgroundUpdateCheck(ctx)
+	defer stopUpdateCheck()
 	if opts.Account == "" && len(positional) > 0 {
 		opts.Account = positional[0]
 	}
