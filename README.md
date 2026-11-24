@@ -387,6 +387,19 @@ agy-swap sends no usage telemetry. It contacts only operational endpoints needed
 
 Set `AGY_SWAP_NO_UPDATE_CHECK=1` or `DO_NOT_TRACK=1` to disable the daily version check (also skipped automatically in dev builds, CI, and `demo` mode). TLS certificates are always verified unless you explicitly set `AGY_SWAP_INSECURE=1` (installer) or `AGY_SWAP_INSECURE_TLS=1` (binary); prefer `AGY_SWAP_CA_BUNDLE`. To report a security issue, see [SECURITY.md](SECURITY.md).
 
+## Guides
+
+Detailed walkthroughs and reference pages live on the documentation site:
+
+- [Quota limits, 5-hour windows, and Gemini 4 Argon](https://agy-swap.aklkbqx.com/guides/antigravity-quota-limits/)
+- [Switch both the agy CLI and Antigravity IDE](https://agy-swap.aklkbqx.com/guides/switch-accounts-cli-ide/)
+- [Directory bindings and parallel CLI sessions](https://agy-swap.aklkbqx.com/guides/parallel-sessions/)
+- [Troubleshooting HTTP 429, Keychain, VERIFY, and corporate proxies](https://agy-swap.aklkbqx.com/guides/troubleshooting/)
+- [Shell prompt statusline for Starship, tmux, and zsh](https://agy-swap.aklkbqx.com/guides/statusline-automation/)
+- [Compare agy-swap with manual login and alternatives](https://agy-swap.aklkbqx.com/compare/)
+- [Security, vault.json vs OS keychain, and network endpoints](https://agy-swap.aklkbqx.com/security/)
+- [Complete CLI commands, shortcuts, and environment variables](https://agy-swap.aklkbqx.com/commands/)
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [docs/development.md](docs/development.md) for build and test workflows, [docs/architecture.md](docs/architecture.md) for package structure, and the online [user guides](https://agy-swap.aklkbqx.com/guides/) for quota limits, troubleshooting, and workflow comparisons.
