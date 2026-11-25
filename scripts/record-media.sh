@@ -23,7 +23,7 @@ WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/agy-media-XXXXXX")"
 trap 'rm -rf "$WORK_DIR"' EXIT
 BIN_DIR="$WORK_DIR/bin"
 LOG="$WORK_DIR/invocations.log"
-mkdir -p "$BIN_DIR" "$WORK_DIR/home" "$WORK_DIR/docs/assets" "$WORK_DIR/site/public/media"
+mkdir -p "$BIN_DIR" "$WORK_DIR/home" "$WORK_DIR/docs/assets" "$WORK_DIR/dist/media" "$WORK_DIR/site/public/media"
 # VHS writes relative Output paths into staging; published assets are untouched
 # until every tape, invocation and poster has succeeded.
 
@@ -55,10 +55,21 @@ export TZ="UTC"
 # Poster frame (seconds into the MP4) for each clip; empty means the last frame.
 poster_at() {
   case "$1" in
-    switch) echo 2 ;;
-    dashboard) echo 4.5 ;;
+    switch) echo 1.0 ;;
+    dashboard) echo 7.2 ;;
     *) echo "" ;;
   esac
+}
+
+optimize_mp4() {
+  local src="$1" dst="$2"
+  ffmpeg -v error -y -i "$src" -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -movflags +faststart "$dst"
+}
+
+encode_gif() {
+  local src="$1" dst="$2" palette="$3"
+  ffmpeg -v error -y -i "$src" -vf "fps=20,scale=1200:-1:flags=lanczos,palettegen=stats_mode=diff" "$palette"
+  ffmpeg -v error -y -i "$src" -i "$palette" -lavfi "fps=20,scale=1200:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=sierra2_4a:diff_mode=rectangle" "$dst"
 }
 
 cd "$WORK_DIR"
@@ -78,25 +89,46 @@ for tape in "$ROOT_DIR"/scripts/tapes/*.tape; do
     exit 1
   fi
 
+  src_mp4="docs/assets/$name.mp4"
+  optimize_mp4 "$src_mp4" "dist/media/$name.mp4"
+  encode_gif "dist/media/$name.mp4" "docs/assets/$name.gif" "$WORK_DIR/${name}-palette.png"
+
   at="$(poster_at "$name")"
   seek=(-sseof -0.2)
   [ -z "$at" ] || seek=(-ss "$at")
   # A 256-colour palette keeps terminal text sharp at a third of the size.
-  ffmpeg -v error -y "${seek[@]}" -i "docs/assets/$name.mp4" -frames:v 1 \
+  ffmpeg -v error -y "${seek[@]}" -i "dist/media/$name.mp4" -frames:v 1 \
     -vf "split[a][b];[a]palettegen[p];[b][p]paletteuse=dither=none" "site/public/media/$name.png"
-  cp -f "docs/assets/$name.mp4" "site/public/media/$name.mp4"
+  cp -f "dist/media/$name.mp4" "site/public/media/$name.mp4"
 done
+
+promo_tape="$ROOT_DIR/scripts/promo/showcase-16x9.tape"
+if [ -f "$promo_tape" ]; then
+  echo "==> Recording promo showcase-16x9..."
+  : >"$LOG"
+  vhs "$promo_tape"
+  if [ ! -s "$LOG" ] || grep -qv '^0 ' "$LOG"; then
+    echo "error: showcase-16x9 had a missing or failing demo command:" >&2
+    cat "$LOG" >&2 || true
+    exit 1
+  fi
+  optimize_mp4 "dist/media/showcase-16x9.mp4" "dist/media/showcase-16x9.faststart.mp4"
+  mv -f "dist/media/showcase-16x9.faststart.mp4" "dist/media/showcase-16x9.mp4"
+fi
 
 # README GIFs and Site runtime assets are versioned; local MP4 copies are not.
 mkdir -p "$ROOT_DIR/docs/assets" "$ROOT_DIR/site/public/media" "$ROOT_DIR/dist/media"
 cp -f docs/assets/*.gif "$ROOT_DIR/docs/assets/"
-cp -f docs/assets/*.mp4 "$ROOT_DIR/dist/media/"
+cp -f dist/media/*.mp4 "$ROOT_DIR/dist/media/"
 cp -f site/public/media/*.png site/public/media/*.mp4 "$ROOT_DIR/site/public/media/"
-# Local launch kit (ignored by Git) reuses the switch clip.
+# Local launch kit (ignored by Git) reuses the switch clip and 16:9 reel.
 if [ -d "$ROOT_DIR/promo" ]; then
   cp -f docs/assets/switch.gif "$ROOT_DIR/promo/agy-swap-demo.gif"
-  cp -f docs/assets/switch.mp4 "$ROOT_DIR/promo/agy-swap-demo.mp4"
+  cp -f dist/media/switch.mp4 "$ROOT_DIR/promo/agy-swap-demo.mp4"
+  if [ -f "dist/media/showcase-16x9.mp4" ]; then
+    cp -f "dist/media/showcase-16x9.mp4" "$ROOT_DIR/promo/agy-swap-showcase-16x9.mp4"
+  fi
 fi
 
 echo "==> Recorded:"
-ls -lh docs/assets/*.gif docs/assets/*.mp4 site/public/media/*
+ls -lh "$ROOT_DIR"/docs/assets/*.gif "$ROOT_DIR"/dist/media/*.mp4 "$ROOT_DIR"/site/public/media/*

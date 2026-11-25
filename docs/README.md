@@ -4,6 +4,7 @@ GitHub is the project workspace. The Tool repository is public; the Site reposit
 
 | Need | Canonical location |
 | --- | --- |
+| Full CLI, TUI, and proxy reference | [Reference](reference.md) |
 | How to contribute and resume work | [GitHub workflow](github-workflow.md) |
 | Open work, bugs, acceptance, checkpoints | [Tool Issues](https://github.com/aklkbqx/agy-swap/issues), private Site Issues |
 | Implementation architecture | [Architecture](architecture.md) |

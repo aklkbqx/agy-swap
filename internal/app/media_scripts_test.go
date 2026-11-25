@@ -70,7 +70,10 @@ agy-swap list || true
 				"ffmpeg": `#!/bin/sh
 [ "$MEDIA_TEST_FAIL" != poster ] || exit 1
 for output do :; done
-printf poster > "$output"
+case "$output" in
+ *.png) printf poster > "$output" ;;
+ *) printf recorded > "$output" ;;
+esac
 `,
 			}
 			for name, body := range tools {

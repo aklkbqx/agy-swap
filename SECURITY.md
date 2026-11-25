@@ -36,6 +36,11 @@ Security fixes are released only for the latest stable version. When a new stabl
    - GitHub requests support release checks, download verification, and self-updates. These requests are operational network traffic, not telemetry.
    - Eligible interactive and networked commands (`agy-swap` TUI, `watch`, `limits`, `add`, `next`) perform a cached daily version check (`GET https://agy-swap.aklkbqx.com/version.json`) in the background to show an update hint (`vX.Y.Z ↑`) in the TUI. Only the current binary version, OS, CPU architecture, and install channel are sent in the HTTP `User-Agent` header; no account, session, or machine identifiers are sent, and no errors are printed if offline. Local dev builds, `demo` mode, CI environments, `DO_NOT_TRACK=1`, and `AGY_SWAP_NO_UPDATE_CHECK=1` skip this check.
 
+4. **Local Session Switcher (Not an API Router or Proxy)**:
+   - `agy-swap` does not proxy, intercept, or route prompts or model inference through third-party clients or servers. Every request still runs through the official `agy` CLI and Antigravity IDE.
+   - Account switching updates only your local session files (`~/.gemini` and your OS credential store mirror) and polls quota from Google's endpoint.
+   - Google's own multi-account, billing, and acceptable-use rules still apply; `agy-swap` cannot promise zero account risk when multiple accounts are used to bypass plan limits.
+
 ---
 
 ## Reporting a Vulnerability

@@ -419,7 +419,7 @@ func bumpVersion(target, root string) error {
 		{"cmd/agy-swap-demo/main.go", `version = "` + current + `"`, `version = "` + next + `"`},
 		{"install.sh", `VERSION="${AGY_SWAP_VERSION:-` + current + `}"`, `VERSION="${AGY_SWAP_VERSION:-` + next + `}"`},
 		{"install.ps1", `$Version = '` + current + `'`, `$Version = '` + next + `'`},
-		{"README.md", `-X main.version=` + current, `-X main.version=` + next},
+		{"docs/reference.md", `-X main.version=` + current, `-X main.version=` + next},
 		{"site/index.html", `"softwareVersion": "v` + current + `"`, `"softwareVersion": "v` + next + `"`},
 		{"site/package.json", `"version": "` + current + `"`, `"version": "` + next + `"`},
 		{"internal/app/app_test.go", `"` + current + `": "v` + current + `"`, `"` + next + `": "v` + next + `"`},

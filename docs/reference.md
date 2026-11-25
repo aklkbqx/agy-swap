@@ -1,0 +1,264 @@
+# agy-swap reference
+
+Detailed build instructions, corporate network options, IDE switching internals, TUI shortcuts, CLI examples, and network endpoints for [agy-swap](../README.md). For credential handling and vulnerability reporting, see [SECURITY.md](../SECURITY.md).
+
+## Install and restricted networks
+
+### Build from source
+
+Requirements: Go 1.27.4 or later (with the default `GOTOOLCHAIN=auto`, an older `go` command downloads it first). macOS source builds require Xcode Command Line Tools and `CGO_ENABLED=1` for Keychain writes.
+
+```bash
+# Install directly from module source
+go install github.com/aklkbqx/agy-swap/v2/cmd/agy-swap@latest
+
+# Or clone and build a local binary
+git clone https://github.com/aklkbqx/agy-swap.git
+cd agy-swap
+go build -trimpath -ldflags "-s -w -X main.version=2.25.0 -X main.buildID=local" -o agy-swap ./cmd/agy-swap
+./agy-swap version
+```
+
+### On a restricted network
+
+Corporate networks that inspect TLS (Zscaler, Fortinet, Netskope), block GitHub downloads, or redirect DNS can use these environment variables with `install.sh` and `agy-swap update` (the PowerShell installer supports `AGY_SWAP_RELEASE_MIRROR` and `AGY_SWAP_INSECURE`):
+
+| Variable | What it does |
+| :--- | :--- |
+| `AGY_SWAP_CA_BUNDLE` | Trust a custom root certificate PEM file (also reads `CURL_CA_BUNDLE`). Safest option for TLS inspection |
+| `AGY_SWAP_RELEASE_MIRROR` | Download release binaries and `checksums.txt` from an internal mirror URL |
+| `AGY_SWAP_DOH_URL` | Override the DNS-over-HTTPS resolver used after a TLS error (defaults to Cloudflare `1.1.1.1`, then Google `8.8.8.8`, ignoring private IP answers) |
+| `AGY_SWAP_GO_FALLBACK=1` | Build the release with `go install` after any download error (needs Go on your PATH; does not run on Windows) |
+| `AGY_SWAP_NO_GO_FALLBACK=1` | Disable the automatic `go install` fallback on TLS certificate errors |
+| `AGY_SWAP_INSECURE=1` | Skip TLS certificate checks in the installer as a last resort (still verifies SHA-256 checksums) |
+
+Trust your company's root certificate:
+
+```bash
+curl -fsSL --cacert /path/to/company-ca.pem https://agy-swap.aklkbqx.com/install.sh \
+  | AGY_SWAP_CA_BUNDLE=/path/to/company-ca.pem bash
+```
+
+Or install from an internal release mirror:
+
+```bash
+AGY_SWAP_RELEASE_MIRROR=https://mirror.example.com/agy-swap bash install.sh
+```
+
+The installers expect release files at the mirror's top level. `agy-swap update` tries GitHub first, then `vX.Y.Z/` on the mirror, then the mirror's top level. When a TLS certificate error blocks the download and Go is on your PATH, `agy-swap update` falls back to `go install` (this does not run on Windows; Go verifies the source module checksum, though the compiled binary is not compared against the release checksum).
+
+## Switch the CLI and the IDE together
+
+One switch moves the `agy` CLI, the Antigravity IDE (on macOS and Linux), and Jetski to the same Google account without signing out of the IDE or opening a browser. Windows switches the CLI session only.
+
+| Component | How agy-swap updates it |
+| :--- | :--- |
+| Session files | Writes the active OAuth session under `~/.gemini` (`0600`) where the CLI, the IDE, and Jetski read it |
+| System keychain | Mirrors the active session into the system keychain (`/usr/bin/security` on macOS, `secret-tool` on Linux when installed) |
+| IDE account label | Updates the signed-in email shown in the IDE's `state.vscdb` when `sqlite3` is installed |
+| CLI and IDE wrapper | Wraps `~/.local/bin/agy` and `~/.gemini/bin/agy` (plus `AGY_SWAP_AGY_BIN` or `install-agy --dir`) so `agy-swap --sync-session` runs before and after `agy`. The original binary is kept at `~/.local/libexec/agy` or `.agy.real` beside it (symlinks keep their target) |
+| IDE version metadata | Updates size and modification time in `agy.version.json` so the IDE accepts the wrapper while keeping the version and checksum intact |
+| Background service | Writes `~/.gemini/antigravity-cli/cache/agy-swap-hub-reload` and stops the background `agy` service with `pkill` so the wrapper restarts it under the new account (active IDE agent work stops on switch) |
+
+- When the CLI or the IDE refreshes a token, agy-swap saves the updated token back to the matching account on the next run.
+- If the IDE or `agy` is signed in to an unsaved account, agy-swap leaves it alone and `agy-swap add` offers to save it. After `agy-swap logout`, agy-swap does not sign you back in until you pick an account.
+- To remove the wrapper, uninstall agy-swap first, then move `.agy.real` (or `~/.local/libexec/agy`) back over `agy` or reinstall `agy`.
+
+## Terminal UI reference
+
+### Account status and quota pools
+
+Each account row shows a status badge and two quota bars: `Gem` (Gemini) and `C/G` (Claude and GPT), each displaying the tighter of its weekly and 5-hour windows. Accounts on Pro plans with a separate weekly Gemini 4 Argon pool show an additional Argon panel in the detail pane.
+
+| Status badge | Meaning |
+| :--- | :--- |
+| `READY` | Both Gemini and Claude/GPT pools have more than 30% remaining (green) |
+| `LOW` | At least one pool is at 30% or less (yellow; 10% or less turns red) |
+| `GEMINI ONLY` / `CLAUDE/GPT ONLY` | The other model pool is exhausted (`0%`) |
+| `LIMITED` | Both main model pools are exhausted |
+| `NO TOKEN` | Account has no saved credential token |
+| `VERIFY` | Google requires account verification before use (press `w` to open the verification URL) |
+
+### Responsive layout and live refresh
+
+- Wide (`120+` cols): account list on the left, side-by-side pool panels with large digits on the right (up to 160 cols).
+- Medium (`92-119` cols): account list on the left, stacked pool panels on the right.
+- Stacked (`64-91` cols) and compact (`28-63` cols): single-column layout with selected account gauges below the list.
+- Live quota refresh: polls the active account every 20 seconds, inactive accounts every 2 minutes, right after a pool reset time passes, and within ~10 seconds of Antigravity log activity. Code Assist project IDs are cached for 15 minutes.
+
+### Environment variables
+
+| Variable | Effect |
+| :--- | :--- |
+| `AGY_SWAP_VAULT` | Store saved tokens in `keychain` (macOS Keychain, Windows Credential Manager, Linux Secret Service) or `file` (`vault.json`) |
+| `AGY_SWAP_NO_UPDATE_CHECK=1` | Disable the cached daily `/version.json` check (also honors `DO_NOT_TRACK=1`) |
+| `AGY_SWAP_REDUCED_MOTION=1` | Disable UI transitions and animations |
+| `AGY_SWAP_ASCII=1` / `0` | Force ASCII borders on or off |
+| `AGY_SWAP_MOUSE=0` | Disable mouse clicks, wheel scrolling, and drag resizing |
+| `AGY_SWAP_QUOTA_DEBUG=1` | Print quota endpoint diagnostics with `agy-swap list --refresh` |
+| `AGY_SWAP_USER_AGENT` | Override the HTTP User-Agent sent to Google quota endpoints |
+
+### Keyboard and mouse shortcuts
+
+| Key / Input | Action |
+| :--- | :--- |
+| `↑` / `↓` or `j` / `k` | Move selection up or down |
+| `1` - `9` | Jump to account slot 1-9 |
+| `Enter` | Open the switch confirmation dialog for the highlighted account |
+| `n` | Refresh quotas and switch to the next eligible account |
+| `r` | Refresh every account's quota now |
+| `/` | Filter accounts by name or email |
+| `Ctrl+K` or `:` | Open the command palette |
+| `p` / `h` / `s` / `o` / `b` | Open Profiles, History, Settings, Doctor, or Backup (`Esc` or `b` returns to Dashboard) |
+| `a` / `d` / `e` | Add an account (`a`), delete the selected account (`d`), or edit / export encrypted backup (`e`) |
+| `w` | Open Google's verification page for an account marked `VERIFY` |
+| `m` / `u` | Migrate legacy tokens to the vault (`m`) or update `agy-swap` (`u`) |
+| `[` / `]` and `=` | Resize the split pane width/height, or press `=` to reset |
+| `?` | Show or hide the shortcut guide (includes the GitHub Sponsors link) |
+| `q` / `Esc` | Close an active dialog/sub-view, or press `q` on the Dashboard to quit |
+| Mouse click and drag | Click an account to select (click again to switch), click footer keycaps or dialog buttons, drag the pane divider to resize (double-click to reset), or scroll with the wheel |
+
+## CLI reference
+
+| Command | What it does |
+| :--- | :--- |
+| `add` | Sign in with Google and save the account |
+| `list` | List saved accounts with status and quota health |
+| `switch <account>` | Switch the local session by email, alias, or slot number |
+| `next` | Refresh quotas, then switch to the next eligible account |
+| `status` | Show the active account |
+| `limits` | Show quota and local reserve limits for every account (`--refresh` updates first) |
+| `limit <set\|clear>` | Set or clear a manual cooldown or reserve limit for one account |
+| `verify <account>` | Open Google's verification page for an account marked `VERIFY` |
+| `profile` / `bind` | Define account profiles and bind project directories to them |
+| `recommend` | Explain which account is safest to use now |
+| `run now` | Launch the configured CLI with the recommended or bound account |
+| `install-agy` | Download and install the Google Antigravity CLI (`agy`), verifying its SHA-512 checksum |
+| `doctor` | Check local storage, credentials, vault, and platform readiness |
+| `statusline` | Render or install a compact statusline for Starship, tmux, or zsh |
+| `backup` | Export or import accounts (with optional AES-GCM secret encryption) |
+| `update` | Update `agy-swap` to the latest release |
+| `donate` | Print the GitHub Sponsors link, or open it in your browser with `--open` |
+
+### Accounts and switching
+
+```bash
+# Add an account through browser sign-in, or pass a token on stdin
+agy-swap add
+printf '%s' "$TOKEN" | agy-swap add --token -
+
+# List saved accounts with status and quota pools
+agy-swap list
+agy-swap list --verbose
+
+# Switch by email, alias, or 1-based slot number
+agy-swap switch dev@company.com
+agy-swap switch 2
+
+# Refresh and switch to the next eligible account (optionally for one model family)
+agy-swap next
+agy-swap next --family claude
+
+# Show the active account or sign out
+agy-swap status
+agy-swap logout
+```
+
+`list` keeps accounts in saved order so numeric slots match `switch`. Reset times show both the countdown and local timestamp (`resets in 2d 19h 6m (Fri 16 Oct 14:06 +0700)`), or `refresh due` once the timestamp has passed.
+
+### Quota and manual cooldowns
+
+```bash
+# Show cached quota for every account, or refresh from Google first
+agy-swap limits
+agy-swap limits --refresh --verbose
+
+# Set or clear a manual cooldown for a specific model family
+agy-swap limit set 1 6h --group claude
+agy-swap limit clear dev@company.com --group claude
+```
+
+### Profiles, aliases, and project bindings
+
+```bash
+# Assign short aliases
+agy-swap alias set work dev@company.com
+agy-swap alias set personal user@example.com
+
+# Create a profile with a primary account, reserve fallback, and policy
+agy-swap profile set work-profile work --family gemini --policy sticky --reserve personal --threshold 15
+
+# Bind a repository path to a profile and run
+agy-swap bind set /path/to/my-repo work-profile --mode recommend
+agy-swap recommend --profile work-profile --refresh
+agy-swap run now
+```
+
+### Run two agy CLI sessions on different accounts at once
+
+Antigravity stores one shared session per OS user under `~/.gemini` and the login keychain. To run a second `agy` CLI terminal concurrently on another Google account on macOS or Linux without touching your active `agy-swap` session or keychain, give that terminal an isolated `HOME` directory and enable `agy`'s file-backed token store inside it:
+
+```bash
+AGY_BIN="$HOME/.local/libexec/agy"
+[ -x "$AGY_BIN" ] || AGY_BIN="$(command -v agy)"
+
+PROFILE_HOME="$HOME/.agy-homes/account-b"
+mkdir -p "$PROFILE_HOME/.gemini/antigravity-cli/cache"
+touch -t 203601010000 "$PROFILE_HOME/.gemini/antigravity-cli/cache/antigravity-keyring-unavailable"
+
+HOME="$PROFILE_HOME" AGY_SWAP_SKIP_SYNC=1 WSL_INTEROP=1 "$AGY_BIN"
+```
+
+On the first run, `agy` signs in for `$PROFILE_HOME` and keeps that session in `$PROFILE_HOME/.gemini`, while your normal terminals and the Antigravity IDE continue switching through `agy-swap`.
+
+### Diagnostics, statusline, backups, and support
+
+```bash
+# Check storage, credentials, and platform readiness
+agy-swap doctor
+
+# Add agy-swap to Starship, tmux, or zsh prompts, or export Prometheus metrics
+agy-swap statusline install
+agy-swap metrics prometheus
+
+# Export accounts (metadata only, or encrypted with a passphrase on stdin)
+agy-swap backup export --output agy-swap-backup.json
+printf '%s' "$BACKUP_PASSPHRASE" | agy-swap backup export --include-secrets --passphrase-stdin --output agy-secrets.json
+agy-swap backup import agy-swap-backup.json --merge
+
+# Print or open the GitHub Sponsors page
+agy-swap donate
+agy-swap donate --open
+```
+
+## How account selection works
+
+### Eligibility rules
+
+`recommend` ranks eligible accounts first. An account is eligible when its quota snapshot is no older than 2 minutes, its remaining quota is above `0%` and at or above the policy reserve threshold, and no manual or log cooldown is active. Without `--family`, the tighter of the Gemini and Claude/GPT pools governs readiness; `--family argon` checks the Argon pool (falling back to the Gemini pool on Ultra plans). `recommend --apply`, `next`, and bound runs refresh quotas before selecting.
+
+### Ranking policies
+
+| Policy | Behavior |
+| :--- | :--- |
+| `sticky` | Keeps the active account (or profile primary) until it becomes ineligible; `next` still rotates away from the active account |
+| `balanced` | Picks the eligible account with the highest remaining quota |
+| `round-robin` | Advances through eligible accounts in saved order |
+
+### Project bindings
+
+Directory bindings apply when running `agy-swap run now` (overridden by `--account`). `recommend` mode prints a suggestion, `prompt` mode asks before switching, and `auto` mode switches automatically when `policy.allow_apply=true`. Profiles update the shared local Antigravity session and do not isolate concurrent processes.
+
+## Network endpoints
+
+agy-swap sends no usage telemetry. It contacts only operational endpoints needed for updates and the command you run:
+
+| Endpoint | When contacted |
+| :--- | :--- |
+| Google OAuth and Code Assist APIs | Sign-in, token refresh, verified email check, and quota polling |
+| GitHub Releases | `agy-swap update` and `agy-swap doctor --refresh` |
+| `agy-swap.aklkbqx.com` | Cached 24-hour `/version.json` check on eligible commands (`TUI`, `watch`, `limits`, `add`, `next`), plus fallback version lookup during `agy-swap update` when GitHub is unreachable |
+| DNS-over-HTTPS (`1.1.1.1`, `8.8.8.8`, or `AGY_SWAP_DOH_URL`) | Host lookup retry only after a TLS error |
+| Custom mirror, Go proxy, or Google CLI download | Only when `AGY_SWAP_RELEASE_MIRROR`, the `go install` fallback, or `install-agy` is used |
+
+Set `AGY_SWAP_NO_UPDATE_CHECK=1` or `DO_NOT_TRACK=1` to disable the daily version check (also skipped automatically in dev builds, CI, and `demo` mode). TLS certificates are always verified unless you explicitly set `AGY_SWAP_INSECURE=1` (installer) or `AGY_SWAP_INSECURE_TLS=1` (binary); prefer `AGY_SWAP_CA_BUNDLE`. For credential storage details and vulnerability reporting, see [SECURITY.md](../SECURITY.md).
