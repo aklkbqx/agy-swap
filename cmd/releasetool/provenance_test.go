@@ -210,3 +210,42 @@ func TestVerifyBuildsReadsGoStamping(t *testing.T) {
 		t.Fatal("binary built from a dirty tree accepted")
 	}
 }
+
+func TestBuildReleasePinsDarwinDeploymentTarget(t *testing.T) {
+	data, err := os.ReadFile("../../scripts/build-release.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"MACOSX_DEPLOYMENT_TARGET=13.0",
+		"-mmacosx-version-min=13.0",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("scripts/build-release.sh missing %q", want)
+		}
+	}
+}
+
+func TestCheckDarwinMinOSRejectsHighMinOSAndAcceptsFloor(t *testing.T) {
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skip("go command unavailable")
+	}
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "go.mod"), "module example.com/minos\n\ngo 1.26.0\n")
+	writeTestFile(t, filepath.Join(dir, "main.go"), "package main\n\nfunc main() {}\n")
+	bin := filepath.Join(dir, "app")
+	cmd := exec.Command(goBin, "build", "-o", bin, ".")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=darwin", "GOARCH=arm64", "GOFLAGS=", "GOWORK=off", "GOTOOLCHAIN=local")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build darwin: %v\n%s", err, out)
+	}
+	if err := checkDarwinMinOS(bin, maxDarwinMinOSMajor); err != nil {
+		t.Fatalf("valid darwin binary rejected: %v", err)
+	}
+	if err := checkDarwinMinOS(bin, 10); err == nil {
+		t.Fatal("darwin binary with minos > 10.0 was accepted")
+	}
+}

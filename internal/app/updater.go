@@ -273,11 +273,11 @@ func (a *Application) cmdUpdate(ctx context.Context, args cliArgs) int {
 	}
 	if isHomebrewManaged(current) {
 		fmt.Fprintf(a.Out, "%s● Detected Homebrew installation. Upgrading via brew...%s\n", a.p.Cyan, a.p.Reset)
-		cleanShadowedLocalBinary(a.Out, a.p)
 		if upgradeErr := upgradeViaHomebrew(ctx, latest, a.Out, a.Err); upgradeErr != nil {
 			fmt.Fprintf(a.Err, "%s✕ Homebrew update not completed: %v%s\n", a.p.Red, upgradeErr, a.p.Reset)
 			return 1
 		}
+		cleanShadowedLocalBinary(a.Out, a.p)
 		fmt.Fprintf(a.Out, "%s✓ Updated agy-swap v%s → v%s via Homebrew%s\n", a.p.Green, a.Version, latest, a.p.Reset)
 		if release.HTMLURL != "" {
 			fmt.Fprintf(a.Out, "  %sRelease notes: %s%s\n", a.p.Gray, release.HTMLURL, a.p.Reset)
@@ -427,6 +427,7 @@ func replaceUpdateBinary(current, candidate, backup string) error {
 		}
 		return err
 	}
+	_ = os.Remove(backup)
 	return nil
 }
 
@@ -477,6 +478,7 @@ func (a *Application) runUpdateFinalizer(ctx context.Context, args []string) int
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+	_ = os.Remove(backup)
 	fmt.Fprintf(a.Out, "✓ Updated agy-swap to v%s\n", latest)
 	return 0
 }
@@ -537,7 +539,9 @@ func isHomebrewManaged(path string) bool {
 	}
 	if strings.Contains(path, "/homebrew/") || strings.Contains(path, "/Homebrew/") {
 		if _, err := exec.LookPath("brew"); err == nil {
-			cmd := exec.Command("brew", "list", "--formula")
+			listCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(listCtx, "brew", "list", "--formula")
 			if out, err := cmd.Output(); err == nil {
 				for _, line := range strings.Split(string(out), "\n") {
 					if strings.TrimSpace(line) == "agy-swap" {
@@ -670,6 +674,8 @@ func defaultDoHEndpoints() []string {
 	return []string{
 		"https://1.1.1.1/dns-query",
 		"https://8.8.8.8/resolve",
+		"https://[2606:4700:4700::1111]/dns-query",
+		"https://[2001:4860:4860::8888]/resolve",
 	}
 }
 
@@ -696,52 +702,54 @@ func resolveHostViaDoH(ctx context.Context, dohHTTP *http.Client, host string) (
 	}
 	var lastErr error
 	for _, endpoint := range defaultDoHEndpoints() {
-		u, err := url.Parse(endpoint)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		q := u.Query()
-		q.Set("name", host)
-		q.Set("type", "A")
-		u.RawQuery = q.Encode()
-
-		reqCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
-		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, u.String(), nil)
-		if err != nil {
-			cancel()
-			lastErr = err
-			continue
-		}
-		req.Header.Set("Accept", "application/dns-json")
-		resp, err := dohHTTP.Do(req)
-		if err != nil {
-			cancel()
-			lastErr = err
-			continue
-		}
-		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-		_ = resp.Body.Close()
-		cancel()
-		if readErr != nil || resp.StatusCode != http.StatusOK {
-			lastErr = fmt.Errorf("DoH HTTP %d", resp.StatusCode)
-			continue
-		}
-		var parsed dohJSONResponse
-		if err := json.Unmarshal(body, &parsed); err != nil {
-			lastErr = err
-			continue
-		}
-		var rawIPs []string
-		for _, ans := range parsed.Answer {
-			if ans.Type == 1 || ans.Type == 28 {
-				rawIPs = append(rawIPs, ans.Data)
+		for _, rrType := range []string{"A", "AAAA"} {
+			u, err := url.Parse(endpoint)
+			if err != nil {
+				lastErr = err
+				break
 			}
+			q := u.Query()
+			q.Set("name", host)
+			q.Set("type", rrType)
+			u.RawQuery = q.Encode()
+
+			reqCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+			req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, u.String(), nil)
+			if err != nil {
+				cancel()
+				lastErr = err
+				continue
+			}
+			req.Header.Set("Accept", "application/dns-json")
+			resp, err := dohHTTP.Do(req)
+			if err != nil {
+				cancel()
+				lastErr = err
+				break // transport failed for this endpoint; try next endpoint
+			}
+			body, readErr := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+			_ = resp.Body.Close()
+			cancel()
+			if readErr != nil || resp.StatusCode != http.StatusOK {
+				lastErr = fmt.Errorf("DoH HTTP %d", resp.StatusCode)
+				break
+			}
+			var parsed dohJSONResponse
+			if err := json.Unmarshal(body, &parsed); err != nil {
+				lastErr = err
+				break
+			}
+			var rawIPs []string
+			for _, ans := range parsed.Answer {
+				if ans.Type == 1 || ans.Type == 28 {
+					rawIPs = append(rawIPs, ans.Data)
+				}
+			}
+			if ips := filterPublicDoHIPs(rawIPs); len(ips) > 0 {
+				return ips, nil
+			}
+			lastErr = fmt.Errorf("no public IPs in DoH %s response for %s", rrType, host)
 		}
-		if ips := filterPublicDoHIPs(rawIPs); len(ips) > 0 {
-			return ips, nil
-		}
-		lastErr = fmt.Errorf("no public IPs in DoH response for %s", host)
 	}
 	if lastErr == nil {
 		lastErr = errors.New("no DoH endpoints configured")
@@ -819,6 +827,14 @@ func (a *Application) tryGoToolchainFallback(ctx context.Context, latest, curren
 	pkg := "github.com/" + githubRepo + "/v2/cmd/agy-swap@v" + latest
 	cmd := exec.CommandContext(buildCtx, goBin, "install", "-trimpath", "-ldflags", goFallbackLdflags(latest), pkg)
 	cmd.Env = append(os.Environ(), "GOBIN="+tmpDir)
+	if runtime.GOOS == "darwin" {
+		cmd.Env = append(cmd.Env,
+			"CGO_ENABLED=1",
+			"MACOSX_DEPLOYMENT_TARGET=13.0",
+			"CGO_CFLAGS=-mmacosx-version-min=13.0",
+			"CGO_LDFLAGS=-mmacosx-version-min=13.0",
+		)
+	}
 	if err := cmd.Run(); err != nil {
 		return false
 	}

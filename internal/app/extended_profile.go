@@ -215,6 +215,9 @@ func (a *Application) cmdAlias(opts extendedOptions, positional []string) int {
 		if err := a.store.SaveSettings(settings); err != nil {
 			return a.extendedError("alias remove", opts, err)
 		}
+		if opts.JSON {
+			return a.extendedResult("alias remove", opts, map[string]any{"name": positional[1], "removed": true}, nil)
+		}
 		return 0
 	default:
 		return a.extendedError("alias", opts, fmt.Errorf("unknown subcommand %q", sub))
@@ -273,10 +276,19 @@ func (a *Application) cmdTag(opts extendedOptions, positional []string) int {
 		if len(positional) < 2 {
 			return a.extendedError("tag remove", opts, errors.New("usage: tag remove ACCOUNT"))
 		}
-		email, _ := resolveConfiguredTarget(positional[1], accounts, settings)
+		email, resolveErr := resolveConfiguredTarget(positional[1], accounts, settings)
+		if resolveErr != nil || email == "" {
+			if resolveErr == nil {
+				resolveErr = errors.New("account not found")
+			}
+			return a.extendedError("tag remove", opts, resolveErr)
+		}
 		delete(settings.Tags, email)
 		if err := a.store.SaveSettings(settings); err != nil {
 			return a.extendedError("tag remove", opts, err)
+		}
+		if opts.JSON {
+			return a.extendedResult("tag remove", opts, map[string]any{"email": email, "removed": true}, nil)
 		}
 		return 0
 	default:
@@ -406,13 +418,44 @@ func (a *Application) cmdProfile(opts extendedOptions, positional []string) int 
 		if len(positional) < 2 {
 			return a.extendedError("profile remove", opts, errors.New("usage: profile remove NAME"))
 		}
-		delete(settings.Profiles, positional[1])
+		name := positional[1]
+		delete(settings.Profiles, name)
+		pruned := settings.Bindings[:0]
+		for _, binding := range settings.Bindings {
+			if binding.Profile != name {
+				pruned = append(pruned, binding)
+			}
+		}
+		settings.Bindings = pruned
 		if err := a.store.SaveSettings(settings); err != nil {
 			return a.extendedError("profile remove", opts, err)
+		}
+		if opts.JSON {
+			return a.extendedResult("profile remove", opts, map[string]any{"name": name, "removed": true}, nil)
 		}
 		return 0
 	default:
 		return a.extendedError("profile", opts, fmt.Errorf("unknown subcommand %q", sub))
+	}
+}
+
+func evalSymlinksClosest(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return filepath.Clean(resolved)
+	}
+	var tail []string
+	cur := path
+	for {
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return filepath.Clean(path)
+		}
+		tail = append([]string{filepath.Base(cur)}, tail...)
+		cur = parent
+		if resolved, err := filepath.EvalSymlinks(cur); err == nil {
+			parts := append([]string{resolved}, tail...)
+			return filepath.Clean(filepath.Join(parts...))
+		}
 	}
 }
 
@@ -422,9 +465,9 @@ func cleanBindingPath(path string) string {
 		return ""
 	}
 	if absolute, err := filepath.Abs(path); err == nil {
-		return filepath.Clean(absolute)
+		return evalSymlinksClosest(filepath.Clean(absolute))
 	}
-	return filepath.Clean(path)
+	return evalSymlinksClosest(filepath.Clean(path))
 }
 
 func (a *Application) cmdBind(opts extendedOptions, positional []string) int {
@@ -506,6 +549,9 @@ func (a *Application) cmdBind(opts extendedOptions, positional []string) int {
 		settings.Bindings = filtered
 		if err := a.store.SaveSettings(settings); err != nil {
 			return a.extendedError("bind remove", opts, err)
+		}
+		if opts.JSON {
+			return a.extendedResult("bind remove", opts, map[string]any{"path": path, "removed": true}, nil)
 		}
 		return 0
 	default:

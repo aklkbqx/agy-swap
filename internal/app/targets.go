@@ -59,6 +59,10 @@ func (a *Application) cmdTarget(opts extendedOptions, positional []string) int {
 		}
 		data := map[string]any{"name": name, "command": target.Command, "available": lookErr == nil, "path": path}
 		if opts.JSON {
+			if lookErr != nil {
+				a.writeJSON(extendedEnvelope{Schema: stateSchema, Command: "target check", OK: false, Data: data, Error: lookErr.Error()})
+				return 1
+			}
 			return a.extendedResult("target check", opts, data, nil)
 		}
 		if lookErr != nil {
@@ -93,6 +97,9 @@ func (a *Application) cmdTarget(opts extendedOptions, positional []string) int {
 		delete(settings.Targets, positional[1])
 		if err := a.store.SaveSettings(settings); err != nil {
 			return a.extendedError("target remove", opts, err)
+		}
+		if opts.JSON {
+			return a.extendedResult("target remove", opts, map[string]any{"name": positional[1], "removed": true}, nil)
 		}
 		return 0
 	default:

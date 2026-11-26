@@ -40,6 +40,7 @@ type extendedOptions struct {
 }
 
 func isExtendedCommand(argv []string) bool {
+	argv = expandFlagEquals(argv)
 	for i := 0; i < len(argv); i++ {
 		arg := argv[i]
 		if arg == "--" {
@@ -62,6 +63,7 @@ func isExtendedCommand(argv []string) bool {
 }
 
 func parseExtended(argv []string) (string, extendedOptions, []string, error) {
+	argv = expandFlagEquals(argv)
 	if len(argv) == 0 {
 		return "", extendedOptions{}, nil, errors.New("missing command")
 	}

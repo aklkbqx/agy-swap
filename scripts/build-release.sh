@@ -36,7 +36,14 @@ for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 wi
   if [ "$platform" = darwin ]; then cgo=1; fi
   if [ "$platform" = windows ]; then suffix=.exe; fi
   asset="$stage/assets/agy-swap_v${version}_${platform}_${arch}${suffix}"
-  CGO_ENABLED="$cgo" GOOS="$platform" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X main.version=$version -X main.buildID=$build_id" -o "$asset" ./cmd/agy-swap
+  if [ "$platform" = darwin ]; then
+    MACOSX_DEPLOYMENT_TARGET=13.0 \
+    CGO_CFLAGS="-mmacosx-version-min=13.0" \
+    CGO_LDFLAGS="-mmacosx-version-min=13.0" \
+    CGO_ENABLED=1 GOOS="$platform" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X main.version=$version -X main.buildID=$build_id" -o "$asset" ./cmd/agy-swap
+  else
+    CGO_ENABLED="$cgo" GOOS="$platform" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X main.version=$version -X main.buildID=$build_id" -o "$asset" ./cmd/agy-swap
+  fi
   printf 'Built %s\n' "$asset"
 done
 go run ./cmd/releasetool checksums "$stage/assets"

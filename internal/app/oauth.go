@@ -130,7 +130,7 @@ func (h *HTTPService) do(request *http.Request) (*http.Response, error) {
 			}
 		}
 	}
-	if !allowInsecureTLS() {
+	if !allowInsecureTLS() || !isTLSVerifyError(err) {
 		return response, err
 	}
 	clone, cloneErr := cloneRequestForRetry(request)
@@ -330,8 +330,11 @@ func (h *HTTPService) accessTokenData(ctx context.Context, tokenData string) (st
 		return "", tokenData, fmt.Errorf("refresh token is unavailable")
 	}
 	if access := getString(inner, "access_token"); access != "" {
-		if expiry, ok := tokenExpiry(inner); ok && time.Until(expiry) > 60*time.Second {
-			return access, tokenData, nil
+		if expiry, ok := tokenExpiry(inner); ok {
+			skew := h.clockSkew()
+			if time.Until(expiry) > 60*time.Second && (skew <= 0 || expiry.Sub(time.Now().Add(skew)) > 60*time.Second) {
+				return access, tokenData, nil
+			}
 		}
 	}
 	refresh := getString(inner, "refresh_token")
@@ -353,8 +356,11 @@ func (h *HTTPService) accessTokenData(ctx context.Context, tokenData string) (st
 		return "", tokenData, fmt.Errorf("OAuth refresh failed: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
+	if date, dateErr := http.ParseTime(response.Header.Get("Date")); dateErr == nil {
+		h.skew.Store(int64(time.Until(date)))
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return "", tokenData, fmt.Errorf("OAuth refresh failed (HTTP %d)", response.StatusCode)
+		return "", tokenData, fmt.Errorf("OAuth refresh failed (%w)", &httpStatusError{Status: response.StatusCode})
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, 4*1024*1024+1))
 	if err != nil {

@@ -5,9 +5,13 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+$tlsProto = [Net.SecurityProtocolType]::Tls12
+if ([Enum]::IsDefined([Net.SecurityProtocolType], 'Tls13')) {
+  $tlsProto = $tlsProto -bor [Net.SecurityProtocolType]::Tls13
+}
+[Net.ServicePointManager]::SecurityProtocol = $tlsProto
 
-if ([string]::IsNullOrWhiteSpace($Version)) { $Version = '2.25.0' }
+if ([string]::IsNullOrWhiteSpace($Version)) { $Version = '2.25.1' }
 if ([string]::IsNullOrWhiteSpace($TargetDir)) { $TargetDir = Join-Path $env:LOCALAPPDATA 'Programs\agy-swap' }
 
 $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
@@ -18,11 +22,16 @@ switch ($arch) {
 }
 $tag = if ($Version.StartsWith('v')) { $Version } else { "v$Version" }
 $Version = $tag.Substring(1)
+if ($Version -notmatch '^\d+\.\d+\.\d+([.-][0-9A-Za-z.-]+)?$') {
+  throw "Invalid release version: $Version"
+}
 $asset = "agy-swap_${tag}_windows_${arch}.exe"
 $base = if ([string]::IsNullOrWhiteSpace($env:AGY_SWAP_RELEASE_MIRROR)) { "https://github.com/aklkbqx/agy-swap/releases/download/$tag" } else { $env:AGY_SWAP_RELEASE_MIRROR.TrimEnd('/') }
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("agy-swap-install-" + [guid]::NewGuid().ToString('N'))
 $target = Join-Path $TargetDir 'agy-swap.exe'
 $backup = "$target.bak"
+$prevCertCallback = $null
+$overrodeCertCallback = $false
 
 try {
   New-Item -ItemType Directory -Force -Path $tmp, $TargetDir | Out-Null
@@ -34,6 +43,8 @@ try {
     if ($PSVersionTable.PSVersion.Major -ge 6) {
       $iwrParams['SkipCertificateCheck'] = $true
     } else {
+      $prevCertCallback = [System.Net.ServicePointManager]::ServerCertificateValidationCallback
+      $overrodeCertCallback = $true
       [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}
     }
   }
@@ -44,6 +55,7 @@ try {
   $line = Get-Content (Join-Path $tmp 'checksums.txt') | Where-Object { $_ -match "\s\*?$([regex]::Escape($asset))$" } | Select-Object -First 1
   if (-not $line) { throw "Checksum entry for $asset was not found" }
   $expected = ($line -split '\s+')[0].ToLowerInvariant()
+  if ($expected -notmatch '^[a-f0-9]{64}$') { throw "Checksum entry for $asset is invalid" }
   $actual = (Get-FileHash (Join-Path $tmp $asset) -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actual -ne $expected) { throw 'Checksum verification failed; installation aborted' }
 
@@ -61,6 +73,7 @@ try {
   if (Test-Path $target) { Copy-Item $target $backup -Force }
   try {
     Move-Item (Join-Path $tmp $asset) $target -Force
+    if (Test-Path $backup) { Remove-Item $backup -Force -ErrorAction SilentlyContinue }
   } catch {
     if (Test-Path $backup) { Copy-Item $backup $target -Force }
     throw
@@ -97,9 +110,10 @@ try {
 } catch {
   Write-Host "`nError during installation: $_" -ForegroundColor Red
   Write-Host "If you are behind a corporate proxy or VPN with custom SSL inspection, try:" -ForegroundColor Yellow
-  Write-Host "  irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex -Insecure" -ForegroundColor Gray
+  Write-Host "  `$env:AGY_SWAP_INSECURE='1'; irm https://raw.githubusercontent.com/aklkbqx/agy-swap/main/install.ps1 | iex" -ForegroundColor Gray
   Write-Host "  or compile via Go: go install github.com/aklkbqx/agy-swap/v2/cmd/agy-swap@latest" -ForegroundColor Gray
   exit 1
 } finally {
+  if ($overrodeCertCallback) { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $prevCertCallback }
   if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue }
 }

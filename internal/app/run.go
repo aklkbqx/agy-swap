@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 var builtinRunTargets = map[string]string{
@@ -106,19 +108,47 @@ func (a *Application) cmdRunNow(ctx context.Context, opts extendedOptions, posit
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, path, opts.RunArgs...)
+	// Let the foreground child own SIGINT directly (instead of CommandContext
+	// sending SIGKILL) while forwarding SIGTERM/cancellation cleanly and
+	// restoring terminal state + harvesting refreshed session tokens afterward.
+	runTerm := captureTerminalState(a.In, a.Out)
+	defer func() {
+		runTerm.Restore(true)
+		a.resetTerminalLineReader()
+	}()
+	sigintGuard := make(chan os.Signal, 1)
+	signal.Notify(sigintGuard, os.Interrupt)
+	defer signal.Stop(sigintGuard)
+
+	cmd := exec.Command(path, opts.RunArgs...)
 	cmd.Stdin = a.In
 	cmd.Stdout = a.Out
 	cmd.Stderr = a.Err
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Start(); err != nil {
+		return a.extendedError("run now", opts, fmt.Errorf("%s failed to start: %w", command, err))
+	}
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			if cmd.Process != nil {
+				_ = cmd.Process.Signal(syscall.SIGTERM)
+			}
+		case <-done:
+		}
+	}()
+	waitErr := cmd.Wait()
+	close(done)
+	a.reconcileActiveSession(context.Background())
+	if waitErr != nil {
 		if ctx.Err() != nil {
 			return a.extendedError("run now", opts, ctx.Err())
 		}
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if errors.As(waitErr, &exitErr) {
 			return exitErr.ExitCode()
 		}
-		return a.extendedError("run now", opts, fmt.Errorf("%s exited: %w", command, err))
+		return a.extendedError("run now", opts, fmt.Errorf("%s exited: %w", command, waitErr))
 	}
 	return 0
 }
@@ -126,10 +156,16 @@ func (a *Application) cmdRunNow(ctx context.Context, opts extendedOptions, posit
 func resolveBinding(settings AppSettings, path string) Binding {
 	path = cleanBindingPath(path)
 	best := Binding{}
+	bestLen := 0
 	for _, binding := range settings.Bindings {
-		rel, err := filepath.Rel(binding.Path, path)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && len(binding.Path) > len(best.Path) {
+		canonical := cleanBindingPath(binding.Path)
+		if canonical == "" {
+			continue
+		}
+		rel, err := filepath.Rel(canonical, path)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && len(canonical) > bestLen {
 			best = binding
+			bestLen = len(canonical)
 		}
 	}
 	return best

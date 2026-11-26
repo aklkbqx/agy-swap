@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"debug/buildinfo"
+	"debug/macho"
 	"errors"
 	"fmt"
 	"go/version"
@@ -11,6 +12,15 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+)
+
+const (
+	// Go 1.27's Darwin linker floors Mach-O minos at macOS 13.0 (Ventura).
+	// Reject release binaries stamped with a newer host OS version.
+	maxDarwinMinOSMajor uint16 = 13
+
+	lcVersionMinMacOSX uint32 = 0x24
+	lcBuildVersion     uint32 = 0x32
 )
 
 var releaseTargets = []string{
@@ -134,15 +144,57 @@ func checkBuildInfo(info *debug.BuildInfo, module, releaseVersion, floor string)
 	return checkToolchain(info.GoVersion, floor)
 }
 
+func checkDarwinMinOS(path string, maxMajor uint16) error {
+	f, err := macho.Open(path)
+	if err != nil {
+		return fmt.Errorf("read Mach-O header: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	for _, load := range f.Loads {
+		raw := load.Raw()
+		if len(raw) < 12 {
+			continue
+		}
+		cmd := f.ByteOrder.Uint32(raw[0:4])
+		var packed uint32
+		switch cmd {
+		case lcBuildVersion:
+			if len(raw) < 16 {
+				continue
+			}
+			packed = f.ByteOrder.Uint32(raw[12:16])
+		case lcVersionMinMacOSX:
+			packed = f.ByteOrder.Uint32(raw[8:12])
+		default:
+			continue
+		}
+		major := uint16(packed >> 16)
+		minor := uint8((packed >> 8) & 0xff)
+		patch := uint8(packed & 0xff)
+		if major > maxMajor {
+			return fmt.Errorf("macOS minos %d.%d.%d exceeds maximum %d.0", major, minor, patch, maxMajor)
+		}
+		return nil
+	}
+	return errors.New("Mach-O binary has no macOS minimum version load command")
+}
+
 func verifyBuilds(releaseVersion, dir, module, floor string) error {
 	for _, target := range releaseTargets {
 		name := "agy-swap_v" + strings.TrimPrefix(releaseVersion, "v") + "_" + target
-		info, err := buildinfo.ReadFile(filepath.Join(dir, name))
+		path := filepath.Join(dir, name)
+		info, err := buildinfo.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
 		if err := checkBuildInfo(info, module, releaseVersion, floor); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
+		}
+		if strings.HasPrefix(target, "darwin_") {
+			if err := checkDarwinMinOS(path, maxDarwinMinOSMajor); err != nil {
+				return fmt.Errorf("%s: %w", name, err)
+			}
 		}
 	}
 	return nil

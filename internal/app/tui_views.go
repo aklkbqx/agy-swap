@@ -388,11 +388,13 @@ func (a *Application) tuiProfileViewRows(state *tuiState, width, height int) []s
 	if len(state.profileNames) == 0 {
 		return []string{a.p.Gray + "No profiles yet." + a.p.Reset, "", "Press c to create a profile for the selected account."}
 	}
-	rows := make([]string, 0, height)
+	showSelected := state.profileIndex >= 0 && state.profileIndex < len(state.profileNames) && height >= 6
+	listBudget := height
+	if showSelected {
+		listBudget = maxInt(1, height-4)
+	}
+	allRows := make([]string, 0, len(state.profileNames))
 	for index, name := range state.profileNames {
-		if len(rows) >= height {
-			break
-		}
 		profile := state.settings.Profiles[name]
 		marker := "  "
 		if index == state.profileIndex {
@@ -402,9 +404,17 @@ func (a *Application) tuiProfileViewRows(state *tuiState, width, height int) []s
 		if family == "" {
 			family = "any model family"
 		}
-		rows = append(rows, marker+a.p.Bold+tuiText(name)+a.p.Reset+"  "+a.p.Gray+tuiText(profile.Account)+" · "+tuiText(family)+a.p.Reset)
+		allRows = append(allRows, marker+a.p.Bold+tuiText(name)+a.p.Reset+"  "+a.p.Gray+tuiText(profile.Account)+" · "+tuiText(family)+a.p.Reset)
 	}
-	if state.profileIndex >= 0 && state.profileIndex < len(state.profileNames) && len(rows) < height {
+	offset := state.scrollTo("profiles", strconv.Itoa(state.profileIndex), state.profileIndex, state.profileIndex+1, len(allRows), listBudget, true)
+	var rows []string
+	if len(allRows) > listBudget && width > 12 {
+		rows = a.tuiScrollWindow(allRows, offset, listBudget, width)
+	} else {
+		end := minInt(len(allRows), offset+listBudget)
+		rows = append(rows, allRows[offset:end]...)
+	}
+	if showSelected {
 		name := state.profileNames[state.profileIndex]
 		profile := state.settings.Profiles[name]
 		rows = append(rows, "", a.p.Cyan+"Selected profile"+a.p.Reset, "  account: "+tuiText(profile.Account), "  policy: "+tuiText(firstString(profile.Policy, state.settings.Policy.Name)))
@@ -416,11 +426,8 @@ func (a *Application) tuiHistoryViewRows(state *tuiState, width, height int) []s
 	if len(state.history) == 0 {
 		return []string{a.p.Gray + "No local history yet." + a.p.Reset, "", "History is written as actions happen."}
 	}
-	rows := make([]string, 0, height)
+	allRows := make([]string, 0, len(state.history))
 	for index, event := range state.history {
-		if len(rows) >= height {
-			break
-		}
 		marker := "  "
 		if index == state.historyIndex {
 			marker = a.p.Orange + "> " + a.p.Reset
@@ -433,9 +440,14 @@ func (a *Application) tuiHistoryViewRows(state *tuiState, width, height int) []s
 		if target == "" {
 			target = "system"
 		}
-		rows = append(rows, marker+a.p.Gray+at+a.p.Reset+"  "+a.p.Cyan+fitVisible(event.Kind, 16, a.p)+a.p.Reset+"  "+tuiText(target))
+		allRows = append(allRows, marker+a.p.Gray+at+a.p.Reset+"  "+a.p.Cyan+fitVisible(event.Kind, 16, a.p)+a.p.Reset+"  "+tuiText(target))
 	}
-	return rows
+	offset := state.scrollTo("history", strconv.Itoa(state.historyIndex), state.historyIndex, state.historyIndex+1, len(allRows), height, true)
+	if len(allRows) > height && width > 12 {
+		return a.tuiScrollWindow(allRows, offset, height, width)
+	}
+	end := minInt(len(allRows), offset+height)
+	return allRows[offset:end]
 }
 
 func (a *Application) tuiSettingsViewRows(state *tuiState, width, height int) []string {
@@ -582,6 +594,7 @@ func (a *Application) beginTUIForm(state *tuiState, kind string) {
 		name, account, family, threshold := "", state.active, "", ""
 		if kind == "profile-edit" && state.profileIndex >= 0 && state.profileIndex < len(state.profileNames) {
 			name = state.profileNames[state.profileIndex]
+			form.OriginalKey = name
 			profile := settings.Profiles[name]
 			account, family = profile.Account, profile.Family
 			if profile.NotifyThreshold > 0 {

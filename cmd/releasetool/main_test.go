@@ -99,10 +99,38 @@ func TestCalculateNextVersion(t *testing.T) {
 		}
 	}
 
-	for _, invalid := range []string{"invalid", "2.2", "2.2.0.1", "foo.bar.baz"} {
+	for _, invalid := range []string{"invalid", "2.2", "2.2.0.1", "foo.bar.baz", "2.25.0foo", "-1.0.0", "2.-1.0", "2.25.+1"} {
 		if _, err := calculateNextVersion("2.2.0", invalid); err == nil {
 			t.Fatalf("expected error for invalid target %q", invalid)
 		}
+	}
+}
+
+func TestBumpVersionRollsBackOnFailure(t *testing.T) {
+	root := t.TempDir()
+	makefilePath := filepath.Join(root, "Makefile")
+	origMakefile := "VERSION ?= 2.25.0\n"
+	if err := os.WriteFile(makefilePath, []byte(origMakefile), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Create cmd/agy-swap/main.go WITHOUT the expected version line so bump fails mid-way.
+	mainDir := filepath.Join(root, "cmd", "agy-swap")
+	if err := os.MkdirAll(mainDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mainDir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := bumpVersion("patch", root); err == nil {
+		t.Fatal("expected bumpVersion to fail when cmd/agy-swap/main.go lacks version line")
+	}
+	got, err := os.ReadFile(makefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != origMakefile {
+		t.Fatalf("Makefile was not rolled back after mid-bump failure: got %q want %q", string(got), origMakefile)
 	}
 }
 

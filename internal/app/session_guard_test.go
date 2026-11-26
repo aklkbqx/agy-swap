@@ -280,7 +280,7 @@ func TestEnsureAgyLauncherGuardWrapsAndUpgradesAgyBinary(t *testing.T) {
 		if !strings.Contains(wrapper, "--sync-session") || !strings.Contains(wrapper, "WSL_INTEROP") {
 			t.Fatalf("expected wrapper to invoke --sync-session and export WSL_INTEROP, got:\n%s", wrapper)
 		}
-		if !strings.Contains(wrapper, `*" --hub "*)`) || !strings.Contains(wrapper, "hub_pid") || !strings.Contains(wrapper, `exec "$real_command" "$@"`) {
+		if !strings.Contains(wrapper, `if [ "$arg" = "--hub" ]; then`) || !strings.Contains(wrapper, "hub_pid") || !strings.Contains(wrapper, `exec "$real_command" "$@"`) {
 			t.Fatalf("expected wrapper to supervise --hub and exec real_command for --version, got:\n%s", wrapper)
 		}
 	})

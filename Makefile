@@ -1,4 +1,4 @@
-VERSION ?= 2.25.0
+VERSION ?= 2.25.1
 BUILD_ID ?= dev
 GOCACHE ?= /tmp/agy-swap-go-cache
 TARGET_DIR ?= $(HOME)/.local/bin
@@ -31,8 +31,12 @@ help:
 	@echo "  site-verify-live  Wait for production to serve VERSION, then compare it with the tag build"
 	@echo "  media           Record the VHS showcase clips (switch, dashboard, cli) with the demo binary"
 
+ifeq ($(shell uname -s),Darwin)
+DARWIN_BUILD_ENV ?= MACOSX_DEPLOYMENT_TARGET=13.0 CGO_CFLAGS="-mmacosx-version-min=13.0" CGO_LDFLAGS="-mmacosx-version-min=13.0"
+endif
+
 build:
-	GOCACHE=$(GOCACHE) go build -trimpath -ldflags "-s -w -X main.version=$(VERSION) -X main.buildID=$(BUILD_ID)" -o agy-swap ./cmd/agy-swap
+	$(DARWIN_BUILD_ENV) GOCACHE=$(GOCACHE) go build -trimpath -ldflags "-s -w -X main.version=$(VERSION) -X main.buildID=$(BUILD_ID)" -o agy-swap ./cmd/agy-swap
 
 install: build
 	mkdir -p $(TARGET_DIR)

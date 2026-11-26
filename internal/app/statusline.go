@@ -133,7 +133,7 @@ func (a *Application) cmdStatusline(ctx context.Context, opts extendedOptions, p
 			if account, ok := accounts.Get(active); ok {
 				remaining, group, reset, known := snapshotMinimum(account)
 				value = map[string]any{"email": active, "remaining_percent": remaining, "group": group, "known": known}
-				if known {
+				if known && !reset.IsZero() {
 					value.(map[string]any)["reset_at"] = isoTime(reset)
 				}
 			} else {
@@ -169,6 +169,9 @@ func (a *Application) cmdStatusline(ctx context.Context, opts extendedOptions, p
 		settings.Statusline = StatuslineConfig{}
 		if err := a.store.SaveSettings(settings); err != nil {
 			return a.extendedError("statusline uninstall", opts, err)
+		}
+		if opts.JSON {
+			return a.extendedResult("statusline uninstall", opts, map[string]any{"installed": false}, nil)
 		}
 		return 0
 	case "test":

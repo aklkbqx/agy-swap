@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"runtime"
 	"strconv"
 	"strings"
 )
@@ -38,6 +36,17 @@ func (a *Application) applyTUIForm(ctx context.Context, state *tuiState) (string
 			return "", err
 		}
 		profile := settings.Profiles[name]
+		if form.Kind == "profile-edit" && form.OriginalKey != "" && form.OriginalKey != name {
+			if prev, ok := settings.Profiles[form.OriginalKey]; ok {
+				profile = prev
+			}
+			delete(settings.Profiles, form.OriginalKey)
+			for i := range settings.Bindings {
+				if settings.Bindings[i].Profile == form.OriginalKey {
+					settings.Bindings[i].Profile = name
+				}
+			}
+		}
 		profile.Account = email
 		profile.Family = cleanText(formField(form, "family"))
 		profile.Policy = firstString(profile.Policy, settings.Policy.Name)
@@ -165,78 +174,7 @@ func (a *Application) applyTUIForm(ctx context.Context, state *tuiState) (string
 }
 
 func (a *Application) tuiDoctorSnapshot(ctx context.Context, refresh bool) ([]doctorCheck, bool) {
-	checks := make([]doctorCheck, 0, 12)
-	add := func(name, status, message string) {
-		checks = append(checks, doctorCheck{Name: name, Status: status, Message: message})
-	}
-	if err := ensurePrivateDir(a.paths.ConfigDir); err != nil {
-		add("config_dir", "error", err.Error())
-	} else {
-		add("config_dir", "ok", a.paths.ConfigDir)
-	}
-	if settings, err := a.loadSettings(); err != nil {
-		add("config", "error", err.Error())
-	} else {
-		add("config", "ok", fmt.Sprintf("schema %d", settings.Schema))
-	}
-	accounts, err := a.store.Load(false)
-	if err != nil {
-		add("accounts", "error", err.Error())
-	} else {
-		add("accounts", "ok", fmt.Sprintf("%d account(s)", accounts.Len()))
-		plaintext, missing := 0, 0
-		for _, email := range accounts.Order {
-			account := accounts.ByEmail[email]
-			if getString(account, "token_data") != "" {
-				plaintext++
-			}
-			if _, tokenErr := a.accountToken(ctx, account); tokenErr != nil {
-				missing++
-			}
-		}
-		if plaintext > 0 {
-			add("vault_migration", "warning", fmt.Sprintf("%d account(s) still use legacy token_data", plaintext))
-		}
-		if missing > 0 {
-			add("vault_entries", "error", fmt.Sprintf("%d account secret(s) cannot be read", missing))
-		}
-	}
-	current := a.credentials.Current(ctx)
-	switch {
-	case current == "":
-		add("active_session", "warning", "no active Antigravity credential detected")
-	case decodeToken(current) == nil:
-		add("active_session", "error", "active credential is not a recognized OAuth token")
-	default:
-		add("active_session", "ok", "OAuth credential detected")
-	}
-	if runtime.GOOS == "windows" {
-		add("platform", "ok", runtime.GOOS+"/"+runtime.GOARCH+" uses Credential Manager")
-	} else {
-		add("platform", "ok", runtime.GOOS+"/"+runtime.GOARCH)
-	}
-	if _, err := os.Stat(a.paths.History); err == nil {
-		add("history", "ok", a.paths.History)
-	} else {
-		add("history", "ok", "not created yet")
-	}
-	if refresh {
-		if release, releaseErr := a.releaseAssetCheck(ctx); releaseErr != nil {
-			add("update_asset", "warning", releaseErr.Error())
-		} else if available, _ := release["available"].(bool); available {
-			add("update_asset", "ok", fmt.Sprintf("v%v asset %v is available", release["latest"], release["asset"]))
-		} else {
-			add("update_asset", "error", fmt.Sprintf("v%v is missing asset %v", release["latest"], release["asset"]))
-		}
-	}
-	healthy := true
-	for _, check := range checks {
-		if check.Status == "error" {
-			healthy = false
-			break
-		}
-	}
-	return checks, healthy
+	return a.collectDoctorChecks(ctx, refresh)
 }
 
 func (a *Application) tuiExportBackup(ctx context.Context, path, passphrase string, includeSecrets bool) (string, error) {

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -292,21 +293,38 @@ func readCurrentVersion(root string) (string, error) {
 	return "", errors.New("cannot find VERSION in Makefile")
 }
 
+func parseSemVerComponent(part string) (int, error) {
+	if part == "" {
+		return 0, errors.New("empty version component")
+	}
+	for i := 0; i < len(part); i++ {
+		if part[i] < '0' || part[i] > '9' {
+			return 0, fmt.Errorf("non-digit in version component %q", part)
+		}
+	}
+	if len(part) > 1 && part[0] == '0' {
+		return 0, fmt.Errorf("leading zero in version component %q", part)
+	}
+	return strconv.Atoi(part)
+}
+
 func parseSemVer(v string) (int, int, int, error) {
 	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
 	parts := strings.Split(v, ".")
 	if len(parts) != 3 {
 		return 0, 0, 0, fmt.Errorf("invalid semver %q", v)
 	}
-	var major, minor, patch int
-	if _, err := fmt.Sscanf(parts[0], "%d", &major); err != nil {
-		return 0, 0, 0, err
+	major, err := parseSemVerComponent(parts[0])
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("invalid semver %q: %w", v, err)
 	}
-	if _, err := fmt.Sscanf(parts[1], "%d", &minor); err != nil {
-		return 0, 0, 0, err
+	minor, err := parseSemVerComponent(parts[1])
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("invalid semver %q: %w", v, err)
 	}
-	if _, err := fmt.Sscanf(parts[2], "%d", &patch); err != nil {
-		return 0, 0, 0, err
+	patch, err := parseSemVerComponent(parts[2])
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("invalid semver %q: %w", v, err)
 	}
 	return major, minor, patch, nil
 }
@@ -427,23 +445,66 @@ func bumpVersion(target, root string) error {
 		{"internal/app/app_test.go", `BuildID: "release-v` + current + `"`, `BuildID: "release-v` + next + `"`},
 	}
 
+	// Snapshot original contents before modifying any file so partial bumps roll back cleanly.
+	type fileBackup struct {
+		data []byte
+		mode os.FileMode
+	}
+	backups := make(map[string]fileBackup, len(replacements)+1)
+	snapshot := func(path string) error {
+		if _, seen := backups[path]; seen {
+			return nil
+		}
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			if os.IsNotExist(statErr) {
+				return nil
+			}
+			return statErr
+		}
+		raw, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		backups[path] = fileBackup{data: raw, mode: info.Mode().Perm()}
+		return nil
+	}
+	rollback := func(cause error) error {
+		for path, b := range backups {
+			_ = os.WriteFile(path, b.data, b.mode)
+		}
+		return cause
+	}
+
+	for _, r := range replacements {
+		if err := snapshot(filepath.Join(root, r.file)); err != nil {
+			return err
+		}
+	}
+	if err := snapshot(filepath.Join(root, "site", "package-lock.json")); err != nil {
+		return err
+	}
+	if err := snapshot(filepath.Join(root, "CHANGELOG.md")); err != nil {
+		return err
+	}
+
 	for _, r := range replacements {
 		filePath := filepath.Join(root, r.file)
 		if err := replaceInFile(filePath, r.old, r.new); err != nil {
-			return fmt.Errorf("failed replacing in %s: %w", r.file, err)
+			return rollback(fmt.Errorf("failed replacing in %s: %w", r.file, err))
 		}
 	}
 
 	if err := replacePackageLockVersion(filepath.Join(root, "site", "package-lock.json"), current, next); err != nil {
-		return fmt.Errorf("failed updating site/package-lock.json: %w", err)
+		return rollback(fmt.Errorf("failed updating site/package-lock.json: %w", err))
 	}
 
 	if err := updateChangelog(filepath.Join(root, "CHANGELOG.md"), current, next); err != nil {
-		return fmt.Errorf("failed updating CHANGELOG.md: %w", err)
+		return rollback(fmt.Errorf("failed updating CHANGELOG.md: %w", err))
 	}
 
 	if err := verifyMetadata(next, root); err != nil {
-		return fmt.Errorf("metadata verification failed after bump: %w", err)
+		return rollback(fmt.Errorf("metadata verification failed after bump: %w", err))
 	}
 
 	fmt.Printf("✓ Version successfully bumped from %s to %s across all surfaces.\n", current, next)

@@ -90,4 +90,20 @@ func TestClientIPExtractsForwardedHeadersFromLoopbackProxy(t *testing.T) {
 	if got := clientIP(reqSpoof); got != "198.51.100.99" {
 		t.Fatalf("clientIP from non-loopback peer trusted spoofed XFF: got %q, want 198.51.100.99", got)
 	}
+
+	// Client-injected leftmost X-Forwarded-For entry must not spoof rate-limit IP.
+	reqInjected := httptest.NewRequest(http.MethodGet, "/demo/ws", nil)
+	reqInjected.RemoteAddr = "127.0.0.1:54321"
+	reqInjected.Header.Set("X-Forwarded-For", "1.2.3.4, 203.0.113.55, 127.0.0.1")
+	if got := clientIP(reqInjected); got != "203.0.113.55" {
+		t.Fatalf("clientIP trusted spoofed leftmost XFF: got %q, want 203.0.113.55", got)
+	}
+
+	// Private Docker bridge reverse proxy is trusted for X-Real-IP / X-Forwarded-For.
+	reqDocker := httptest.NewRequest(http.MethodGet, "/demo/ws", nil)
+	reqDocker.RemoteAddr = "172.18.0.2:44321"
+	reqDocker.Header.Set("X-Real-IP", "198.51.100.42")
+	if got := clientIP(reqDocker); got != "198.51.100.42" {
+		t.Fatalf("clientIP behind private Docker bridge = %q, want 198.51.100.42", got)
+	}
 }

@@ -190,6 +190,9 @@ func (a *Application) cmdHistory(opts extendedOptions, positional []string) int 
 		if err := a.clearHistory(); err != nil {
 			return a.extendedError("history clear", opts, err)
 		}
+		if opts.JSON {
+			return a.extendedResult("history clear", opts, map[string]any{"cleared": true}, nil)
+		}
 		return 0
 	case "export":
 		events, err := a.readHistory(maxHistoryBytes)
@@ -213,6 +216,9 @@ func (a *Application) cmdHistory(opts extendedOptions, positional []string) int 
 		data, _ := json.MarshalIndent(events, "", "  ")
 		if err := atomicWrite(target, append(data, '\n'), 0o600); err != nil {
 			return a.extendedError("history export", opts, err)
+		}
+		if opts.JSON {
+			return a.extendedResult("history export", opts, map[string]any{"path": target, "count": len(events)}, nil)
 		}
 		return 0
 	default:
@@ -314,9 +320,11 @@ func (a *Application) cmdForecast(ctx context.Context, opts extendedOptions, pos
 		item := map[string]any{"email": email, "known": known, "remaining_pct": remaining, "group": group, "confidence": "low"}
 		if known {
 			item["confidence"] = "observed"
-			item["reset_at"] = isoTime(reset)
-			if reset.Before(time.Now()) {
-				item["confidence"] = "stale"
+			if !reset.IsZero() {
+				item["reset_at"] = isoTime(reset)
+				if reset.Before(time.Now()) {
+					item["confidence"] = "stale"
+				}
 			}
 		}
 		result = append(result, item)
@@ -370,18 +378,25 @@ func (a *Application) notifyIfDue(state *runtimeNotificationState, key, title, b
 }
 
 func (a *Application) notify(title, body string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	if runtime.GOOS == "darwin" {
-		_ = exec.Command("osascript", "-e", fmt.Sprintf("display notification %q with title %q", body, title)).Run()
+		_ = exec.CommandContext(ctx, "osascript",
+			"-e", "on run {t, b}",
+			"-e", "display notification b with title t",
+			"-e", "end run",
+			"--", title, body,
+		).Run()
 		return
 	}
 	if runtime.GOOS == "linux" {
 		if _, err := exec.LookPath("notify-send"); err == nil {
-			_ = exec.Command("notify-send", title, body).Run()
+			_ = exec.CommandContext(ctx, "notify-send", "--", title, body).Run()
 			return
 		}
 	}
 	if runtime.GOOS == "windows" {
-		_ = exec.Command("powershell", "-NoProfile", "-Command", "[console]::beep(900,150)").Run()
+		_ = exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", "[console]::beep(900,150)").Run()
 	}
 }
 

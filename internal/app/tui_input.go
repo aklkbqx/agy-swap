@@ -26,60 +26,74 @@ func readTerminalKey(reader io.Reader) string {
 }
 
 func readTerminalKeyPaused(reader io.Reader, paused *atomic.Bool) string {
+	key, _ := readTerminalKeyPausedErr(reader, paused)
+	return key
+}
+
+func readTerminalKeyPausedErr(reader io.Reader, paused *atomic.Bool) (string, error) {
 	first, err := readInputByteWithTimeout(reader, tuiInputPollTimeout, paused)
 	if err != nil {
-		return ""
+		if errors.Is(err, io.EOF) {
+			return "", io.EOF
+		}
+		return "", nil
 	}
 	switch first {
 	case 0:
 		second, err := readInputByteWithTimeout(reader, tuiEscapeTimeout, paused)
 		if err != nil {
-			return ""
+			if errors.Is(err, io.EOF) {
+				return "", io.EOF
+			}
+			return "", nil
 		}
 		switch second {
 		case 'H':
-			return "up"
+			return "up", nil
 		case 'P':
-			return "down"
+			return "down", nil
 		case 'K':
-			return "left"
+			return "left", nil
 		case 'M':
-			return "right"
+			return "right", nil
 		case 'S':
-			return "delete"
+			return "delete", nil
 		}
-		return ""
+		return "", nil
 	case 0x1b:
-		return readEscapeSequence(reader, paused)
+		return readEscapeSequence(reader, paused), nil
 	case '\r', '\n':
-		return "enter"
+		return "enter", nil
 	case '\t':
-		return "tab"
+		return "tab", nil
 	case 0x7f, 0x08:
-		return "backspace"
+		return "backspace", nil
 	case 0x03:
-		return "ctrl-c"
+		return "ctrl-c", nil
 	case 0x04:
-		return "ctrl-d"
+		return "ctrl-d", nil
 	case 0x15:
-		return "ctrl-u"
+		return "ctrl-u", nil
 	case 0x17:
-		return "ctrl-w"
+		return "ctrl-w", nil
 	case 0x0b:
-		return "ctrl-k"
+		return "ctrl-k", nil
 	default:
 		buf := []byte{first}
 		for !utf8.FullRune(buf) && len(buf) < utf8.UTFMax {
 			next, err := readInputByteWithTimeout(reader, tuiEscapeTimeout, paused)
 			if err != nil {
-				return ""
+				if errors.Is(err, io.EOF) {
+					return "", io.EOF
+				}
+				return "", nil
 			}
 			buf = append(buf, next)
 		}
 		if !utf8.Valid(buf) {
-			return ""
+			return "", nil
 		}
-		return string(buf)
+		return string(buf), nil
 	}
 }
 

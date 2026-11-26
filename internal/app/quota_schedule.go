@@ -93,8 +93,12 @@ func (b *quotaBackoff) succeed() { b.wait = 0 }
 // requests would not fix.
 func backsOff(err error) bool {
 	var cloud *cloudError
-	if !errors.As(err, &cloud) {
-		return false
+	if errors.As(err, &cloud) {
+		return cloud.Status == 429 || cloud.Status >= 500
 	}
-	return cloud.Status == 429 || cloud.Status >= 500
+	var httpErr *httpStatusError
+	if errors.As(err, &httpErr) {
+		return httpErr.Status == 429 || httpErr.Status >= 500
+	}
+	return false
 }

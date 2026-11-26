@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const maxBackupBytes = 64 * 1024 * 1024
@@ -158,6 +159,12 @@ func (a *Application) importBackup(ctx context.Context, path, passphrase string,
 	if err != nil {
 		return 0, 0, err
 	}
+	oldRefs := make([]string, 0, existing.Len())
+	for _, email := range existing.Order {
+		if ref := strings.TrimSpace(getString(existing.ByEmail[email], "secret_ref")); ref != "" {
+			oldRefs = append(oldRefs, ref)
+		}
+	}
 	incoming := contents.accounts
 	if merge {
 		for _, email := range incoming.Order {
@@ -281,6 +288,21 @@ func (a *Application) importBackup(ctx context.Context, path, passphrase string,
 	}
 	if err := os.Remove(s.restoreJournalPath()); err != nil {
 		return incoming.Len(), len(staged), fmt.Errorf("restore committed; journal cleanup failed: %w", err)
+	}
+	if a.vault != nil && len(oldRefs) > 0 {
+		keep := make(map[string]struct{}, incoming.Len())
+		for _, email := range incoming.Order {
+			if ref := strings.TrimSpace(getString(incoming.ByEmail[email], "secret_ref")); ref != "" {
+				keep[ref] = struct{}{}
+			}
+		}
+		var obsolete []string
+		for _, ref := range oldRefs {
+			if _, stillUsed := keep[ref]; !stillUsed {
+				obsolete = append(obsolete, ref)
+			}
+		}
+		a.deleteReplacedSecrets(context.WithoutCancel(ctx), obsolete)
 	}
 	return incoming.Len(), len(staged), nil
 }

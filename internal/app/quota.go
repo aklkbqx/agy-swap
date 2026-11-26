@@ -216,7 +216,7 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 		// Google's summary can leave Gemini out. The model list still carries
 		// the Gemini quota, one value for every Gemini model of the account.
 		if list, loadErr := loadModels(); loadErr == nil {
-			if gemini := geminiGroupFromModels(list, time.Now()); gemini != nil {
+			if gemini := geminiGroupFromModels(list, time.Now().Add(q.http.clockSkew())); gemini != nil {
 				groups = append([]any{gemini}, groups...)
 				notes = append(notes, "gemini: read from the model list, the summary has no Gemini group")
 			}
@@ -693,18 +693,26 @@ func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, for
 		wg.Wait()
 		close(results)
 	}()
+	type refreshPatch struct {
+		tokenFields    map[string]any
+		hasTokenUpdate bool
+		eligibility    map[string]any
+		clearElig      bool
+		snapshot       map[string]any
+		hasSnapshot    bool
+	}
+	patches := make(map[string]refreshPatch, len(fetch))
 	changed := false
 	var replaced []string
 	for result := range results {
 		done++
 		state := "synced"
 		original := accounts.ByEmail[result.item.email]
+		patch := refreshPatch{}
 		if updated := getString(result.item.account, "token_data"); updated != "" && updated != getString(original, "token_data") {
 			if q.vault != nil {
 				old, ok := saveAccountSecretWithVault(ctx, q.vault, result.item.account, updated)
-				if !ok {
-					errorsByEmail["storage"] = "Vault unavailable; refreshed token stored in private accounts file"
-				} else if old != "" {
+				if ok && old != "" {
 					replaced = append(replaced, old)
 				}
 			} else {
@@ -714,25 +722,24 @@ func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, for
 				}
 				rememberTokenExpiry(result.item.account, updated)
 			}
-			for _, key := range []string{"secret_ref", "token_data", "token_hash", "refresh_hash", "access_expires_at"} {
-				if value, ok := result.item.account[key]; ok {
-					original[key] = value
-				} else {
-					delete(original, key)
-				}
-			}
+			patch.tokenFields = captureSecretFields(result.item.account)
+			patch.hasTokenUpdate = true
+			restoreSecretFields(original, patch.tokenFields)
 			changed = true
 		}
 		var ineligible *eligibilityError
 		switch {
 		case errors.As(result.err, &ineligible):
-			original["eligibility"] = ineligible.record(now)
+			rec := ineligible.record(now)
+			original["eligibility"] = rec
+			patch.eligibility = rec
 			changed = true
 		case shouldClearEligibility(result.err):
 			if _, ok := original["eligibility"]; ok {
 				delete(original, "eligibility")
 				changed = true
 			}
+			patch.clearElig = true
 		}
 		q.noteRead(result.item.email, result.err)
 		if result.err != nil {
@@ -740,15 +747,46 @@ func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, for
 			state = "failed"
 		} else {
 			original["quota_snapshot"] = result.snapshot
+			patch.snapshot = result.snapshot
+			patch.hasSnapshot = true
 			changed = true
+		}
+		if patch.hasTokenUpdate || patch.eligibility != nil || patch.clearElig || patch.hasSnapshot {
+			patches[result.item.email] = patch
 		}
 		if progress != nil && ctx.Err() == nil {
 			progress(done, accounts.Len(), copyAccount(original), state)
 		}
 	}
 	if changed && ctx.Err() == nil {
-		if err := q.store.Save(accounts); err != nil {
-			errorsByEmail["store"] = err.Error()
+		saveErr := q.store.Save(accounts)
+		if errors.Is(saveErr, errStoreConflict) && accounts.Revision != 0 {
+			if fresh, loadErr := q.store.Load(false); loadErr == nil {
+				for email, patch := range patches {
+					acc, ok := fresh.Get(email)
+					if !ok {
+						continue
+					}
+					if patch.hasTokenUpdate {
+						restoreSecretFields(acc, patch.tokenFields)
+					}
+					if patch.eligibility != nil {
+						acc["eligibility"] = patch.eligibility
+					} else if patch.clearElig {
+						delete(acc, "eligibility")
+					}
+					if patch.hasSnapshot {
+						acc["quota_snapshot"] = patch.snapshot
+					}
+				}
+				saveErr = q.store.Save(fresh)
+				if saveErr == nil {
+					*accounts = *fresh
+				}
+			}
+		}
+		if saveErr != nil {
+			errorsByEmail["store"] = saveErr.Error()
 		} else if q.vault != nil {
 			deleteReplacedSecretsWithVault(ctx, q.vault, replaced)
 		}

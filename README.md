@@ -66,8 +66,8 @@ agy-swap next --family claude          # refresh and rotate to next eligible acc
 agy-swap limits --refresh              # inspect 5-hour, weekly, and Argon windows
 agy-swap limit set 1 6h --group claude # set or clear manual cooldowns
 agy-swap verify dev@company.com        # open Google verification URL for VERIFY accounts
-agy-swap statusline install            # add active account and quota to Starship, tmux, or zsh
-agy-swap doctor                        # check vault, wrapper, and network readiness
+agy-swap statusline install            # enable statusline config and print shell/prompt command
+agy-swap doctor                        # check vault, permissions, wrapper, and update readiness
 ```
 
 ![CLI commands in a terminal](docs/assets/cli.gif)

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -61,32 +62,45 @@ func (a *Application) cmdMetrics(ctx context.Context, opts extendedOptions, posi
 		return a.extendedError("metrics", opts, err)
 	}
 	if sub == "json" || opts.JSON {
+		opts.JSON = true
 		return a.extendedResult("metrics "+sub, opts, snapshot, nil)
 	}
 	if sub != "render" && sub != "prometheus" {
 		return a.extendedError("metrics", opts, errors.New("usage: metrics [render|prometheus|json]"))
 	}
-	var lines []string
-	lines = append(lines, "# HELP agy_swap_up agy-swap local metrics exporter status", "# TYPE agy_swap_up gauge", "agy_swap_up 1")
+	lines := []string{
+		"# HELP agy_swap_up agy-swap local metrics exporter status",
+		"# TYPE agy_swap_up gauge",
+		"agy_swap_up 1",
+		"# HELP agy_swap_account_error Whether quota refresh failed for an account (1=error)",
+		"# TYPE agy_swap_account_error gauge",
+		"# HELP agy_swap_quota_remaining Remaining quota fraction per account and model family",
+		"# TYPE agy_swap_quota_remaining gauge",
+	}
+	var errorLines, quotaLines []string
 	for _, raw := range snapshot["accounts"].([]map[string]any) {
 		id := raw["account_id"]
-		if errorText, ok := raw["error"].(string); ok {
-			_ = errorText
-			lines = append(lines, fmt.Sprintf("agy_swap_account_error{account=\"%v\"} 1", id))
+		if _, ok := raw["error"].(string); ok {
+			errorLines = append(errorLines, fmt.Sprintf("agy_swap_account_error{account=\"%v\"} 1", id))
 		}
-		for key, value := range raw {
-			keyText := key
-			if !strings.HasPrefix(keyText, "family_") {
-				continue
+		families := make([]string, 0, len(raw))
+		for key := range raw {
+			if strings.HasPrefix(key, "family_") {
+				families = append(families, key)
 			}
-			family := strings.TrimPrefix(keyText, "family_")
-			fraction, ok := value.(float64)
+		}
+		sort.Strings(families)
+		for _, key := range families {
+			fraction, ok := raw[key].(float64)
 			if !ok {
 				continue
 			}
-			lines = append(lines, fmt.Sprintf("agy_swap_quota_remaining{account=\"%v\",family=\"%s\"} %g", id, family, fraction))
+			family := strings.TrimPrefix(key, "family_")
+			quotaLines = append(quotaLines, fmt.Sprintf("agy_swap_quota_remaining{account=\"%v\",family=\"%s\"} %g", id, family, fraction))
 		}
 	}
+	lines = append(lines, errorLines...)
+	lines = append(lines, quotaLines...)
 	for _, line := range lines {
 		fmt.Fprintln(a.Out, line)
 	}

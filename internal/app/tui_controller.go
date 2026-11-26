@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -15,6 +17,7 @@ type tuiController struct {
 	current           func() string
 	demoNotice        func()
 	suspend           func(action func() int) int
+	suspendPause      func(action func() int) int
 	startJob          func(kind, label string, work func(context.Context) tuiJobResult)
 	startRefresh      func(force, quiet bool)
 	invalidateRefresh func()
@@ -22,6 +25,32 @@ type tuiController struct {
 	performSwitch     func()
 	confirmSwitch     func()
 	finish            func()
+}
+
+func (c *tuiController) runSuspendedOutput(action func() int) int {
+	if c.suspendPause != nil {
+		return c.suspendPause(action)
+	}
+	if c.suspend != nil {
+		return c.suspend(action)
+	}
+	return action()
+}
+
+func detectCompletionShell() string {
+	if runtime.GOOS == "windows" {
+		return "powershell"
+	}
+	switch strings.ToLower(filepath.Base(strings.TrimSpace(os.Getenv("SHELL")))) {
+	case "zsh":
+		return "zsh"
+	case "fish":
+		return "fish"
+	case "pwsh", "powershell":
+		return "powershell"
+	default:
+		return "bash"
+	}
 }
 
 func (c *tuiController) setView(view tuiView) {
@@ -252,7 +281,7 @@ func (c *tuiController) submitForm() {
 		path := strings.TrimSpace(formField(form, "path"))
 		c.state.form = nil
 		c.state.mode = tuiBrowse
-		c.suspend(func() int { return c.app.cmdHistory(extendedOptions{Output: path}, []string{"export", path}) })
+		c.runSuspendedOutput(func() int { return c.app.cmdHistory(extendedOptions{Output: path}, []string{"export", path}) })
 		return
 	}
 	message, err := c.app.applyTUIForm(c.ctx(), c.state)
@@ -297,27 +326,27 @@ func (c *tuiController) runAction(id string) {
 	case "backup":
 		c.setView(tuiViewBackup)
 	case "recommend":
-		c.suspend(func() int { return c.app.cmdRecommend(c.ctx(), extendedOptions{}, nil) })
+		c.runSuspendedOutput(func() int { return c.app.cmdRecommend(c.ctx(), extendedOptions{}, nil) })
 	case "forecast":
-		c.suspend(func() int { return c.app.cmdForecast(c.ctx(), extendedOptions{}, nil) })
+		c.runSuspendedOutput(func() int { return c.app.cmdForecast(c.ctx(), extendedOptions{}, nil) })
 	case "watch-once":
-		c.suspend(func() int {
+		c.runSuspendedOutput(func() int {
 			return c.app.cmdWatch(c.ctx(), extendedOptions{Once: true, Threshold: -1, Interval: time.Minute}, nil)
 		})
 	case "metrics":
-		c.suspend(func() int { return c.app.cmdMetrics(c.ctx(), extendedOptions{}, []string{"render"}) })
+		c.runSuspendedOutput(func() int { return c.app.cmdMetrics(c.ctx(), extendedOptions{}, []string{"render"}) })
 	case "run-now":
 		c.suspend(func() int { return c.app.cmdRunNow(c.ctx(), extendedOptions{}, []string{"now"}) })
 	case "statusline-install":
-		c.suspend(func() int { return c.app.cmdStatusline(c.ctx(), extendedOptions{}, []string{"install"}) })
+		c.runSuspendedOutput(func() int { return c.app.cmdStatusline(c.ctx(), extendedOptions{}, []string{"install"}) })
 	case "completion":
-		c.suspend(func() int { return c.app.cmdCompletion(extendedOptions{}, []string{"bash"}) })
+		c.runSuspendedOutput(func() int { return c.app.cmdCompletion(extendedOptions{}, []string{detectCompletionShell()}) })
 	case "update-check":
-		c.suspend(func() int { return c.app.cmdUpdate(c.ctx(), cliArgs{updateCheck: true}) })
+		c.runSuspendedOutput(func() int { return c.app.cmdUpdate(c.ctx(), cliArgs{updateCheck: true}) })
 	case "update":
 		c.openConfirm("update", "")
 	case "install-agy":
-		c.suspend(func() int { return c.app.cmdInstallAgy(c.ctx(), extendedOptions{}, nil) })
+		c.runSuspendedOutput(func() int { return c.app.cmdInstallAgy(c.ctx(), extendedOptions{}, nil) })
 	case "donate":
 		c.app.tuiOpenDonate(c.ctx(), c.state)
 	case "add-account":
@@ -328,7 +357,7 @@ func (c *tuiController) runAction(id string) {
 	case "switch-account":
 		c.confirmSwitch()
 	case "next-account":
-		c.suspend(func() int { return c.app.cmdNext(c.ctx(), cliArgs{}) })
+		c.runSuspendedOutput(func() int { return c.app.cmdNext(c.ctx(), cliArgs{}) })
 	case "refresh":
 		c.state.message, c.state.messageType = "Refreshing quota…", "info"
 		c.startRefresh(true, false)
@@ -337,7 +366,7 @@ func (c *tuiController) runAction(id string) {
 	case "toggle-tier":
 		c.toggleTier()
 	case "migrate-vault":
-		c.suspend(func() int { return c.app.cmdAccount(c.ctx(), extendedOptions{Force: true}, []string{"migrate"}) })
+		c.runSuspendedOutput(func() int { return c.app.cmdAccount(c.ctx(), extendedOptions{Force: true}, []string{"migrate"}) })
 	case "profile-create":
 		c.app.beginTUIForm(c.state, "profile-create")
 	case "profile-edit":
@@ -421,6 +450,13 @@ func (c *tuiController) handleKeyEvent(rawKey, key string, armFrame func()) bool
 						state.message, state.messageType = loadErr.Error(), "error"
 					} else {
 						delete(settings.Profiles, name)
+						pruned := settings.Bindings[:0]
+						for _, binding := range settings.Bindings {
+							if binding.Profile != name {
+								pruned = append(pruned, binding)
+							}
+						}
+						settings.Bindings = pruned
 						if saveErr := a.store.SaveSettings(settings); saveErr != nil {
 							state.message, state.messageType = saveErr.Error(), "error"
 						} else {
@@ -446,7 +482,17 @@ func (c *tuiController) handleKeyEvent(rawKey, key string, armFrame func()) bool
 					a.beginTUIView(state, tuiViewSettings)
 				}
 			case "update":
-				c.suspend(func() int { return a.cmdUpdate(c.ctx(), cliArgs{}) })
+				if runtime.GOOS == "windows" {
+					if code := c.suspend(func() int { return a.cmdUpdate(c.ctx(), cliArgs{}) }); code == 0 {
+						state.quitRequested = true
+						c.finish()
+						return true
+					}
+				} else {
+					c.runSuspendedOutput(func() int { return a.cmdUpdate(c.ctx(), cliArgs{}) })
+				}
+			case "logout":
+				c.runSuspendedOutput(func() int { return a.cmdLogout(c.ctx()) })
 			case "switch":
 				c.performSwitch()
 			case "delete":
@@ -459,7 +505,7 @@ func (c *tuiController) handleKeyEvent(rawKey, key string, armFrame func()) bool
 	}
 	if state.mode == tuiPalette {
 		switch key {
-		case "esc":
+		case "esc", "ctrl-c":
 			state.mode = tuiBrowse
 		case "up", "k":
 			state.movePalette(-1)
@@ -613,9 +659,13 @@ func (c *tuiController) handleKeyEvent(rawKey, key string, armFrame func()) bool
 			c.toggleTier()
 		}
 	case "n":
-		c.suspend(func() int { return a.cmdNext(c.ctx(), cliArgs{}) })
+		if state.view == tuiViewDashboard {
+			c.runSuspendedOutput(func() int { return a.cmdNext(c.ctx(), cliArgs{}) })
+		}
 	case "l":
-		c.suspend(func() int { return a.cmdLogout(c.ctx()) })
+		if state.view == tuiViewDashboard {
+			c.openConfirm("logout", "")
+		}
 	case "enter":
 		switch state.view {
 		case tuiViewDashboard:
@@ -716,7 +766,7 @@ func (c *tuiController) handleKeyEvent(rawKey, key string, armFrame func()) bool
 			c.openConfirm("history-clear", "")
 		}
 	case "m":
-		c.suspend(func() int { return a.cmdAccount(c.ctx(), extendedOptions{Force: true}, []string{"migrate"}) })
+		c.runSuspendedOutput(func() int { return a.cmdAccount(c.ctx(), extendedOptions{Force: true}, []string{"migrate"}) })
 	case "u":
 		if a.demo {
 			c.demoNotice()
@@ -739,7 +789,7 @@ func (c *tuiController) handleKeyEvent(rawKey, key string, armFrame func()) bool
 		state.resetSplit()
 		state.message, state.messageType = "Split reset to default", "info"
 	default:
-		if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+		if state.view == tuiViewDashboard && len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
 			index := int(key[0] - '1')
 			emails := state.visibleEmails()
 			if index < len(emails) {

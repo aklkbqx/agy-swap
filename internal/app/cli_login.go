@@ -111,41 +111,53 @@ func (a *Application) cmdAdd(ctx context.Context, args cliArgs) int {
 	return a.addLoginFlow(ctx)
 }
 
+func (a *Application) restoreSessionBackup(ctx context.Context, fileSession, mirrorKeyring bool, backupSecure string, snapshot fileSnapshot) {
+	if lock, err := acquireFileLock(a.paths.SessionLock); err == nil {
+		defer func() { _ = lock.Close() }()
+	}
+	if !restoreFiles(snapshot) {
+		fmt.Fprintln(a.Err, "Session file rollback failed; restore from your local backup")
+	}
+	if fileSession {
+		a.credentials.ensureKeyringBypassMarker()
+		if !mirrorKeyring {
+			return
+		}
+	}
+	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	var secureOK bool
+	if backupSecure != "" {
+		secureOK = a.credentials.Set(rollbackCtx, backupSecure)
+	} else {
+		secureOK = a.credentials.Delete(rollbackCtx)
+	}
+	if !secureOK && !fileSession {
+		fmt.Fprintln(a.Err, "Session vault rollback failed; the previous secure credential could not be restored")
+	}
+}
+
 func (a *Application) addLoginFlow(ctx context.Context) int {
+	// Snapshot active session under a brief lock, then release before interactive
+	// prompts and browser login so other terminals are not blocked for up to 120s.
 	lock, err := acquireFileLock(a.paths.SessionLock)
 	if err != nil {
 		return a.storeError(err)
 	}
-	defer func() { _ = lock.Close() }()
 	current := a.credentials.Current(ctx)
 	fileSession := a.credentials.useFileSessionStore()
+	mirrorKeyring := a.credentials.shouldMirrorOSKeyring()
 	backupSecure := ""
-	if !fileSession {
+	if !fileSession || mirrorKeyring {
 		backupSecure = a.credentials.Secure(ctx)
 	}
-	snapshot, err := snapshotFiles(a.credentials.sessionFilePaths(true)...)
-	if err != nil {
-		return a.storeError(err)
+	snapshot, snapErr := snapshotFiles(a.credentials.sessionFilePaths(true)...)
+	_ = lock.Close()
+	if snapErr != nil {
+		return a.storeError(snapErr)
 	}
 	restore := func() {
-		if !restoreFiles(snapshot) {
-			fmt.Fprintln(a.Err, "Session file rollback failed; restore from your local backup")
-		}
-		if fileSession {
-			a.credentials.ensureKeyringBypassMarker()
-			return
-		}
-		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer cancel()
-		var secureOK bool
-		if backupSecure != "" {
-			secureOK = a.credentials.Set(rollbackCtx, backupSecure)
-		} else {
-			secureOK = a.credentials.Delete(rollbackCtx)
-		}
-		if !secureOK {
-			fmt.Fprintln(a.Err, "Session vault rollback failed; the previous secure credential could not be restored")
-		}
+		a.restoreSessionBackup(ctx, fileSession, mirrorKeyring, backupSecure, snapshot)
 	}
 	if current != "" || a.hasAnySurfaceSession() {
 		accounts, err := a.store.Load(false)
@@ -190,7 +202,11 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 					continue
 				}
 				if save {
-					return a.saveTokenAccount(ctx, candidate)
+					code, savedEmail, savedToken := a.saveTokenAccountDetail(ctx, candidate)
+					if code == 0 && savedEmail != "" && savedToken != "" {
+						_ = a.credentials.Apply(ctx, savedToken, savedEmail)
+					}
+					return code
 				}
 				break
 			}
@@ -238,10 +254,40 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 		}
 		fmt.Fprintln(a.Out, "Please press Enter to start login, or type 'q' to return.")
 	}
-	if !a.credentials.clearUnlocked(ctx) {
+	clearLock, clearLockErr := acquireFileLock(a.paths.SessionLock)
+	if clearLockErr != nil {
+		restore()
+		return a.storeError(clearLockErr)
+	}
+	cleared := a.credentials.clearUnlocked(ctx)
+	_ = clearLock.Close()
+	if !cleared {
 		restore()
 		fmt.Fprintln(a.Err, "Could not clear the active session before login")
 		return 1
+	}
+	finishLoginSave := func(newToken string) int {
+		code, savedEmail, savedToken := a.saveTokenAccountDetail(ctx, newToken)
+		if code != 0 {
+			restore()
+			return code
+		}
+		if savedAccounts, loadErr := a.store.Load(false); loadErr == nil {
+			activeEmail := firstString(savedEmail, a.activeEmail(ctx, savedAccounts, savedToken))
+			if _, verify := accountEligibility(savedAccounts.ByEmail[activeEmail]); verify {
+				if current != "" {
+					restore()
+					fmt.Fprintf(a.Out, "%sKept your previous active session while %s awaits Google verification.%s\n", a.p.Gray, activeEmail, a.p.Reset)
+				} else {
+					fmt.Fprintf(a.Out, "%sNote: %s is the active session, and Antigravity cannot use it until verification finishes.%s\n", a.p.Yellow, activeEmail, a.p.Reset)
+				}
+				return code
+			}
+			if activeEmail != "" && savedToken != "" {
+				_ = a.credentials.Apply(ctx, savedToken, activeEmail)
+			}
+		}
+		return code
 	}
 	fmt.Fprintf(a.Out, "\n%sLaunching interactive 'agy' login...%s\n", a.p.Green, a.p.Reset)
 	fmt.Fprintf(a.Out, "%sComplete every prompt shown here and in the browser. agy-swap will continue after the credential is saved.%s\n", a.p.Yellow, a.p.Reset)
@@ -280,21 +326,7 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 			restoreLoginTerm()
 			token = a.credentials.Current(ctx)
 			if token != "" && token != current {
-				code := a.saveTokenAccount(ctx, token)
-				if code != 0 {
-					restore()
-				} else if savedAccounts, err := a.store.Load(false); err == nil {
-					activeEmail := a.activeEmail(ctx, savedAccounts, token)
-					if _, verify := accountEligibility(savedAccounts.ByEmail[activeEmail]); verify {
-						if current != "" {
-							restore()
-							fmt.Fprintf(a.Out, "%sKept your previous active session while %s awaits Google verification.%s\n", a.p.Gray, activeEmail, a.p.Reset)
-						} else {
-							fmt.Fprintf(a.Out, "%sNote: %s is the active session, and Antigravity cannot use it until verification finishes.%s\n", a.p.Yellow, activeEmail, a.p.Reset)
-						}
-					}
-				}
-				return code
+				return finishLoginSave(token)
 			}
 			restore()
 			if ctx.Err() != nil {
@@ -312,21 +344,7 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 			if token != "" && token != current {
 				stopLoginCommand(command, commandDone)
 				restoreLoginTerm()
-				code := a.saveTokenAccount(ctx, token)
-				if code != 0 {
-					restore()
-				} else if savedAccounts, err := a.store.Load(false); err == nil {
-					activeEmail := a.activeEmail(ctx, savedAccounts, token)
-					if _, verify := accountEligibility(savedAccounts.ByEmail[activeEmail]); verify {
-						if current != "" {
-							restore()
-							fmt.Fprintf(a.Out, "%sKept your previous active session while %s awaits Google verification.%s\n", a.p.Gray, activeEmail, a.p.Reset)
-						} else {
-							fmt.Fprintf(a.Out, "%sNote: %s is the active session, and Antigravity cannot use it until verification finishes.%s\n", a.p.Yellow, activeEmail, a.p.Reset)
-						}
-					}
-				}
-				return code
+				return finishLoginSave(token)
 			}
 		case <-timeout.C:
 			stopLoginCommand(command, commandDone)
@@ -342,37 +360,42 @@ func (a *Application) addLoginFlow(ctx context.Context) int {
 }
 
 func (a *Application) saveTokenAccount(ctx context.Context, token string) int {
+	code, _, _ := a.saveTokenAccountDetail(ctx, token)
+	return code
+}
+
+func (a *Application) saveTokenAccountDetail(ctx context.Context, token string) (int, string, string) {
 	inner := tokenObject(decodeToken(token))
 	if inner == nil || getString(inner, "access_token") == "" {
 		fmt.Fprintf(a.Out, "\n%sInvalid token structure.%s\n", a.p.Red, a.p.Reset)
-		return 1
+		return 1, "", ""
 	}
 	stop := a.spinner("Verifying Google account...")
 	access, refreshed, err := a.http.accessTokenData(ctx, token)
 	if err != nil {
 		stop()
 		fmt.Fprintln(a.Err, "Could not refresh credential:", err)
-		return 1
+		return 1, "", ""
 	}
 	info := a.http.userInfo(ctx, access)
 	stop()
 	if info == nil || !verifiedUserInfo(info) {
 		fmt.Fprintln(a.Err, "Google userinfo could not verify the account; retry when Google is reachable.")
-		return 1
+		return 1, "", ""
 	}
 	token = refreshed
 	email, name := normalizeEmail(getString(info, "email")), cleanText(firstString(info["name"], "Google User"))
 	if email == "" {
 		fmt.Fprintln(a.Err, "Google returned no valid account email")
-		return 1
+		return 1, "", ""
 	}
 	if !tokenMatchesEmail(token, email) {
 		fmt.Fprintf(a.Err, "%sToken identity does not match the selected Google account.%s\n", a.p.Red, a.p.Reset)
-		return 1
+		return 1, "", ""
 	}
 	accounts, err := a.store.Load(false)
 	if err != nil {
-		return a.storeError(err)
+		return a.storeError(err), "", ""
 	}
 	account, exists := accounts.Get(email)
 	if !exists {
@@ -387,12 +410,12 @@ func (a *Application) saveTokenAccount(ctx context.Context, token string) int {
 	}
 	accounts.Set(email, account)
 	if err := a.store.Save(accounts); err != nil {
-		return a.storeError(err)
+		return a.storeError(err), "", ""
 	}
 	if saved {
 		a.deleteReplacedSecrets(ctx, []string{oldRef})
 	}
 	fmt.Fprintf(a.Out, "\n%s✓ Successfully saved account: %s <%s>%s [%s]\n", a.p.Green, name, email, a.p.Reset, tierBadge(accounts.ByEmail[email], a.p))
 	_, _ = a.checkNewAccount(ctx, email)
-	return 0
+	return 0, email, token
 }

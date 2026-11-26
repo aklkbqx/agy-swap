@@ -160,6 +160,90 @@ func syncIDEOnboardingEmail(home, email string) {
 	}
 }
 
+func clearIDEOnboardingEmail(home string) {
+	if strings.TrimSpace(home) == "" {
+		return
+	}
+	sqliteBin, err := exec.LookPath("sqlite3")
+	if err != nil || sqliteBin == "" {
+		return
+	}
+	for _, dbPath := range ideStateDBPaths(home) {
+		if _, err := os.Stat(dbPath); err != nil {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		out, err := exec.CommandContext(ctx, sqliteBin, "-cmd", ".timeout 1500", dbPath,
+			"SELECT value FROM ItemTable WHERE key = 'google.google-antigravity';").Output()
+		cancel()
+		if err != nil {
+			continue
+		}
+		raw := strings.TrimSpace(string(out))
+		if idx := strings.IndexByte(raw, '{'); idx > 0 {
+			raw = raw[idx:]
+		}
+		if raw == "" {
+			continue
+		}
+		var outer map[string]any
+		if json.Unmarshal([]byte(raw), &outer) != nil || outer == nil {
+			continue
+		}
+		storage, ok := outer["antigravity-storage"].(map[string]any)
+		if !ok || storage == nil {
+			continue
+		}
+		if _, exists := storage["agy.onboarding.lastLoginUsername"]; !exists {
+			continue
+		}
+		delete(storage, "agy.onboarding.lastLoginUsername")
+		outer["antigravity-storage"] = storage
+		updatedJSON, err := json.Marshal(outer)
+		if err != nil {
+			continue
+		}
+		hexVal := hex.EncodeToString(updatedJSON)
+		updateSQL := "UPDATE ItemTable SET value = CAST(X'" + hexVal + "' AS TEXT) WHERE key = 'google.google-antigravity';"
+		uCtx, uCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = exec.CommandContext(uCtx, sqliteBin, "-cmd", ".timeout 1500", dbPath, updateSQL).Run()
+		uCancel()
+	}
+}
+
+func (c *Credentials) shouldReloadIDEHubs() bool {
+	return c.shouldReloadIDEHubsForBinary(currentSwapExecutable())
+}
+
+func (c *Credentials) shouldReloadIDEHubsForBinary(swapBin string) bool {
+	if c == nil || runtime.GOOS == "windows" || strings.TrimSpace(swapBin) == "" || strings.TrimSpace(c.paths.Home) == "" {
+		return false
+	}
+	if os.Getenv("AGY_SWAP_SKIP_SYNC") == "1" || os.Getenv("AGY_SWAP_SKIP_HUB_RELOAD") == "1" {
+		return false
+	}
+	realHome, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(realHome) == "" {
+		return false
+	}
+	return filepath.Clean(c.paths.Home) == filepath.Clean(realHome)
+}
+
+func signalRunningIDEHubs() {
+	pkillBin, err := exec.LookPath("pkill")
+	if err != nil || pkillBin == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	args := []string{"-TERM"}
+	if uid := os.Getuid(); uid >= 0 {
+		args = append(args, "-u", strconv.Itoa(uid))
+	}
+	args = append(args, "-f", `(\.agy\.real|libexec/agy).*--hub`)
+	_ = exec.CommandContext(ctx, pkillBin, args...).Run()
+}
+
 // hubReloadMarkerPath is the file agy-swap rewrites just before it stops the
 // IDE's background agy hub after a switch. The session-guard wrapper restarts
 // the hub only when this file changed while the hub was running.
@@ -176,11 +260,7 @@ func (c *Credentials) hubReloadMarkerPath() string {
 // newly switched account, which triggers Antigravity IDE's instance_changed
 // webview refresh without exhausting its crash recovery.
 func (c *Credentials) reloadRunningIDEHubs() {
-	if c == nil || runtime.GOOS == "windows" || currentSwapExecutable() == "" || !c.shouldMirrorOSKeyring() {
-		return
-	}
-	pkillBin, err := exec.LookPath("pkill")
-	if err != nil || pkillBin == "" {
+	if !c.shouldReloadIDEHubs() {
 		return
 	}
 	marker := c.hubReloadMarkerPath()
@@ -193,9 +273,16 @@ func (c *Credentials) reloadRunningIDEHubs() {
 	if err := os.WriteFile(marker, []byte(strconv.FormatInt(time.Now().UnixNano(), 10)), 0o600); err != nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_ = exec.CommandContext(ctx, pkillBin, "-TERM", "-f", `(\.agy\.real|libexec/agy).*--hub`).Run()
+	signalRunningIDEHubs()
+}
+
+// stopRunningIDEHubs terminates running IDE hubs without touching the reload
+// marker so the session-guard wrapper exits cleanly instead of restarting them.
+func (c *Credentials) stopRunningIDEHubs() {
+	if !c.shouldReloadIDEHubs() {
+		return
+	}
+	signalRunningIDEHubs()
 }
 
 func (c *Credentials) keyringMarkerPath() string {
@@ -546,5 +633,8 @@ func (c *Credentials) Clear(ctx context.Context) bool {
 		return false
 	}
 	defer func() { _ = lock.Close() }()
-	return c.clearUnlocked(ctx)
+	ok := c.clearUnlocked(ctx)
+	clearIDEOnboardingEmail(c.paths.Home)
+	c.stopRunningIDEHubs()
+	return ok
 }

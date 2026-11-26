@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -15,6 +17,7 @@ import (
 )
 
 type tuiKeyEvent struct{ key string }
+type tuiEOFEvent struct{}
 type tuiAccountsEvent struct {
 	accounts    *Accounts
 	vaultCache  map[string]bool
@@ -62,6 +65,7 @@ type tuiJobResult struct {
 type tuiEvent interface{ tuiEvent() }
 
 func (tuiKeyEvent) tuiEvent()          {}
+func (tuiEOFEvent) tuiEvent()          {}
 func (tuiAccountsEvent) tuiEvent()     {}
 func (tuiActiveEvent) tuiEvent()       {}
 func (tuiResizeEvent) tuiEvent()       {}
@@ -109,10 +113,10 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 	var frames *tuiFrameWriter
 	defer func() {
 		frames.close()
+		leaveScreen()
 		if raw {
 			origTerm.Restore(false)
 		}
-		leaveScreen()
 	}()
 
 	state := newTUIState(accounts, current)
@@ -177,8 +181,15 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 			// readTerminalKey polls the terminal fd, so this worker remains
 			// cancellable even when the terminal is idle.
 			inputBusy.Store(true)
-			key := readTerminalKeyPaused(inFile, &inputPaused)
+			key, readErr := readTerminalKeyPausedErr(inFile, &inputPaused)
 			inputBusy.Store(false)
+			if errors.Is(readErr, io.EOF) {
+				select {
+				case events <- tuiEOFEvent{}:
+				case <-done:
+				}
+				return
+			}
 			if key == "" {
 				select {
 				case <-done:
@@ -277,6 +288,8 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 		frameC = frameTimer.C
 	}
 
+	resizeCh, stopResize := watchTerminalResize()
+	defer stopResize()
 	resizeTicker := time.NewTicker(250 * time.Millisecond)
 	defer resizeTicker.Stop()
 	credentialTicker := time.NewTicker(1500 * time.Millisecond)
@@ -323,7 +336,12 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 		state.message, state.messageType = errDemoUnavailable.Error(), "info"
 	}
 
-	suspend := func(action func() int) int {
+	var switching bool
+	var credentialPolling bool
+	var activityPolling bool
+	var terminatedBySignal bool
+
+	suspendWithPause := func(action func() int, pauseAfter bool) int {
 		if a.demo {
 			demoNotice()
 			return 1
@@ -333,23 +351,82 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 		waitUntilInputIdle(&inputBusy, tuiInputPollTimeout+150*time.Millisecond)
 		resetPlatformInputState()
 		a.resetTerminalLineReader()
-		defer inputPaused.Store(false)
+		var keepPaused bool
+		defer func() {
+			if !keepPaused {
+				inputPaused.Store(false)
+			}
+		}()
 		frames.flush() // the terminal has everything before another program takes it
+		leaveScreen()
 		origTerm.Restore(false)
 		raw = false
-		leaveScreen()
-		suspendCtx, stopInterrupt := signal.NotifyContext(context.WithoutCancel(tuiCtx), os.Interrupt, syscall.SIGTERM)
+		// Distinguish os.Interrupt (cancel only the suspended action and return
+		// to the TUI) from SIGTERM or parent cancellation (exit cleanly).
+		sigCh := make(chan os.Signal, 2)
+		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+		suspendCtx, cancelSuspend := context.WithCancel(context.WithoutCancel(tuiCtx))
+		var gotSigint, gotSigterm atomic.Bool
+		stopWatch := make(chan struct{})
+		watchDone := make(chan struct{})
+		go func() {
+			defer close(watchDone)
+			recordSig := func(sig os.Signal) {
+				if sig == os.Interrupt {
+					gotSigint.Store(true)
+				} else {
+					gotSigterm.Store(true)
+				}
+			}
+			select {
+			case sig := <-sigCh:
+				recordSig(sig)
+				cancelSuspend()
+			case <-tuiCtx.Done():
+				// If a caller bound rootCtx to os.Interrupt as well as SIGTERM,
+				// give sigCh a brief window to deliver the concrete signal.
+				select {
+				case sig := <-sigCh:
+					recordSig(sig)
+				case <-time.After(15 * time.Millisecond):
+				}
+				cancelSuspend()
+			case <-stopWatch:
+			}
+		}()
 		ctx = suspendCtx
 		code := action()
 		interrupted := suspendCtx.Err() != nil
-		stopInterrupt()
-		if tuiCtx.Err() != nil && interrupted {
+		if pauseAfter && !interrupted && !gotSigterm.Load() && tuiCtx.Err() == nil {
+			fmt.Fprintf(a.Out, "\n%sPress Enter to return to agy-swap...%s", a.p.Gray, a.p.Reset)
+			_, _ = a.readLine(suspendCtx, "")
+		}
+		close(stopWatch)
+		<-watchDone
+		signal.Stop(sigCh)
+		cancelSuspend()
+		if gotSigterm.Load() || (tuiCtx.Err() != nil && !gotSigint.Load()) {
+			keepPaused = true
+			terminatedBySignal = true
+			ctx = tuiCtx
+			finish()
+			return code
+		}
+		if tuiCtx.Err() != nil && gotSigint.Load() {
+			// Caller's rootCtx cancelled on os.Interrupt too; recover with a
+			// SIGTERM-only context and clear in-flight worker flags tied to
+			// the cancelled workerCtx so polling/switching never stall.
 			if stopRecreatedTUI != nil {
 				stopRecreatedTUI()
 			}
 			tuiCtx, stopRecreatedTUI = signal.NotifyContext(context.WithoutCancel(tuiCtx), syscall.SIGTERM)
 			workerCtx, cancelWorkers = context.WithCancel(tuiCtx)
 			refreshCoord.setWorkerContext(workerCtx)
+			credentialPolling = false
+			activityPolling = false
+			switching = false
+			state.job = nil
+			state.resolvingToken = ""
 		}
 		ctx = tuiCtx
 		switch {
@@ -378,6 +455,8 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 		a.renderTUI(state, outFile)
 		return code
 	}
+	suspend := func(action func() int) int { return suspendWithPause(action, false) }
+	suspendPause := func(action func() int) int { return suspendWithPause(action, true) }
 
 	var jobID uint64
 	startJob := func(kind, label string, work func(context.Context) tuiJobResult) {
@@ -398,9 +477,6 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 
 	// performSwitch switches in place: the dashboard stays on screen, with a
 	// status line while the session is written, and a toast with the result.
-	var switching bool
-	var credentialPolling bool
-	var activityPolling bool
 	performSwitch := func() {
 		email, account, ok := state.selectedAccount()
 		if !ok || switching {
@@ -441,6 +517,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 		current:           func() string { return current },
 		demoNotice:        demoNotice,
 		suspend:           suspend,
+		suspendPause:      suspendPause,
 		startJob:          startJob,
 		startRefresh:      startRefresh,
 		invalidateRefresh: invalidateRefresh,
@@ -453,6 +530,10 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 	var stagedEvent tuiEvent
 	eventsBurst := 0
 	for {
+		if terminatedBySignal || tuiCtx.Err() != nil {
+			finish()
+			return 0
+		}
 		// A render can start motion (a new target, a dialog, a toast); keep
 		// frames coming until it settles.
 		if frameC == nil && (state.moving(time.Now()) || state.ambient || state.frameOwed) {
@@ -477,6 +558,12 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 			case <-tuiCtx.Done():
 				finish()
 				return 0
+			case <-resizeCh:
+				width, height, sizeErr := termSize(outFile)
+				if sizeErr == nil && (width != state.width || height != state.height) {
+					a.renderTUI(state, outFile)
+				}
+				continue
 			case <-resizeTicker.C:
 				width, height, sizeErr := termSize(outFile)
 				if sizeErr == nil && (width != state.width || height != state.height) {
@@ -545,6 +632,9 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 			}
 		}
 		switch value := event.(type) {
+		case tuiEOFEvent:
+			finish()
+			return 0
 		case tuiCredentialEvent:
 			credentialPolling = false
 			if value.token != current {
@@ -654,12 +744,14 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 					stagedEvent = nextAfterWheel
 				}
 				if steps != 0 {
-					// The wheel scrolls the view under the pointer when it does not
-					// all fit; otherwise it moves the selection, as it always has.
+					// The wheel scrolls the view under the pointer only while browsing;
+					// under a modal (palette/dialog/form) never scroll the hidden dashboard.
 					line, x := state.pointerAt(wheelCol, wheelRow)
 					scrolled := false
-					if hit, ok := state.hitAt(line, x, hitScroll, hitScrollbar); ok && wheelRow > 0 {
-						scrolled = state.scrollBy(hit.key, 3*steps)
+					if state.mode == tuiBrowse {
+						if hit, ok := state.hitAt(line, x, hitScroll, hitScrollbar); ok && wheelRow > 0 {
+							scrolled = state.scrollBy(hit.key, 3*steps)
+						}
 					}
 					if !scrolled {
 						stepDir := 1

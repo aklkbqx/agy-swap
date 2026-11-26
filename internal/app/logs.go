@@ -69,11 +69,24 @@ type logCandidate struct {
 
 func (s *LogScanner) discover() []logCandidate {
 	roots := []string{
-		filepath.Join(s.paths.Home, "Library", "Logs", "Google Antigravity"), filepath.Join(s.paths.Home, "Library", "Logs", "Antigravity"), filepath.Join(s.paths.Home, ".config", "antigravity", "logs"), filepath.Join(s.paths.Home, ".gemini", "antigravity-cli", "logs"), filepath.Join(s.paths.Home, ".gemini", "antigravity-cli", "log"), filepath.Join(s.paths.Home, "Library", "Application Support", "Antigravity IDE", "logs"),
+		filepath.Join(s.paths.Home, "Library", "Logs", "Google Antigravity"),
+		filepath.Join(s.paths.Home, "Library", "Logs", "Antigravity"),
+		filepath.Join(s.paths.Home, ".config", "antigravity", "logs"),
+		filepath.Join(s.paths.Home, ".config", "Antigravity IDE", "logs"),
+		filepath.Join(s.paths.Home, ".gemini", "antigravity-cli", "logs"),
+		filepath.Join(s.paths.Home, ".gemini", "antigravity-cli", "log"),
+		filepath.Join(s.paths.Home, "Library", "Application Support", "Antigravity IDE", "logs"),
 	}
 	if runtime.GOOS == "windows" {
 		if appdata := os.Getenv("LOCALAPPDATA"); appdata != "" {
-			roots = append(roots, filepath.Join(appdata, "Google", "Antigravity", "logs"), filepath.Join(appdata, "Antigravity", "logs"))
+			roots = append(roots,
+				filepath.Join(appdata, "Google", "Antigravity", "logs"),
+				filepath.Join(appdata, "Antigravity", "logs"),
+				filepath.Join(appdata, "Antigravity IDE", "logs"),
+			)
+		}
+		if roaming := os.Getenv("APPDATA"); roaming != "" {
+			roots = append(roots, filepath.Join(roaming, "Antigravity IDE", "logs"))
 		}
 	}
 	cutoff := time.Now().Add(-maxLimitDuration)

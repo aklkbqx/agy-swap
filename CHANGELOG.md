@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.25.1
+
+### Fixes
+
+- Target macOS 13.0 as the minimum deployment version for darwin release builds and verify the Mach-O minimum OS metadata during release checks so macOS 13 and 14 users can run shipped binaries (#111).
+- Harden session locking and rollback during account switches, logins, and logouts: release the session lock across interactive login prompts, restore mirrored Keychain entries on cancellation, clear Antigravity IDE state on logout, and roll back vault writes if saving account state fails (#111).
+- Decouple Antigravity IDE hub reloads from Keychain mirroring settings, scope process reloads to the current user, and canonicalize symlinked project paths in directory bindings and `agy-swap run` (#111).
+- Keep the terminal UI responsive and stable across edge cases: scroll wide detail views, Profiles, and History cleanly, respond immediately to terminal resizes, handle EOF and `SIGTERM` cleanly during interactive prompts, isolate pointer and wheel events inside open modals, confirm logouts, pause cleanly after output commands, and fix Windows navigation keys and surrogate pairs (#111).
+- Improve CLI reliability and JSON automation: support `--flag=value` syntax, add structured JSON output for `metrics` and mutation commands, exit non-zero when `target check --json` fails, require confirmation or `--yes`/`--force` for destructive `remove` and `limit` actions, prompt without echo for backup passphrases, and guard against clock skew and missing reset timestamps in quota forecasts and statusline (#111).
+- Harden `agy-swap doctor`, `install-agy`, `self-update`, installers, and local storage: expand doctor diagnostics, enforce HTTPS and atomic replacement in `install-agy`, add IPv6 DoH fallback in the updater, retry interrupted file locks, preserve explicit zero notification settings, and tighten installer checksum and error handling (#111).
+- Website update: synchronize release metadata and terminal story frames for v2.25.1.
+
 ## 2.25.0
 
 ### Changes

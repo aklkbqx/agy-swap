@@ -157,14 +157,14 @@ func (a *Application) reconcileActiveSession(ctx context.Context) {
 	if a == nil || a.credentials == nil || a.store == nil || os.Getenv("AGY_SWAP_SKIP_SYNC") == "1" {
 		return
 	}
-	a.credentials.ensureKeyringBypassMarker()
-	a.ensureAgyLauncherGuard()
-
 	lock, err := tryAcquireFileLock(a.paths.SessionLock)
 	if err != nil {
 		return
 	}
 	defer func() { _ = lock.Close() }()
+
+	a.credentials.ensureKeyringBypassMarker()
+	a.ensureAgyLauncherGuardLocked()
 
 	surfacePaths := a.credentials.oauthTokenPaths()
 	diskTokens := make([]string, 0, len(surfacePaths))
@@ -197,9 +197,22 @@ func (a *Application) reconcileActiveSession(ctx context.Context) {
 			if storedHash := strings.TrimSpace(getString(ownerAcc, "token_hash")); storedHash == "" || storedHash != hashToken(diskToken) {
 				storedOwnerToken, _ := a.accountToken(ctx, ownerAcc)
 				if shouldHarvestToken(storedOwnerToken, diskToken) {
-					oldRef, _ := a.saveAccountSecret(ctx, ownerAcc, diskToken)
+					prevFields := captureSecretFields(ownerAcc)
+					prevRef := getString(ownerAcc, "secret_ref")
+					oldRef, stored := a.saveAccountSecret(ctx, ownerAcc, diskToken)
 					accounts.Set(ownerEmail, ownerAcc)
-					if saveErr := a.store.Save(accounts); saveErr == nil && oldRef != "" {
+					if saveErr := a.store.Save(accounts); saveErr != nil {
+						newRef := getString(ownerAcc, "secret_ref")
+						restoreSecretFields(ownerAcc, prevFields)
+						accounts.Set(ownerEmail, ownerAcc)
+						if stored && a.vault != nil {
+							if prevRef != "" && prevRef == newRef && storedOwnerToken != "" {
+								_ = a.vault.Set(ctx, prevRef, storedOwnerToken)
+							} else if newRef != "" && newRef != prevRef {
+								a.deleteReplacedSecrets(ctx, []string{newRef})
+							}
+						}
+					} else if stored && oldRef != "" {
 						a.deleteReplacedSecrets(ctx, []string{oldRef})
 					}
 				}
@@ -279,12 +292,29 @@ func moveOrCopyExecutable(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	tmp := dst + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o755); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(dst), ".agy-swap-bin-*")
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, dst); err != nil {
-		_ = os.Remove(tmp)
+	tmpPath := tmp.Name()
+	cleanup := func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Chmod(0o755); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, dst); err != nil {
+		_ = os.Remove(tmpPath)
 		return err
 	}
 	_ = os.Chmod(dst, 0o755)
@@ -347,44 +377,52 @@ if [ "${AGY_SWAP_SKIP_SYNC:-0}" != "1" ] && [ -n "$swap_command" ] && [ -x "$swa
   "$swap_command" --sync-session >/dev/null 2>&1 || true
 fi
 export WSL_INTEROP="${WSL_INTEROP:-1}"
-case " $* " in
-  *" --hub "*)
-    stopping=0
+is_hub=0
+for arg in "$@"; do
+  if [ "$arg" = "--" ]; then
+    break
+  fi
+  if [ "$arg" = "--hub" ]; then
+    is_hub=1
+    break
+  fi
+done
+if [ "$is_hub" -eq 1 ]; then
+  stopping=0
+  hub_pid=""
+  window_start="$(date +%s)"
+  window_restarts=0
+  trap 'stopping=1; if [ -n "$hub_pid" ]; then kill -TERM "$hub_pid" 2>/dev/null || true; wait "$hub_pid" 2>/dev/null || true; fi; exit 0' TERM INT HUP
+  while [ "$stopping" -eq 0 ]; do
+    marker_before="$(cat "$reload_marker" 2>/dev/null || true)"
+    "$real_command" "$@" &
+    hub_pid=$!
+    wait "$hub_pid"
+    status=$?
     hub_pid=""
-    window_start="$(date +%s)"
-    window_restarts=0
-    trap 'stopping=1; if [ -n "$hub_pid" ]; then kill -TERM "$hub_pid" 2>/dev/null || true; wait "$hub_pid" 2>/dev/null || true; fi; exit 0' TERM INT HUP
-    while [ "$stopping" -eq 0 ]; do
-      marker_before="$(cat "$reload_marker" 2>/dev/null || true)"
-      "$real_command" "$@" &
-      hub_pid=$!
-      wait "$hub_pid"
-      status=$?
-      hub_pid=""
-      if [ "$stopping" -ne 0 ]; then
-        exit 0
-      fi
-      marker_after="$(cat "$reload_marker" 2>/dev/null || true)"
-      if [ -z "$reload_marker" ] || [ "$marker_after" = "$marker_before" ]; then
-        exit "$status"
-      fi
-      now="$(date +%s)"
-      if [ $((now - window_start)) -ge 10 ]; then
-        window_start="$now"
-        window_restarts=0
-      fi
-      window_restarts=$((window_restarts + 1))
-      if [ "$window_restarts" -ge 10 ]; then
-        exit "$status"
-      fi
-      sleep 0.1
-      if [ "${AGY_SWAP_SKIP_SYNC:-0}" != "1" ] && [ -n "$swap_command" ] && [ -x "$swap_command" ]; then
-        "$swap_command" --sync-session >/dev/null 2>&1 || true
-      fi
-    done
-    exit 0
-    ;;
-esac
+    if [ "$stopping" -ne 0 ]; then
+      exit 0
+    fi
+    marker_after="$(cat "$reload_marker" 2>/dev/null || true)"
+    if [ -z "$reload_marker" ] || [ "$marker_after" = "$marker_before" ]; then
+      exit "$status"
+    fi
+    now="$(date +%s)"
+    if [ $((now - window_start)) -ge 10 ]; then
+      window_start="$now"
+      window_restarts=0
+    fi
+    window_restarts=$((window_restarts + 1))
+    if [ "$window_restarts" -ge 10 ]; then
+      exit "$status"
+    fi
+    sleep 0.1
+    if [ "${AGY_SWAP_SKIP_SYNC:-0}" != "1" ] && [ -n "$swap_command" ] && [ -x "$swap_command" ]; then
+      "$swap_command" --sync-session >/dev/null 2>&1 || true
+    fi
+  done
+  exit 0
+fi
 ` + execBlock + `
 status=$?
 if [ "${AGY_SWAP_SKIP_SYNC:-0}" != "1" ] && [ -n "$swap_command" ] && [ -x "$swap_command" ]; then
@@ -471,7 +509,23 @@ func extractWrapperRealCommand(text string) string {
 	return ""
 }
 
+var writeLauncherWrapper = writeExecutableAtomically
+
 func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
+	if a == nil || runtime.GOOS == "windows" || strings.TrimSpace(agyBin) == "" {
+		return
+	}
+	if lockPath := strings.TrimSpace(a.paths.SessionLock); lockPath != "" {
+		lock, err := tryAcquireFileLock(lockPath)
+		if err != nil {
+			return
+		}
+		defer func() { _ = lock.Close() }()
+	}
+	a.ensureAgyLauncherGuardForPathLocked(agyBin)
+}
+
+func (a *Application) ensureAgyLauncherGuardForPathLocked(agyBin string) {
 	if a == nil || runtime.GOOS == "windows" || strings.TrimSpace(agyBin) == "" {
 		return
 	}
@@ -502,13 +556,14 @@ func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
 		}
 		if !isNativeExecutable(targetData) {
 			if strings.HasPrefix(string(targetData), "#!") {
-				a.ensureAgyLauncherGuardForPath(resolved)
+				a.ensureAgyLauncherGuardForPathLocked(resolved)
 			}
 			return
 		}
 		script := buildAgyLauncherScriptForPaths(resolved, preferredSwap, a.credentials.hubReloadMarkerPath(), false)
-		_ = writeExecutableAtomically(agyBin, []byte(script))
-		syncAgyBinarySidecar(agyBin)
+		if writeLauncherWrapper(agyBin, []byte(script)) == nil {
+			syncAgyBinarySidecar(agyBin)
+		}
 		return
 	}
 
@@ -529,7 +584,10 @@ func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
 			return
 		}
 		script := buildAgyLauncherScriptForPaths(realRef, preferredSwap, a.credentials.hubReloadMarkerPath(), false)
-		_ = writeExecutableAtomically(agyBin, []byte(script))
+		if err := writeLauncherWrapper(agyBin, []byte(script)); err != nil {
+			_ = moveOrCopyExecutable(libexecBin, agyBin)
+			return
+		}
 		syncAgyBinarySidecar(agyBin)
 		return
 	}
@@ -538,7 +596,7 @@ func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
 	if !strings.HasPrefix(text, "#!") || (!strings.Contains(text, ".local/libexec/agy") && !strings.Contains(text, "Managed by agy-swap session guard")) {
 		return
 	}
-	if strings.Contains(text, "--sync-session") && strings.Contains(text, "WSL_INTEROP") && strings.Contains(text, "hub_pid") && strings.Contains(text, "reload_marker=") && !strings.Contains(text, "python3 -") {
+	if strings.Contains(text, "--sync-session") && strings.Contains(text, "WSL_INTEROP") && strings.Contains(text, "hub_pid") && strings.Contains(text, "reload_marker=") && strings.Contains(text, "is_hub=0") && !strings.Contains(text, "python3 -") {
 		syncAgyBinarySidecar(agyBin)
 		return
 	}
@@ -551,8 +609,9 @@ func (a *Application) ensureAgyLauncherGuardForPath(agyBin string) {
 	}
 	skipPerms := strings.Contains(text, "AGY_NORMAL_MODE") || strings.Contains(text, "--dangerously-skip-permissions")
 	script := buildAgyLauncherScriptForPaths(realRef, preferredSwap, a.credentials.hubReloadMarkerPath(), skipPerms)
-	_ = writeExecutableAtomically(agyBin, []byte(script))
-	syncAgyBinarySidecar(agyBin)
+	if writeLauncherWrapper(agyBin, []byte(script)) == nil {
+		syncAgyBinarySidecar(agyBin)
+	}
 }
 
 func writeExecutableAtomically(path string, data []byte) error {
@@ -592,15 +651,29 @@ func (a *Application) ensureAgyLauncherGuard() {
 	if a == nil || runtime.GOOS == "windows" || strings.TrimSpace(a.paths.Home) == "" {
 		return
 	}
+	if lockPath := strings.TrimSpace(a.paths.SessionLock); lockPath != "" {
+		lock, err := tryAcquireFileLock(lockPath)
+		if err != nil {
+			return
+		}
+		defer func() { _ = lock.Close() }()
+	}
+	a.ensureAgyLauncherGuardLocked()
+}
+
+func (a *Application) ensureAgyLauncherGuardLocked() {
+	if a == nil || runtime.GOOS == "windows" || strings.TrimSpace(a.paths.Home) == "" {
+		return
+	}
 	defaultBin := filepath.Join(a.paths.Home, ".local", "bin", "agy")
 	ideBin := filepath.Join(a.paths.Home, ".gemini", "bin", "agy")
-	a.ensureAgyLauncherGuardForPath(defaultBin)
-	a.ensureAgyLauncherGuardForPath(ideBin)
+	a.ensureAgyLauncherGuardForPathLocked(defaultBin)
+	a.ensureAgyLauncherGuardForPathLocked(ideBin)
 
 	if envBin := strings.TrimSpace(os.Getenv("AGY_SWAP_AGY_BIN")); envBin != "" &&
 		filepath.Clean(envBin) != filepath.Clean(defaultBin) &&
 		filepath.Clean(envBin) != filepath.Clean(ideBin) {
-		a.ensureAgyLauncherGuardForPath(envBin)
+		a.ensureAgyLauncherGuardForPathLocked(envBin)
 	}
 	if a.store != nil {
 		if settings, err := a.loadSettings(); err == nil {
@@ -609,7 +682,7 @@ func (a *Application) ensureAgyLauncherGuard() {
 				if cmd != "" && cmd != "agy" && filepath.IsAbs(cmd) &&
 					filepath.Clean(cmd) != filepath.Clean(defaultBin) &&
 					filepath.Clean(cmd) != filepath.Clean(ideBin) {
-					a.ensureAgyLauncherGuardForPath(cmd)
+					a.ensureAgyLauncherGuardForPathLocked(cmd)
 				}
 			}
 		}

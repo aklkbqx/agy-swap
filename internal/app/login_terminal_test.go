@@ -410,3 +410,87 @@ func TestTUICtrlCAtAddLoginPromptReturnsToDashboard(t *testing.T) {
 		t.Fatalf("TUI helper did not exit cleanly on q after Ctrl+C cancellation:\n%q", snapshot())
 	}
 }
+
+func TestTUISIGTERMDuringSuspendExitsCleanly(t *testing.T) {
+	master, slave := openPTY(t)
+	defer func() { _ = master.Close() }()
+	triggerFile := t.TempDir() + "/unused-trigger"
+	helper := exec.Command(os.Args[0], "-test.run=^TestTUISuspendDirtyLoginHelperProcess$")
+	helper.Env = append(os.Environ(),
+		tuiDirtyLoginHelperEnv+"=1",
+		tuiDirtyLoginTriggerEnv+"="+triggerFile,
+	)
+	helper.Stdin, helper.Stdout, helper.Stderr = slave, slave, slave
+	helper.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
+	if err := helper.Start(); err != nil {
+		t.Fatal(err)
+	}
+	_ = slave.Close()
+
+	var rawOutput bytes.Buffer
+	var mu sync.Mutex
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := master.Read(buf)
+			if n > 0 {
+				mu.Lock()
+				rawOutput.Write(buf[:n])
+				mu.Unlock()
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	snapshot := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return rawOutput.String()
+	}
+	waitFor := func(substr string, timeout time.Duration) bool {
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			if strings.Contains(snapshot(), substr) {
+				return true
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		return false
+	}
+
+	if !waitFor("\x1b[?1049h", 5*time.Second) {
+		_ = syscall.Kill(-helper.Process.Pid, syscall.SIGKILL)
+		t.Fatalf("TUI did not enter alternate screen:\n%q", snapshot())
+	}
+	time.Sleep(80 * time.Millisecond)
+	_, _ = master.Write([]byte("a"))
+
+	if !waitFor("Press Enter when ready", 5*time.Second) {
+		_ = syscall.Kill(-helper.Process.Pid, syscall.SIGKILL)
+		t.Fatalf("add flow did not prompt:\n%q", snapshot())
+	}
+	// Send SIGTERM while suspended at the sign-in prompt: TUI must exit cleanly,
+	// not swallow SIGTERM and re-enter the alternate screen.
+	if err := helper.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- helper.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("helper exited with error %v:\n%q", err, snapshot())
+		}
+	case <-time.After(5 * time.Second):
+		_ = syscall.Kill(-helper.Process.Pid, syscall.SIGKILL)
+		waitErr := <-done
+		_ = waitErr
+		t.Fatalf("TUI swallowed SIGTERM during suspend and failed to exit:\n%q", snapshot())
+	}
+	out := snapshot()
+	if idx := strings.LastIndex(out, "Press Enter when ready"); idx >= 0 && strings.Contains(out[idx:], "\x1b[?1049h") {
+		t.Fatalf("TUI re-entered alternate screen after SIGTERM during suspend:\n%q", out[idx:])
+	}
+}

@@ -122,7 +122,8 @@ func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLa
 	_, _, _, left := tuiWideSplit(g.frameWidth, offset)
 	g.leftWidth = left
 	g.rightWidth = maxInt(1, maxInt(2, g.frameWidth-tuiWideChrome)-left)
-	lines := []string{panelDivider(g, a.p)}
+	dividerColor := a.tuiGripColor(state, hitDivider)
+	lines := []string{panelRowWithDivider("", "", g, a.p, dividerColor)}
 	available := maxInt(0, g.bodyRows-len(lines))
 	list := []string{a.tuiListTitle(state), ""}
 	rows, hits := a.tuiAccountRowsHits(state, g.leftWidth, maxInt(0, available-len(list)), plan.listLines, true)
@@ -140,11 +141,8 @@ func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLa
 		list = append(list, a.tuiHoverRow("", g.leftWidth))
 	}
 	plan, fittedDetail := a.tuiFitPlanWithDetail(state, g.rightWidth, available, plan)
-	if available > 0 && len(fittedDetail) > available {
-		fittedDetail = fittedDetail[:available]
-	}
 	details := a.tuiScrollDetail(state, fittedDetail, available, g.rightWidth, func(width int) []string {
-		return a.tuiGaugeDetail(state, width, available, plan)
+		return a.tuiGaugeDetail(state, width, 0, plan)
 	})
 	state.bodySplit = g.leftWidth + 4
 	// Pointer targets, in frame columns: the list runs from column 2 up to
@@ -163,18 +161,11 @@ func (a *Application) tuiPoolWideBody(state *tuiState, g tuiGeometry, plan tuiLa
 		if i < len(details) {
 			right = details[i]
 		}
-		lines = append(lines, panelRow(left, right, g, a.p))
+		lines = append(lines, panelRowWithDivider(left, right, g, a.p, dividerColor))
 	}
 	// The divider runs down to the status rule however short the content is.
 	for len(lines) < g.bodyRows {
-		lines = append(lines, panelRow("", "", g, a.p))
-	}
-	if lit := a.tuiGripColor(state, hitDivider); lit != "" {
-		// Under the pointer the divider lights, and while dragged it takes the
-		// action colour.
-		for i := range lines {
-			lines[i] = strings.Replace(lines[i], a.p.Track+"│", lit+"│", 1)
-		}
+		lines = append(lines, panelRowWithDivider("", "", g, a.p, dividerColor))
 	}
 	return fitBodyLines(lines, g, a.p)
 }

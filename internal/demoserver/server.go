@@ -43,14 +43,29 @@ func clientIP(r *http.Request) string {
 	if err != nil {
 		host = strings.TrimSpace(r.RemoteAddr)
 	}
-	if peer := net.ParseIP(host); peer != nil && peer.IsLoopback() {
+	if peer := net.ParseIP(host); peer != nil && (peer.IsLoopback() || peer.IsPrivate()) {
 		if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); net.ParseIP(realIP) != nil {
 			return realIP
 		}
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			first, _, _ := strings.Cut(xff, ",")
-			if parsed := net.ParseIP(strings.TrimSpace(first)); parsed != nil {
-				return parsed.String()
+			// Walk right-to-left skipping trusted local/private proxy hops so
+			// client-injected leftmost entries cannot spoof per-IP rate limits.
+			parts := strings.Split(xff, ",")
+			var fallback string
+			for i := len(parts) - 1; i >= 0; i-- {
+				parsed := net.ParseIP(strings.TrimSpace(parts[i]))
+				if parsed == nil {
+					continue
+				}
+				if fallback == "" {
+					fallback = parsed.String()
+				}
+				if !parsed.IsLoopback() && !parsed.IsPrivate() {
+					return parsed.String()
+				}
+			}
+			if fallback != "" {
+				return fallback
 			}
 		}
 	}

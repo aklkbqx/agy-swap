@@ -53,11 +53,11 @@ type PolicyConfig struct {
 
 type NotificationConfig struct {
 	Enabled         bool `json:"enabled,omitempty"`
-	Threshold       int  `json:"threshold,omitempty"`
+	Threshold       int  `json:"threshold"`
 	Reset           bool `json:"reset,omitempty"`
 	AuthFailure     bool `json:"auth_failure,omitempty"`
 	Stale           bool `json:"stale,omitempty"`
-	CooldownSeconds int  `json:"cooldown_seconds,omitempty"`
+	CooldownSeconds int  `json:"cooldown_seconds"`
 }
 
 type HistoryConfig struct {
@@ -100,6 +100,7 @@ func defaultSettings() AppSettings {
 
 func normalizeSettings(s AppSettings) (AppSettings, error) {
 	defaults := defaultSettings()
+	wasZeroSchema := s.Schema == 0
 	if s.Schema == 0 {
 		s.Schema = defaults.Schema
 	}
@@ -133,14 +134,11 @@ func normalizeSettings(s AppSettings) (AppSettings, error) {
 	if s.Policy.MinRemainingPct < 0 || s.Policy.MinRemainingPct > 100 {
 		return AppSettings{}, errors.New("policy min_remaining_pct must be between 0 and 100")
 	}
-	if s.Notifications == (NotificationConfig{}) {
+	if wasZeroSchema && s.Notifications == (NotificationConfig{}) {
 		s.Notifications = defaults.Notifications
 	}
 	if s.Notifications.Threshold < 0 || s.Notifications.Threshold > 100 {
 		return AppSettings{}, errors.New("notification threshold must be between 0 and 100")
-	}
-	if s.Notifications.CooldownSeconds == 0 && !s.Notifications.Enabled && !s.Notifications.Reset && !s.Notifications.AuthFailure {
-		s.Notifications.CooldownSeconds = defaults.Notifications.CooldownSeconds
 	}
 	if s.History.RetentionDays == 0 {
 		s.History.RetentionDays = defaults.History.RetentionDays
@@ -232,7 +230,7 @@ func (s *Store) readSettingsUnlocked() (AppSettings, error) {
 	if err != nil {
 		return AppSettings{}, fmt.Errorf("cannot read %s: %w", s.paths.Settings, err)
 	}
-	var settings AppSettings
+	settings := defaultSettings()
 	if err := json.Unmarshal(data, &settings); err != nil {
 		return AppSettings{}, fmt.Errorf("cannot parse %s: %w", s.paths.Settings, err)
 	}

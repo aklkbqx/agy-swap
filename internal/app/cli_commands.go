@@ -412,7 +412,11 @@ func (a *Application) cmdSetLimit(_ context.Context, args cliArgs) int {
 	}
 	settings, _ := a.loadSettings()
 	email, err := resolveConfiguredTarget(args.account, accounts, settings)
-	if err != nil || email == "" {
+	if err != nil {
+		fmt.Fprintf(a.Err, "%s%s%s\n", a.p.Red, strings.TrimPrefix(err.Error(), errAmbiguous.Error()+": "), a.p.Reset)
+		return 1
+	}
+	if email == "" {
 		fmt.Fprintf(a.Err, "%sAccount '%s' not found.%s\n", a.p.Red, args.account, a.p.Reset)
 		return 1
 	}
@@ -471,7 +475,16 @@ func (a *Application) cmdLimits(ctx context.Context, args cliArgs) int {
 	}
 	code := a.renderAccountList(ctx, accounts, args)
 	if len(failures) > 0 {
-		fmt.Fprintf(a.Err, "%sUsage refresh failed for %d account(s); cached data kept.%s\n", a.p.Yellow, len(failures), a.p.Reset)
+		if storeFailure := failures["store"]; storeFailure != "" {
+			fmt.Fprintf(a.Err, "%sCould not persist refreshed usage: %s%s\n", a.p.Yellow, storeFailure, a.p.Reset)
+		}
+		accountFailures := len(failures)
+		if _, hasStore := failures["store"]; hasStore {
+			accountFailures--
+		}
+		if accountFailures > 0 {
+			fmt.Fprintf(a.Err, "%sUsage refresh failed for %d account(s); cached data kept.%s\n", a.p.Yellow, accountFailures, a.p.Reset)
+		}
 	}
 	return code
 }
@@ -493,17 +506,26 @@ func (a *Application) cmdRemove(ctx context.Context, args cliArgs) int {
 		return 1
 	}
 	settings, _ := a.loadSettings()
-	email, _ := resolveConfiguredTarget(args.account, accounts, settings)
+	email, err := resolveConfiguredTarget(args.account, accounts, settings)
+	if err != nil {
+		fmt.Fprintf(a.Err, "%s%s%s\n", a.p.Red, strings.TrimPrefix(err.Error(), errAmbiguous.Error()+": "), a.p.Reset)
+		return 1
+	}
 	if email == "" {
 		fmt.Fprintf(a.Err, "%sAccount '%s' not found.%s\n", a.p.Red, args.account, a.p.Reset)
 		return 1
 	}
-	answer, readErr := a.readLine(ctx, fmt.Sprintf("Are you sure you want to remove '%s'? [y/N]: ", email))
-	if readErr != nil {
-		fmt.Fprintln(a.Out, "Cancelled.")
-		return 1
+	confirmed := args.force
+	if !confirmed {
+		answer, readErr := a.readLine(ctx, fmt.Sprintf("Are you sure you want to remove '%s'? [y/N]: ", email))
+		if readErr != nil {
+			fmt.Fprintln(a.Out, "Cancelled.")
+			return 1
+		}
+		yes, ok := parseYesNo(answer, false)
+		confirmed = ok && yes
 	}
-	if strings.ToLower(answer) == "y" {
+	if confirmed {
 		ref := getString(accounts.ByEmail[email], "secret_ref")
 		accounts.Delete(email)
 		if err := a.store.Save(accounts); err != nil {

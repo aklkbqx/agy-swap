@@ -343,6 +343,8 @@ func rememberTokenExpiry(account Account, token string) {
 	account["access_expires_at"] = isoTime(expiry)
 }
 
+var errVaultEntryUnavailable = errors.New("secret vault entry is unavailable")
+
 func accountToken(ctx context.Context, account Account, vault AccountVault) (string, error) {
 	if ref := getString(account, "secret_ref"); ref != "" {
 		if vault == nil {
@@ -358,7 +360,7 @@ func accountToken(ctx context.Context, account Account, vault AccountVault) (str
 				return token, nil
 			}
 		}
-		return "", fmt.Errorf("secret vault entry %q is unavailable", ref)
+		return "", fmt.Errorf("%w: %q", errVaultEntryUnavailable, ref)
 	}
 	if token := getString(account, "token_data"); token != "" {
 		return token, nil
@@ -385,10 +387,14 @@ func (a *Application) saveAccountSecret(ctx context.Context, account Account, to
 func saveAccountSecretWithVault(ctx context.Context, vault AccountVault, account Account, token string) (string, bool) {
 	email := getString(account, "email")
 	token = strings.TrimSpace(token)
+	refreshHash := hashToken(tokenRefreshToken(token))
 	if email == "" || vault == nil || token == "" {
 		if token != "" {
 			account["token_data"] = token
 			account["token_hash"] = hashToken(token)
+			if refreshHash != "" {
+				account["refresh_hash"] = refreshHash
+			}
 			rememberTokenExpiry(account, token)
 		}
 		delete(account, "secret_ref")
@@ -399,12 +405,18 @@ func saveAccountSecretWithVault(ctx context.Context, vault AccountVault, account
 	if !vault.Set(ctx, ref, token) {
 		account["token_data"] = token
 		account["token_hash"] = hashToken(token)
+		if refreshHash != "" {
+			account["refresh_hash"] = refreshHash
+		}
 		rememberTokenExpiry(account, token)
 		delete(account, "secret_ref")
 		return "", false
 	}
 	account["secret_ref"] = ref
 	account["token_hash"] = hashToken(token)
+	if refreshHash != "" {
+		account["refresh_hash"] = refreshHash
+	}
 	rememberTokenExpiry(account, token)
 	delete(account, "token_data")
 	if oldRef != "" && oldRef != ref {

@@ -188,9 +188,9 @@ func (a *Application) printUsage(w io.Writer) {
                 [--family {claude,gemini,gpt,argon}] [--switch-to ACCOUNT]
                 [--switch] [--remove ACCOUNT] [--status] [--logout]
                 [--verbose]
-                {add,list,limits,logout,next,switch,remove,status,update,version,limit,
-                 doctor,config,alias,tag,profile,bind,recommend,statusline,watch,
-                 history,stats,forecast,backup,metrics,completion,account,target,run,donate} ...
+                {add,list,limits,logout,next,switch,remove,status,verify,update,version,limit,
+                 doctor,config,alias,tag,profile,bind,unbind,recommend,statusline,watch,
+                 history,stats,forecast,backup,metrics,completion,account,target,run,install-agy,donate} ...
 
 Minimal Multi-Account Switcher for Google Antigravity CLI (agy)
 
@@ -218,7 +218,7 @@ extended commands:
   watch/history       Poll quota, notify on thresholds, and inspect bounded history
   stats/forecast      Summarize history and show reset forecasts
   backup/metrics      Export/import backups and expose local Prometheus metrics
-   target              Check experimental CLI/IDE target adapters
+  target              Check experimental CLI/IDE target adapters
   run now             Launch a configured CLI target immediately
   install-agy         Download, verify, and install the Antigravity CLI (agy)
   donate              Show GitHub Sponsors support link (--open)
@@ -228,7 +228,26 @@ Most extended commands support --json. Secret backup passphrases can be read
 from stdin with --passphrase-stdin.`)
 }
 
+func expandFlagEquals(argv []string) []string {
+	out := make([]string, 0, len(argv))
+	for i, arg := range argv {
+		if arg == "--" {
+			out = append(out, argv[i:]...)
+			break
+		}
+		if strings.HasPrefix(arg, "--") {
+			if name, val, ok := strings.Cut(arg, "="); ok && name != "--" {
+				out = append(out, name, val)
+				continue
+			}
+		}
+		out = append(out, arg)
+	}
+	return out
+}
+
 func parseCLI(argv []string) (cliArgs, error) {
+	argv = expandFlagEquals(argv)
 	var result cliArgs
 	result.group = "claude"
 	if len(argv) == 0 {

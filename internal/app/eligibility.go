@@ -221,6 +221,9 @@ func shouldClearEligibility(err error) bool {
 }
 
 func authInvalidationError(err error) bool {
+	if errors.Is(err, errVaultEntryUnavailable) {
+		return true
+	}
 	var cloud *cloudError
 	if errors.As(err, &cloud) && cloud.Status == http.StatusUnauthorized {
 		return true

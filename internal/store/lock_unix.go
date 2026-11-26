@@ -3,12 +3,23 @@
 package store
 
 import (
+	"errors"
 	"os"
 
 	"golang.org/x/sys/unix"
 )
 
 type posixFileLock struct{ file *os.File }
+
+func flockRetry(fd int, how int) error {
+	for {
+		err := unix.Flock(fd, how)
+		if errors.Is(err, unix.EINTR) {
+			continue
+		}
+		return err
+	}
+}
 
 // AcquireFileLock obtains an exclusive POSIX advisory lock on the target file.
 func AcquireFileLock(path string) (FileLock, error) {
@@ -20,7 +31,7 @@ func AcquireFileLock(path string) (FileLock, error) {
 		return nil, err
 	}
 	_ = file.Chmod(0o600)
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX); err != nil {
+	if err := flockRetry(int(file.Fd()), unix.LOCK_EX); err != nil {
 		_ = file.Close()
 		return nil, err
 	}
@@ -37,7 +48,7 @@ func TryAcquireFileLock(path string) (FileLock, error) {
 		return nil, err
 	}
 	_ = file.Chmod(0o600)
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+	if err := flockRetry(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		_ = file.Close()
 		return nil, err
 	}

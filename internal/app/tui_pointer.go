@@ -33,8 +33,17 @@ func (a *Application) tuiPointer(state *tuiState, key string, ptr *tuiPointerSta
 	row, _ := strconv.Atoi(parts[3])
 	line, x := state.pointerAt(col, row)
 	hit, onTarget := state.hitAt(line, x)
-	if oneOfMode(state.mode, tuiDialogOpen, tuiPalette, tuiForm, tuiSearch) && !oneOfKind(hit.kind, hitButton, hitPalette, hitChip) {
-		// Under a modal only its own targets and the key hints answer.
+	switch state.mode {
+	case tuiDialogOpen:
+		if hit.kind != hitButton {
+			hit, onTarget = tuiHit{}, false
+		}
+	case tuiPalette:
+		if hit.kind != hitPalette {
+			hit, onTarget = tuiHit{}, false
+		}
+	case tuiForm, tuiSearch:
+		// Under text input modals, never leak footer chip clicks as keystrokes.
 		hit, onTarget = tuiHit{}, false
 	}
 	now := time.Now()

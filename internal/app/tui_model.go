@@ -61,6 +61,7 @@ type tuiFormState struct {
 	Fields       []tuiFormField
 	Index        int
 	PreviousView tuiView
+	OriginalKey  string
 }
 
 type tuiJobState struct {
@@ -226,6 +227,26 @@ func (s *tuiState) accountNeedsAttention(email string) (bool, string) {
 	return false, ""
 }
 
+func (s *tuiState) matchesSearch(email string, account Account, query string) bool {
+	if query == "" {
+		return true
+	}
+	if strings.Contains(strings.ToLower(email), query) || strings.Contains(strings.ToLower(getString(account, "name")), query) {
+		return true
+	}
+	for _, tag := range s.settings.Tags[email] {
+		if strings.Contains(strings.ToLower(tag), query) {
+			return true
+		}
+	}
+	for alias, target := range s.settings.Aliases {
+		if strings.EqualFold(target, email) && strings.Contains(strings.ToLower(alias), query) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *tuiState) partitionedEmails() (ready, attention []string) {
 	if s.accounts == nil {
 		return nil, nil
@@ -234,7 +255,7 @@ func (s *tuiState) partitionedEmails() (ready, attention []string) {
 	for _, email := range s.accounts.Order {
 		if query != "" {
 			account := s.accounts.ByEmail[email]
-			if !strings.Contains(strings.ToLower(email), query) && !strings.Contains(strings.ToLower(getString(account, "name")), query) {
+			if !s.matchesSearch(email, account, query) {
 				continue
 			}
 		}

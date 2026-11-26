@@ -58,6 +58,10 @@ func confirmDialog(kind, subject, name string) tuiDialog {
 		d.Title = "Clear local history"
 		d.Body = []string{"Every saved switch and quota event is deleted."}
 		d.Buttons, d.Index = []tuiDialogButton{confirm("Clear", true), cancel}, 1
+	case "logout":
+		d.Title = "Log out of Antigravity"
+		d.Body = []string{"Remove the active session credential from this machine?", "Saved accounts in agy-swap remain intact."}
+		d.Buttons, d.Index = []tuiDialogButton{confirm("Log out", true), cancel}, 1
 	case "settings-reset":
 		d.Title = "Reset settings"
 		d.Body = []string{"Every setting goes back to its default.", "Aliases, tags, profiles, bindings and targets are removed."}

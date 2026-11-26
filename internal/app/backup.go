@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"golang.org/x/term"
 )
 
 type encryptedBackup struct {
@@ -144,6 +146,43 @@ func (a *Application) backupDocument(ctx context.Context, includeSecrets bool) (
 	return json.MarshalIndent(document, "", "  ")
 }
 
+func (a *Application) promptBackupPassphrase(confirm bool) (string, error) {
+	inFile, ok := a.In.(*os.File)
+	if !ok || !a.stdinTTY {
+		return "", nil
+	}
+	fmt.Fprint(a.Err, "Backup passphrase: ")
+	first, err := term.ReadPassword(int(inFile.Fd()))
+	fmt.Fprintln(a.Err)
+	if err != nil {
+		return "", err
+	}
+	pass := string(first)
+	if confirm {
+		fmt.Fprint(a.Err, "Confirm passphrase: ")
+		second, err := term.ReadPassword(int(inFile.Fd()))
+		fmt.Fprintln(a.Err)
+		if err != nil {
+			return "", err
+		}
+		if pass != string(second) {
+			return "", errors.New("passphrases do not match")
+		}
+	}
+	return pass, nil
+}
+
+func isEncryptedBackupFile(path string) bool {
+	raw, err := readLimited(path, maxBackupBytes)
+	if err != nil {
+		return false
+	}
+	var probe struct {
+		Encrypted bool `json:"encrypted"`
+	}
+	return json.Unmarshal(raw, &probe) == nil && probe.Encrypted
+}
+
 func (a *Application) backupPassphrase(opts extendedOptions) (string, error) {
 	if !opts.PassphraseStdin {
 		return opts.Passphrase, nil
@@ -165,9 +204,18 @@ func (a *Application) cmdBackup(ctx context.Context, opts extendedOptions, posit
 	}
 	switch sub {
 	case "export":
+		if !opts.IncludeSecrets && (opts.Passphrase != "" || opts.PassphraseStdin) {
+			return a.extendedError("backup export", opts, errors.New("--passphrase and --passphrase-stdin require --include-secrets"))
+		}
 		passphrase, passphraseErr := a.backupPassphrase(opts)
 		if passphraseErr != nil {
 			return a.extendedError("backup export", opts, passphraseErr)
+		}
+		if opts.IncludeSecrets && passphrase == "" && !opts.PassphraseStdin && a.stdinTTY && !opts.JSON {
+			passphrase, passphraseErr = a.promptBackupPassphrase(true)
+			if passphraseErr != nil {
+				return a.extendedError("backup export", opts, passphraseErr)
+			}
 		}
 		if opts.IncludeSecrets {
 			opts.Passphrase = passphrase
@@ -212,15 +260,21 @@ func (a *Application) cmdBackup(ctx context.Context, opts extendedOptions, posit
 		fmt.Fprintf(a.Out, "Backup written to %s (%s).\n", target, map[bool]string{true: "encrypted", false: "metadata-only"}[encrypted])
 		return 0
 	case "import":
+		if len(positional) < 2 {
+			return a.extendedError("backup import", opts, errors.New("usage: backup import FILE [--merge] [--passphrase PASS]"))
+		}
 		passphrase, passphraseErr := a.backupPassphrase(opts)
 		if passphraseErr != nil {
 			return a.extendedError("backup import", opts, passphraseErr)
 		}
+		if passphrase == "" && !opts.PassphraseStdin && a.stdinTTY && !opts.JSON && isEncryptedBackupFile(positional[1]) {
+			passphrase, passphraseErr = a.promptBackupPassphrase(false)
+			if passphraseErr != nil {
+				return a.extendedError("backup import", opts, passphraseErr)
+			}
+		}
 		if passphrase != "" {
 			opts.Passphrase = passphrase
-		}
-		if len(positional) < 2 {
-			return a.extendedError("backup import", opts, errors.New("usage: backup import FILE [--merge] [--passphrase PASS]"))
 		}
 		count, migrated, err := a.importBackup(ctx, positional[1], opts.Passphrase, opts.Merge)
 		if err != nil {
@@ -238,6 +292,9 @@ func (a *Application) cmdBackup(ctx context.Context, opts extendedOptions, posit
 			return a.extendedError("backup verify", opts, errors.New("usage: backup verify FILE [--passphrase PASS]"))
 		}
 		passphrase, err := a.backupPassphrase(opts)
+		if err == nil && passphrase == "" && !opts.PassphraseStdin && a.stdinTTY && !opts.JSON && isEncryptedBackupFile(positional[1]) {
+			passphrase, err = a.promptBackupPassphrase(false)
+		}
 		if err == nil {
 			_, err = readBackup(positional[1], passphrase)
 		}

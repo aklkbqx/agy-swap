@@ -2,7 +2,7 @@
 # Install the native agy-swap binary. No Python runtime is required.
 set -euo pipefail
 
-VERSION="${AGY_SWAP_VERSION:-2.25.0}"
+VERSION="${AGY_SWAP_VERSION:-2.25.1}"
 VERSION="${VERSION#v}"
 TARGET_DIR="${AGY_SWAP_TARGET_DIR:-${HOME}/.local/bin}"
 TARGET_FILE="${TARGET_DIR}/agy-swap"
@@ -33,8 +33,8 @@ case "$(uname -m)" in
   *) printf "%bError: unsupported architecture: %s%b\n" "$RED" "$(uname -m)" "$NC" >&2; exit 1 ;;
 esac
 
-# If agy-swap is managed by Homebrew, delegate to brew upgrade and remove duplicate local binary
-if command -v brew >/dev/null 2>&1; then
+# If agy-swap is managed by Homebrew (and user did not pin custom version or target dir), delegate to brew upgrade
+if [[ -z "${AGY_SWAP_TARGET_DIR:-}" && -z "${AGY_SWAP_VERSION:-}" ]] && command -v brew >/dev/null 2>&1; then
   is_brew=0
   if brew list --formula 2>/dev/null | grep -qx "agy-swap"; then
     is_brew=1
@@ -49,11 +49,11 @@ if command -v brew >/dev/null 2>&1; then
   fi
   if [[ "$is_brew" == "1" ]]; then
     printf "%b●%b agy-swap is managed by Homebrew. Upgrading via brew...\n" "$BLUE" "$NC"
+    brew upgrade aklkbqx/agy-swap/agy-swap || brew upgrade agy-swap
     if [[ -f "${HOME}/.local/bin/agy-swap" ]]; then
       rm -f "${HOME}/.local/bin/agy-swap"
       printf "  %b✓%b Removed duplicate binary at %s to prevent shadowing Homebrew\n" "$YELLOW" "$NC" "${HOME}/.local/bin/agy-swap"
     fi
-    brew upgrade aklkbqx/agy-swap/agy-swap || brew upgrade agy-swap
     printf "\n%b🚀 Upgrade complete! Run '%bagy-swap%b' to launch the interactive manager.%b\n\n" "$GREEN" "$BOLD" "$GREEN" "$NC"
     exit 0
   fi
@@ -180,6 +180,7 @@ if ! mv -f "${tmp_dir}/${asset_name}" "$TARGET_FILE"; then
   printf "%bError: failed to install the binary; the previous version was restored.%b\n" "$RED" "$NC" >&2
   exit 1
 fi
+rm -f "${TARGET_FILE}.bak"
 
 trap - EXIT
 rm -rf "$tmp_dir"

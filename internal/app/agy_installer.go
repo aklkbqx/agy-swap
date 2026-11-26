@@ -2,7 +2,6 @@ package app
 
 import (
 	"archive/tar"
-	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha512"
@@ -11,7 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -264,6 +265,33 @@ func extractAgyTarGz(archivePath, destPath string) error {
 	return errors.New("archive did not contain an antigravity binary")
 }
 
+func isLoopbackHTTPURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme != "http" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func validateAgyDownloadURL(downloadURL, baseURL string) error {
+	u, err := url.Parse(strings.TrimSpace(downloadURL))
+	if err != nil || u.Host == "" {
+		return errors.New("manifest download URL is invalid")
+	}
+	if u.Scheme == "https" {
+		return nil
+	}
+	if u.Scheme == "http" && isLoopbackHTTPURL(downloadURL) && isLoopbackHTTPURL(baseURL) {
+		return nil
+	}
+	return fmt.Errorf("manifest download URL must use https (got %q)", u.Scheme)
+}
+
 func (a *Application) fetchAgyManifest(ctx context.Context, baseURL, platform string) (agyReleaseManifest, error) {
 	manifestURL := strings.TrimRight(baseURL, "/") + "/manifests/" + platform + ".json"
 	reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -293,6 +321,9 @@ func (a *Application) fetchAgyManifest(ctx context.Context, baseURL, platform st
 	manifest.SHA512 = strings.ToLower(strings.TrimSpace(manifest.SHA512))
 	if manifest.URL == "" || !isHexSHA512(manifest.SHA512) {
 		return agyReleaseManifest{}, errors.New("manifest is missing a valid download URL or SHA-512 checksum")
+	}
+	if err := validateAgyDownloadURL(manifest.URL, baseURL); err != nil {
+		return agyReleaseManifest{}, err
 	}
 	return manifest, nil
 }
@@ -373,7 +404,7 @@ func (a *Application) installAgyCLI(ctx context.Context, customDir string, force
 	}
 
 	extractedPath := payloadPath
-	headerBytes, _ := os.ReadFile(payloadPath)
+	headerBytes, _ := readHeaderBytes(payloadPath, 2)
 	isTarGz := strings.HasSuffix(strings.ToLower(manifest.URL), ".tar.gz") || (len(headerBytes) >= 2 && headerBytes[0] == 0x1f && headerBytes[1] == 0x8b)
 	if isTarGz {
 		extractedPath = filepath.Join(stagingDir, agyBinaryName())
@@ -383,13 +414,8 @@ func (a *Application) installAgyCLI(ctx context.Context, customDir string, force
 	}
 	_ = os.Chmod(extractedPath, 0o755)
 
-	// If binaryPath is already a session-guard wrapper on Unix, remove it before placing the fresh binary
-	// so ensureAgyLauncherGuardForPath wraps the new binary cleanly.
-	if runtime.GOOS != "windows" {
-		if existing, readErr := os.ReadFile(binaryPath); readErr == nil && bytes.HasPrefix(existing, []byte("#!")) {
-			_ = os.Remove(binaryPath)
-		}
-	}
+	// Atomically replace binaryPath (whether existing binary or session-guard wrapper)
+	// so agy is never deleted before the new executable is safely in place.
 	if err := moveOrCopyExecutable(extractedPath, binaryPath); err != nil {
 		return nil, fmt.Errorf("failed to install binary to %s: %w", binaryPath, err)
 	}

@@ -66,7 +66,11 @@ int loadSecret(const char *service, const char *account, void **out, long *size)
 int deleteSecret(const char *service, const char *account) {
  CFMutableDictionaryRef query = itemQuery(service, account);
  if (!query) return 0;
+ LAContext *context = [[LAContext alloc] init];
+ context.interactionNotAllowed = YES;
+ CFDictionarySetValue(query, kSecUseAuthenticationContext, (CFTypeRef)context);
  OSStatus status = SecItemDelete(query);
+ [context release];
  CFRelease(query);
  return status == errSecSuccess || status == errSecItemNotFound;
 }

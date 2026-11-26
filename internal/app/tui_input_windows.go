@@ -5,6 +5,7 @@ package app
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"io"
 	"os"
 	"sync"
@@ -21,6 +22,10 @@ const (
 	windowsKeyEvent   uint16 = 0x0001
 	windowsFocusEvent uint16 = 0x0010
 
+	vkPrior  uint16 = 0x21
+	vkNext   uint16 = 0x22
+	vkEnd    uint16 = 0x23
+	vkHome   uint16 = 0x24
 	vkLeft   uint16 = 0x25
 	vkUp     uint16 = 0x26
 	vkRight  uint16 = 0x27
@@ -139,28 +144,32 @@ func (d *windowsConsoleInputDecoder) feedRecord(rec windowsInputRecord) []byte {
 		return out
 	}
 
+	var prefix []byte
 	if d.hasHighSurrogate {
 		high := d.highSurrogate
 		d.highSurrogate = 0
 		d.hasHighSurrogate = false
-		combined := utf16.DecodeRune(high, uchar)
-		var out []byte
-		out = utf8.AppendRune(out, combined)
-		return out
+		if uchar >= 0xDC00 && uchar <= 0xDFFF {
+			combined := utf16.DecodeRune(high, uchar)
+			return utf8.AppendRune(nil, combined)
+		}
+		// Unpaired high surrogate: emit replacement rune without dropping uchar.
+		prefix = utf8.AppendRune(prefix, utf8.RuneError)
 	}
 	if utf16.IsSurrogate(uchar) {
 		// High surrogate (0xD800–0xDBFF): wait for low surrogate in next KEY_EVENT.
 		if uchar >= 0xD800 && uchar <= 0xDBFF {
 			d.highSurrogate = uchar
 			d.hasHighSurrogate = true
-			return nil
+			return prefix
 		}
 		uchar = utf8.RuneError
 	}
 
 	var one [utf8.UTFMax]byte
 	n := utf8.EncodeRune(one[:], uchar)
-	out := make([]byte, 0, n*repeat)
+	out := make([]byte, len(prefix), len(prefix)+n*repeat)
+	copy(out, prefix)
 	for range repeat {
 		out = append(out, one[:n]...)
 	}
@@ -177,6 +186,14 @@ func windowsVirtualKeySequence(vkey uint16) string {
 		return "\x1b[C"
 	case vkLeft:
 		return "\x1b[D"
+	case vkHome:
+		return "\x1b[H"
+	case vkEnd:
+		return "\x1b[F"
+	case vkPrior:
+		return "\x1b[5~"
+	case vkNext:
+		return "\x1b[6~"
 	case vkDelete:
 		return "\x1b[3~"
 	default:
@@ -245,20 +262,33 @@ func (d *windowsConsoleInputDecoder) readByteWithTimeout(src windowsConsoleEvent
 // fdMutex indefinitely until a key press. Poll the Win32 console input queue
 // directly when backed by a console handle so TUI suspend never deadlocks or
 // steals prompt input.
+func isWindowsInputClosedErr(err error) bool {
+	return errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) ||
+		errors.Is(err, windows.ERROR_INVALID_HANDLE) || errors.Is(err, windows.ERROR_BROKEN_PIPE)
+}
+
 func readInputByteWithTimeout(reader io.Reader, timeout time.Duration, paused *atomic.Bool) (byte, error) {
 	if paused != nil && paused.Load() {
 		return 0, errInputPaused
 	}
 	file, ok := reader.(*os.File)
 	if !ok {
-		return readInputByte(reader)
+		b, err := readInputByte(reader)
+		if isWindowsInputClosedErr(err) {
+			return 0, io.EOF
+		}
+		return b, err
 	}
 	handle := windows.Handle(file.Fd())
 	var mode uint32
 	if windows.GetConsoleMode(handle, &mode) == nil {
 		windowsInputDecoderMu.Lock()
 		defer windowsInputDecoderMu.Unlock()
-		return windowsSharedInputDecoder.readByteWithTimeout(realWindowsConsoleSource{handle: handle}, timeout, paused)
+		b, err := windowsSharedInputDecoder.readByteWithTimeout(realWindowsConsoleSource{handle: handle}, timeout, paused)
+		if isWindowsInputClosedErr(err) {
+			return 0, io.EOF
+		}
+		return b, err
 	}
 	if err := file.SetReadDeadline(time.Now().Add(timeout)); err == nil {
 		defer func() { _ = file.SetReadDeadline(time.Time{}) }()
@@ -266,7 +296,11 @@ func readInputByteWithTimeout(reader io.Reader, timeout time.Duration, paused *a
 	if paused != nil && paused.Load() {
 		return 0, errInputPaused
 	}
-	return readInputByte(reader)
+	b, err := readInputByte(reader)
+	if isWindowsInputClosedErr(err) {
+		return 0, io.EOF
+	}
+	return b, err
 }
 
 func waitTerminalInputReady(_ context.Context, _ io.Reader) (bool, error) {

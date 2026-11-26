@@ -416,13 +416,12 @@ func frameRow(content string, g tuiGeometry, p palette) string {
 	return "  " + fitVisible(content, g.contentWidth, p) + "  "
 }
 
-func panelRow(left, right string, g tuiGeometry, p palette) string {
+func panelRowWithDivider(left, right string, g tuiGeometry, p palette, dividerColor string) string {
+	if dividerColor == "" {
+		dividerColor = p.Track
+	}
 	// The one line left on screen: a quiet divider between list and gauges.
-	return "  " + fitVisible(left, g.leftWidth, p) + "  " + p.Track + "│" + p.Reset + "  " + fitVisible(right, g.rightWidth, p) + "  "
-}
-
-func panelDivider(g tuiGeometry, p palette) string {
-	return panelRow("", "", g, p)
+	return "  " + fitVisible(left, g.leftWidth, p) + "  " + dividerColor + "│" + p.Reset + "  " + fitVisible(right, g.rightWidth, p) + "  "
 }
 
 func fitBodyLines(lines []string, g tuiGeometry, p palette) []string {
