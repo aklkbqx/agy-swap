@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.26.0
+
+### Changes
+
+- Isolate network connections and local session state across accounts: each account refresh uses its own short-lived HTTP transport with no shared keep-alive sockets, removes the browser user-agent header on OAuth calls, aligns the Antigravity client user-agent, routes consumer and GCP credentials to their matching endpoints, supports public PKCE WIF refreshes, keeps `google_accounts.json` free of prior account lists, and isolates per-account local installation identifiers (#112).
+- Switch the `agy` launcher wrapper and login flow from `WSL_INTEROP=1` to `AGY_CLI_FORCE_FILE_TOKEN_STORAGE=1`, backfill `auth_method` on stored tokens, maintain all three keyring bypass marker paths, and encrypt Windows vault entries with DPAPI while falling back cleanly to file session storage when a token exceeds the Windows Credential Manager size limit (#112).
+- Cut unnecessary quota traffic and protect restricted accounts: default to serialized refreshes with inter-account jitter, set the TUI default `quota.poll_mode` to `safe` so idle accounts are not polled in the background, cache project metadata on disk for 24 hours, run `onboardUser` only during `agy-swap add`, separate suspended accounts from verification-required accounts, exclude both from polling and rotation, and add `agy-swap account protect` and `unprotect` (#112).
+- Add configurable Antigravity IDE reload modes (`ide.reload_mode`: `hub-restart`, `app-restart`, `manual`, `rpc-fast`) plus `--restart-ide` and `--no-restart-ide` flags on `switch` and `next`, guard hub reloads behind an in-flight stream check targeting live hub PIDs, restrict `state.vscdb` onboarding updates to offline IDE states, and read active-account quota directly from the running local hub when available (#112).
+- Add supervised CLI auto-swapping with clean-context handoff (`agy-swap run --auto-swap`, `agy-swap auto-swap enable|disable|status|reset`): accept `agy` flags directly on `agy-swap run` without requiring `now` or `--`, drain the previous CLI process cleanly across macOS, Linux, and Windows before switching, generate a redacted private handoff brief so the new account starts a fresh conversation trajectory, and enforce non-bypassable dwell, hourly/daily budget, hysteresis, and global circuit-breaker limits (#112).
+- Expand `agy-swap doctor` with safety posture checks covering circuit breaker state, suspended accounts, protected primary accounts, Antigravity IDE telemetry settings, legacy wrappers, and Windows DPAPI vault entries, and fix live verification helpers for Docker-stamped `version.json` metadata and `go install` version strings (#112).
+- Website update: synchronize release metadata for v2.26.0.
+
 ## 2.25.1
 
 ### Fixes

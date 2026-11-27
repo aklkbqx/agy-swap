@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/aklkbqx/agy-swap/v2/internal/config"
 )
 
 type doctorCheck struct {
@@ -110,6 +112,7 @@ func (a *Application) collectDoctorChecks(ctx context.Context, refresh bool) ([]
 	} else {
 		add("history", "ok", "not created yet")
 	}
+	a.collectSafetyPostureChecks(accounts, add)
 	if refresh {
 		if release, releaseErr := a.releaseAssetCheck(ctx); releaseErr != nil {
 			add("update_asset", "warning", releaseErr.Error())
@@ -158,6 +161,12 @@ func (a *Application) checkLauncherGuards(add func(name, status, message string)
 		if _, statErr := os.Stat(target); statErr != nil {
 			issues = append(issues, fmt.Sprintf("%s points to missing binary %s", agyBin, target))
 		}
+		if strings.Contains(text, "WSL_INTEROP") {
+			warnings = append(warnings, agyBin+" still uses legacy WSL_INTEROP=1; run 'agy-swap --sync-session' to upgrade to AGY_CLI_FORCE_FILE_TOKEN_STORAGE=1")
+		}
+		if strings.Contains(text, "--dangerously-skip-permissions") {
+			warnings = append(warnings, agyBin+" injects --dangerously-skip-permissions by default; set AGY_NORMAL_MODE=1 or remove the flag for tighter safety")
+		}
 		sidecarPath := agyBin + ".version.json"
 		if raw, readErr := os.ReadFile(sidecarPath); readErr == nil && len(raw) > 0 {
 			var sidecar map[string]any
@@ -176,6 +185,155 @@ func (a *Application) checkLauncherGuards(add func(name, status, message string)
 	case wrapped > 0:
 		add("launcher_guard", "ok", fmt.Sprintf("%d launcher wrapper(s) verified", wrapped))
 	}
+}
+
+// collectSafetyPostureChecks audits anti-ban, telemetry, auto-swap protection,
+// circuit breaker, and Windows vault DPAPI posture without mutating local files.
+func (a *Application) collectSafetyPostureChecks(accounts *Accounts, add func(name, status, message string)) {
+	settings, _ := a.loadSettings()
+	state := a.loadAutoSwapState()
+
+	if state.CircuitOpen {
+		add("circuit_breaker", "warning", fmt.Sprintf("auto-swap circuit breaker OPEN (%s); review accounts and run 'agy-swap auto-swap reset'", firstString(state.CircuitReason, "safety halt")))
+	} else {
+		add("circuit_breaker", "ok", "closed (armed)")
+	}
+
+	var suspended, protected []string
+	if accounts != nil {
+		for _, email := range accounts.Order {
+			acc := accounts.ByEmail[email]
+			if accountIsSuspended(acc) {
+				suspended = append(suspended, email)
+			}
+			if accountIsProtected(acc) {
+				protected = append(protected, email)
+			}
+		}
+	}
+	if len(suspended) > 0 {
+		add("suspended_accounts", "warning", fmt.Sprintf("%d account(s) marked SUSPENDED (TOS_VIOLATION): %s; excluded from polling/rotation and auto-swap will halt", len(suspended), strings.Join(suspended, ", ")))
+	}
+
+	var autoWarnings []string
+	if settings.AutoSwap.Enabled && len(protected) == 0 {
+		autoWarnings = append(autoWarnings, "auto_swap is enabled with no protected primary account; run 'agy-swap account protect <email>'")
+	}
+	if settings.AutoSwap.HandoffMode == "resume" {
+		autoWarnings = append(autoWarnings, "auto_swap.handoff_mode=resume reuses conversation trajectory across accounts; prefer clean-summary")
+	}
+	if settings.IDE.ReloadMode == "rpc-fast" {
+		autoWarnings = append(autoWarnings, "ide.reload_mode=rpc-fast reuses the hub HTTP/2 socket and can lag UI up to 10m; prefer hub-restart or app-restart")
+	}
+	if len(autoWarnings) > 0 {
+		add("safety_posture", "warning", strings.Join(autoWarnings, "; "))
+	} else {
+		add("safety_posture", "ok", fmt.Sprintf("poll_mode=%s · ide.reload_mode=%s · handoff=%s · %d protected", settings.Quota.PollMode, settings.IDE.ReloadMode, settings.AutoSwap.HandoffMode, len(protected)))
+	}
+
+	// Audit local IDE User/settings.json and read-only state.vscdb telemetry posture.
+	var telemetryWarnings []string
+	foundIDEUserDir := false
+	for _, dir := range config.IDEUserDataDirs(a.paths.Home) {
+		userDir := filepath.Join(dir, "User")
+		if info, statErr := os.Stat(userDir); statErr != nil || !info.IsDir() {
+			continue
+		}
+		foundIDEUserDir = true
+		settingsPath := filepath.Join(userDir, "settings.json")
+		raw, err := os.ReadFile(settingsPath)
+		var parsed map[string]any
+		if err == nil && len(raw) > 0 {
+			_ = json.Unmarshal(raw, &parsed)
+		}
+		if parsed == nil {
+			parsed = map[string]any{}
+		}
+		if v, ok := parsed["antigravity.enableTelemetry"].(bool); !ok || v {
+			telemetryWarnings = append(telemetryWarnings, settingsPath+": set \"antigravity.enableTelemetry\": false")
+		}
+		if level := strings.ToLower(strings.TrimSpace(getString(parsed, "telemetry.telemetryLevel"))); level != "off" {
+			telemetryWarnings = append(telemetryWarnings, settingsPath+": set \"telemetry.telemetryLevel\": \"off\"")
+		}
+		if settings.IDE.ReloadMode == "hub-restart" {
+			if hb, ok := getFloat(parsed["antigravity.heartbeatIntervalMs"]); !ok || hb > 5000 {
+				telemetryWarnings = append(telemetryWarnings, settingsPath+": set \"antigravity.heartbeatIntervalMs\": 2000 for <=2s hub-restart UI refresh")
+			}
+		}
+	}
+	if acctTel, known := readIDEAccountTelemetryEnabled(a.paths.Home); known && acctTel {
+		telemetryWarnings = append(telemetryWarnings, "IDE account telemetry is enabled (antigravity.accountTelemetryEnabled=true); disable in Antigravity IDE settings")
+	}
+	if foundIDEUserDir {
+		if strings.TrimSpace(os.Getenv("DO_NOT_TRACK")) != "1" {
+			telemetryWarnings = append(telemetryWarnings, "set DO_NOT_TRACK=1 in shell profile to suppress extension telemetry")
+		}
+		if len(telemetryWarnings) > 0 {
+			add("ide_telemetry", "warning", strings.Join(telemetryWarnings, "; "))
+		} else {
+			add("ide_telemetry", "ok", "IDE extension telemetry disabled and DO_NOT_TRACK=1 set")
+		}
+	}
+
+	if runtime.GOOS == "windows" {
+		vaultFile := filepath.Join(a.paths.ConfigDir, "vault.json")
+		if raw, err := os.ReadFile(vaultFile); err == nil && len(raw) > 0 {
+			var doc struct {
+				Items map[string]string `json:"items"`
+			}
+			if json.Unmarshal(raw, &doc) == nil && len(doc.Items) > 0 {
+				unprotected := 0
+				for _, v := range doc.Items {
+					if !strings.HasPrefix(v, "dpapi:") {
+						unprotected++
+					}
+				}
+				if unprotected > 0 {
+					add("vault_dpapi", "warning", fmt.Sprintf("%d vault item(s) are not DPAPI-encrypted; rerun 'agy-swap account migrate --force'", unprotected))
+				} else {
+					add("vault_dpapi", "ok", fmt.Sprintf("%d vault item(s) protected with Windows DPAPI", len(doc.Items)))
+				}
+			}
+		}
+	}
+}
+
+func readIDEAccountTelemetryEnabled(home string) (bool, bool) {
+	if strings.TrimSpace(home) == "" {
+		return false, false
+	}
+	sqliteBin, err := exec.LookPath("sqlite3")
+	if err != nil || sqliteBin == "" {
+		return false, false
+	}
+	for _, dbPath := range ideStateDBPaths(home) {
+		if _, err := os.Stat(dbPath); err != nil {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		out, err := exec.CommandContext(ctx, sqliteBin, "-readonly", "-cmd", ".timeout 1000", dbPath,
+			"SELECT value FROM ItemTable WHERE key = 'google.google-antigravity';").Output()
+		cancel()
+		if err != nil {
+			continue
+		}
+		raw := strings.TrimSpace(string(out))
+		if idx := strings.IndexByte(raw, '{'); idx > 0 {
+			raw = raw[idx:]
+		}
+		var outer map[string]any
+		if json.Unmarshal([]byte(raw), &outer) != nil || outer == nil {
+			continue
+		}
+		storage := getMap(outer["antigravity-storage"])
+		if storage == nil {
+			continue
+		}
+		if v, ok := storage["antigravity.accountTelemetryEnabled"].(bool); ok {
+			return v, true
+		}
+	}
+	return false, false
 }
 
 func (a *Application) cmdDoctor(ctx context.Context, opts extendedOptions) int {

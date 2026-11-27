@@ -67,3 +67,7 @@ func platformVaultDelete(parent context.Context, ref string) bool {
 	}
 	return platformVaultGet(parent, ref) == ""
 }
+
+func protectVaultValue(plain string) string { return plain }
+
+func unprotectVaultValue(stored string) (string, bool) { return stored, stored != "" }

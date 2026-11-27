@@ -27,18 +27,32 @@ type QuotaService struct {
 	diagnostics io.Writer
 	// now is the clock, for tests.
 	now func() time.Time
+	// maxConcurrency caps simultaneous account refreshes (default 1: serialized).
+	maxConcurrency int
+	// projectMemoTTL bounds disk and memory reuse of loadCodeAssist project/tier.
+	projectMemoTTL time.Duration
+	// jitterMin/jitterMax add human-paced spacing between sequential accounts on
+	// non-loopback endpoints (skipped for httptest unless forceJitter is set).
+	jitterMin   time.Duration
+	jitterMax   time.Duration
+	forceJitter bool
+	// activeHint prioritizes the active account first during multi-account refresh.
+	activeHint func() string
+	// localHubHome enables read-only local hub quota fast path (<20 ms, 0 Google calls)
+	// for the active account when a matching local `agy --hub` process is running.
+	localHubHome string
 
 	mu sync.Mutex
 	// projects remembers each account's Code Assist project and tier, so a
 	// repeat read asks Google once instead of twice. Any failed read forgets
-	// it, and it lasts quotaProjectMemo, so eligibility is checked again.
+	// it, and it lasts projectMemoTTL (default 24h on disk), so eligibility is checked again.
 	projects map[string]quotaProject
 	// backoffs holds the accounts Google refused (429, 5xx) and until when.
 	backoffs map[string]*quotaBackoffState
 }
 
 const (
-	quotaProjectMemo = 15 * time.Minute
+	quotaProjectMemo = 24 * time.Hour
 	// quotaDueSlack lets a snapshot a few seconds short of quotaCache count as
 	// due, so a timer that fires as it turns a minute old never skips it.
 	quotaDueSlack = 5 * time.Second
@@ -62,30 +76,75 @@ func (q *QuotaService) clock() time.Time {
 	return time.Now()
 }
 
-func (q *QuotaService) rememberedProject(email string) (quotaProject, bool) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	memo, ok := q.projects[email]
-	if !ok || q.clock().Sub(memo.at) >= quotaProjectMemo {
-		return quotaProject{}, false
+func (q *QuotaService) memoTTL() time.Duration {
+	if q != nil && q.projectMemoTTL > 0 {
+		return q.projectMemoTTL
 	}
-	return memo, true
+	return quotaProjectMemo
 }
 
-func (q *QuotaService) rememberProject(email string, memo quotaProject) {
+func (q *QuotaService) rememberedProject(account Account, email string) (quotaProject, bool) {
+	ttl := q.memoTTL()
+	now := q.clock()
 	q.mu.Lock()
-	defer q.mu.Unlock()
+	memo, ok := q.projects[email]
+	q.mu.Unlock()
+	if ok && now.Sub(memo.at) < ttl && memo.project != "" && memo.tier != nil {
+		return memo, true
+	}
+	if cached := getMap(account["cloud_project_cache"]); cached != nil {
+		proj := strings.TrimSpace(getString(cached, "project_id"))
+		tier := getMap(cached["tier"])
+		if cachedAt, err := parseUTC(getString(cached, "cached_at")); err == nil && now.Sub(cachedAt) < ttl && proj != "" && tier != nil {
+			m := quotaProject{project: proj, tier: deepCopyMap(tier), at: cachedAt}
+			q.mu.Lock()
+			if q.projects == nil {
+				q.projects = map[string]quotaProject{}
+			}
+			q.projects[email] = m
+			q.mu.Unlock()
+			return m, true
+		}
+	}
+	return quotaProject{}, false
+}
+
+func deepCopyMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = deepCopyValue(v)
+	}
+	return out
+}
+
+func (q *QuotaService) rememberProject(account Account, email string, memo quotaProject) {
+	now := q.clock().UTC()
+	memo.at = now
+	q.mu.Lock()
 	if q.projects == nil {
 		q.projects = map[string]quotaProject{}
 	}
-	memo.at = q.clock()
 	q.projects[email] = memo
+	q.mu.Unlock()
+	if account != nil && memo.project != "" && memo.tier != nil {
+		account["cloud_project_cache"] = map[string]any{
+			"project_id": memo.project,
+			"tier":       deepCopyMap(memo.tier),
+			"cached_at":  isoTime(now),
+		}
+	}
 }
 
-func (q *QuotaService) forgetProject(email string) {
+func (q *QuotaService) forgetProject(account Account, email string) {
 	q.mu.Lock()
-	defer q.mu.Unlock()
 	delete(q.projects, email)
+	q.mu.Unlock()
+	if account != nil {
+		delete(account, "cloud_project_cache")
+	}
 }
 
 // BackoffUntil is when an account Google refused may be read again; zero
@@ -119,14 +178,40 @@ func (q *QuotaService) noteRead(email string, err error) {
 }
 
 func NewQuotaService(httpService *HTTPService, store *Store) *QuotaService {
-	return &QuotaService{http: httpService, store: store, pollInterval: 500 * time.Millisecond}
+	return &QuotaService{
+		http:           httpService,
+		store:          store,
+		pollInterval:   500 * time.Millisecond,
+		maxConcurrency: 1,
+		projectMemoTTL: quotaProjectMemo,
+		jitterMin:      400 * time.Millisecond,
+		jitterMax:      1200 * time.Millisecond,
+	}
 }
 
 func (q *QuotaService) SetVault(vault AccountVault) { q.vault = vault }
 
 func (q *QuotaService) SetDiagnostics(out io.Writer) { q.diagnostics = out }
 
+// Fetch reads quota passively without silently calling onboardUser.
 func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]any, error) {
+	return q.fetchWithOptions(ctx, account, false)
+}
+
+// FetchForAdd reads quota during explicit account onboarding (`agy-swap add`),
+// allowing onboardUser when Google offers an allowed tier without a project.
+func (q *QuotaService) FetchForAdd(ctx context.Context, account Account) (map[string]any, error) {
+	return q.fetchWithOptions(ctx, account, true)
+}
+
+func (q *QuotaService) fetchWithOptions(ctx context.Context, account Account, allowOnboard bool) (map[string]any, error) {
+	if !allowOnboard && q.diagnostics == nil && strings.TrimSpace(q.localHubHome) != "" {
+		if snap, ok := fetchLocalHubQuota(ctx, q.localHubHome, getString(account, "email")); ok {
+			return snap, nil
+		}
+	}
+	ctx, closeISO := q.http.withIsolatedAccount(ctx)
+	defer closeISO()
 	tokenData, err := accountToken(ctx, account, q.vault)
 	if err != nil {
 		return nil, err
@@ -147,11 +232,12 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 		delete(account, "secret_ref")
 		rememberTokenExpiry(account, refreshed)
 	}
+	authMethod := oauthAuthMethod(decodeToken(stored))
 	email := getString(account, "email")
-	memo, remembered := q.rememberedProject(email)
+	memo, remembered := q.rememberedProject(account, email)
 	project, tier := memo.project, memo.tier
 	if !remembered {
-		info, loadErr := q.http.cloudPost(ctx, access, "loadCodeAssist", map[string]any{"metadata": map[string]any{"ideType": "ANTIGRAVITY"}})
+		info, loadErr := q.http.cloudPostFor(ctx, access, authMethod, "loadCodeAssist", map[string]any{"metadata": map[string]any{"ideType": "ANTIGRAVITY"}})
 		if q.diagnostics != nil {
 			q.describeLoadCodeAssist(info, loadErr)
 		}
@@ -163,9 +249,9 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 		}
 		project = extractCloudProject(info["cloudaicompanionProject"])
 		var onboardedTier map[string]any
-		if project == "" {
+		if project == "" && allowOnboard {
 			var onboardErr error
-			project, onboardedTier, onboardErr = q.onboardProject(ctx, access, info)
+			project, onboardedTier, onboardErr = q.onboardProjectFor(ctx, access, authMethod, info)
 			if onboardErr != nil {
 				return nil, onboardErr
 			}
@@ -181,9 +267,9 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 			tier = onboardedTier
 		}
 	}
-	summary, err := q.http.cloudPost(ctx, access, "retrieveUserQuotaSummary", map[string]any{"project": project})
+	summary, err := q.http.cloudPostFor(ctx, access, authMethod, "retrieveUserQuotaSummary", map[string]any{"project": project})
 	if err != nil {
-		q.forgetProject(email)
+		q.forgetProject(account, email)
 		return nil, markEligibilityPassed(ineligibleOr(err))
 	}
 	var models map[string]any
@@ -191,7 +277,7 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 	modelsLoaded := false
 	loadModels := func() (map[string]any, error) {
 		if !modelsLoaded {
-			models, modelsErr = q.http.cloudPost(ctx, access, "fetchAvailableModels", map[string]any{"project": project})
+			models, modelsErr = q.http.cloudPostFor(ctx, access, authMethod, "fetchAvailableModels", map[string]any{"project": project})
 			modelsLoaded = true
 		}
 		return models, modelsErr
@@ -201,11 +287,11 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 	}
 	tierID := cleanText(getString(tier, "id"))
 	if tierID == "" {
-		q.forgetProject(email)
+		q.forgetProject(account, email)
 		return nil, markEligibilityPassed(fmt.Errorf("Google returned no account tier")) //nolint:staticcheck // "Google" is a proper noun
 	}
 	if !remembered {
-		q.rememberProject(email, quotaProject{project: project, tier: tier})
+		q.rememberProject(account, email, quotaProject{project: project, tier: tier})
 	}
 	tierName := tierNames[tierID]
 	if tierName == "" {
@@ -234,7 +320,7 @@ func (q *QuotaService) Fetch(ctx context.Context, account Account) (map[string]a
 	shiftQuotaResets(groups, -q.http.clockSkew())
 	snapshot, err := normalizeQuotaSnapshot(map[string]any{"observed_at": isoTime(time.Now()), "tier": map[string]any{"id": tierID, "name": tierName}, "groups": groups}, getString(account, "email"))
 	if err != nil {
-		q.forgetProject(email)
+		q.forgetProject(account, email)
 		return nil, markEligibilityPassed(err)
 	}
 	return snapshot, nil
@@ -250,12 +336,12 @@ func extractCloudProject(raw any) string {
 	return ""
 }
 
-func (q *QuotaService) onboardProject(ctx context.Context, access string, info map[string]any) (string, map[string]any, error) {
+func (q *QuotaService) onboardProjectFor(ctx context.Context, access, authMethod string, info map[string]any) (string, map[string]any, error) {
 	tierID := allowedTierID(info)
 	if tierID == "" {
 		return "", nil, nil
 	}
-	op, err := q.http.cloudPost(ctx, access, "onboardUser", map[string]any{"tierId": tierID, "metadata": map[string]any{"ideType": "ANTIGRAVITY"}})
+	op, err := q.http.cloudPostFor(ctx, access, authMethod, "onboardUser", map[string]any{"tierId": tierID, "metadata": map[string]any{"ideType": "ANTIGRAVITY"}})
 	if err != nil {
 		return "", nil, ineligibleOr(err)
 	}
@@ -276,7 +362,7 @@ func (q *QuotaService) onboardProject(ctx context.Context, access string, info m
 			return "", nil, ctx.Err()
 		case <-time.After(delay):
 		}
-		op, err = q.http.cloudGet(ctx, access, name)
+		op, err = q.http.cloudGetFor(ctx, access, authMethod, name)
 		if err != nil {
 			return "", nil, ineligibleOr(err)
 		}
@@ -634,7 +720,51 @@ func (q *QuotaService) RefreshEmailsWithProgress(ctx context.Context, accounts *
 	return q.refreshWhere(ctx, accounts, true, progress, func(email string) bool { return want[email] })
 }
 
+func isLoopbackEndpoint(rawURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == "127.0.0.1" || host == "localhost" || host == "::1"
+}
+
+func (q *QuotaService) sleepInterAccountJitter(ctx context.Context) {
+	if q == nil || q.jitterMax <= 0 {
+		return
+	}
+	if !q.forceJitter && q.http != nil && isLoopbackEndpoint(q.http.cloudAPI) {
+		return
+	}
+	delay := q.jitterMin
+	if q.jitterMax > q.jitterMin {
+		delay += time.Duration(rand.Int64N(int64(q.jitterMax - q.jitterMin)))
+	}
+	if delay <= 0 {
+		return
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+}
+
+// RefreshEmailsForAdd refreshes newly added accounts with onboarding enabled.
+func (q *QuotaService) RefreshEmailsForAdd(ctx context.Context, accounts *Accounts, emails []string) map[string]string {
+	want := make(map[string]bool, len(emails))
+	for _, email := range emails {
+		want[email] = true
+	}
+	return q.refreshWhereWithOptions(ctx, accounts, true, nil, func(email string) bool { return want[email] }, true)
+}
+
 func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, force bool, progress quotaProgress, pick func(email string) bool) map[string]string {
+	return q.refreshWhereWithOptions(ctx, accounts, force, progress, pick, false)
+}
+
+func (q *QuotaService) refreshWhereWithOptions(ctx context.Context, accounts *Accounts, force bool, progress quotaProgress, pick func(email string) bool, allowOnboard bool) map[string]string {
 	if q == nil || q.demo {
 		return nil
 	}
@@ -663,7 +793,22 @@ func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, for
 	if len(fetch) == 0 {
 		return errorsByEmail
 	}
-	workers := minInt(8, len(fetch))
+	// Prioritize the active account first so its quota updates immediately.
+	if q.activeHint != nil {
+		if active := normalizeEmail(q.activeHint()); active != "" {
+			for i := 1; i < len(fetch); i++ {
+				if strings.EqualFold(fetch[i].email, active) {
+					fetch[0], fetch[i] = fetch[i], fetch[0]
+					break
+				}
+			}
+		}
+	}
+	workers := q.maxConcurrency
+	if workers <= 0 {
+		workers = 1
+	}
+	workers = minInt(workers, len(fetch))
 	jobs := make(chan item)
 	type result struct {
 		item     item
@@ -676,11 +821,19 @@ func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, for
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			fetched := 0
 			for it := range jobs {
 				if ctx.Err() != nil {
 					continue
 				}
-				snapshot, err := q.Fetch(ctx, it.account)
+				if fetched > 0 {
+					q.sleepInterAccountJitter(ctx)
+					if ctx.Err() != nil {
+						continue
+					}
+				}
+				snapshot, err := q.fetchWithOptions(ctx, it.account, allowOnboard)
+				fetched++
 				results <- result{it, snapshot, err}
 			}
 		}()
@@ -700,6 +853,8 @@ func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, for
 		clearElig      bool
 		snapshot       map[string]any
 		hasSnapshot    bool
+		projectCache   map[string]any
+		clearProjCache bool
 	}
 	patches := make(map[string]refreshPatch, len(fetch))
 	changed := false
@@ -727,6 +882,15 @@ func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, for
 			restoreSecretFields(original, patch.tokenFields)
 			changed = true
 		}
+		if projCache := getMap(result.item.account["cloud_project_cache"]); projCache != nil {
+			original["cloud_project_cache"] = deepCopyMap(projCache)
+			patch.projectCache = deepCopyMap(projCache)
+			changed = true
+		} else if _, had := original["cloud_project_cache"]; had && result.err != nil {
+			delete(original, "cloud_project_cache")
+			patch.clearProjCache = true
+			changed = true
+		}
 		var ineligible *eligibilityError
 		switch {
 		case errors.As(result.err, &ineligible):
@@ -751,7 +915,7 @@ func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, for
 			patch.hasSnapshot = true
 			changed = true
 		}
-		if patch.hasTokenUpdate || patch.eligibility != nil || patch.clearElig || patch.hasSnapshot {
+		if patch.hasTokenUpdate || patch.eligibility != nil || patch.clearElig || patch.hasSnapshot || patch.projectCache != nil || patch.clearProjCache {
 			patches[result.item.email] = patch
 		}
 		if progress != nil && ctx.Err() == nil {
@@ -769,6 +933,11 @@ func (q *QuotaService) refreshWhere(ctx context.Context, accounts *Accounts, for
 					}
 					if patch.hasTokenUpdate {
 						restoreSecretFields(acc, patch.tokenFields)
+					}
+					if patch.projectCache != nil {
+						acc["cloud_project_cache"] = patch.projectCache
+					} else if patch.clearProjCache {
+						delete(acc, "cloud_project_cache")
 					}
 					if patch.eligibility != nil {
 						acc["eligibility"] = patch.eligibility

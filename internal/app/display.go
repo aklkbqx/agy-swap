@@ -321,8 +321,15 @@ func limitedQuotaGroupLabels(groups []quotaGroupHealth) []string {
 
 func accountStatus(account Account, p palette, now time.Time) string {
 	tier := tierBadge(account, p)
-	if _, ok := accountEligibility(account); ok {
-		return fmt.Sprintf("[%s] %sVerification required%s · agy-swap verify %s", tier, p.Yellow, p.Reset, getString(account, "email"))
+	protectedTag := ""
+	if accountIsProtected(account) {
+		protectedTag = " · " + p.Cyan + "Protected" + p.Reset
+	}
+	if elig, ok := accountEligibility(account); ok {
+		if elig.Suspended {
+			return fmt.Sprintf("[%s] %sSuspended (ToS)%s · excluded from rotation%s", tier, p.Red, p.Reset, protectedTag)
+		}
+		return fmt.Sprintf("[%s] %sVerification required%s · agy-swap verify %s%s", tier, p.Yellow, p.Reset, getString(account, "email"), protectedTag)
 	}
 	groups := quotaGroupHealths(account)
 	if best, ok := bestAvailableQuotaGroup(groups); ok {
@@ -336,7 +343,7 @@ func accountStatus(account Account, p palette, now time.Time) string {
 		if limited := limitedQuotaGroupLabels(groups); len(limited) > 0 {
 			status += " · " + strings.Join(limited, "/") + " limited"
 		}
-		return status
+		return status + protectedTag
 	}
 	if len(groups) > 0 {
 		limited := groups[0]
@@ -349,7 +356,7 @@ func accountStatus(account Account, p palette, now time.Time) string {
 		if !limited.resetAt.IsZero() && limited.resetAt.After(now) {
 			reset = fmt.Sprintf(" · %s resets in %s", limited.bucket, formatDuration(limited.resetAt.Sub(now).Seconds()))
 		}
-		return fmt.Sprintf("[%s] %sLimited%s%s", tier, p.Red, p.Reset, reset)
+		return fmt.Sprintf("[%s] %sLimited%s%s%s", tier, p.Red, p.Reset, reset, protectedTag)
 	}
 	limits := activeLimits(account, now)
 	if len(limits) > 0 {
@@ -357,9 +364,9 @@ func accountStatus(account Account, p palette, now time.Time) string {
 		for _, l := range limits {
 			parts = append(parts, fmt.Sprintf("%s! %s (%s)%s", p.Red, getString(l.Limit, "model"), formatDuration(l.Remaining.Seconds()), p.Reset))
 		}
-		return "[" + tier + "] " + strings.Join(parts, " ")
+		return "[" + tier + "] " + strings.Join(parts, " ") + protectedTag
 	}
-	return fmt.Sprintf("[%s] %sUsage unavailable · no recent cooldown error%s", tier, p.Gray, p.Reset)
+	return fmt.Sprintf("[%s] %sUsage unavailable · no recent cooldown error%s%s", tier, p.Gray, p.Reset, protectedTag)
 }
 
 var fractionalBlocks = []string{"", "▏", "▎", "▍", "▌", "▋", "▊", "▉"}

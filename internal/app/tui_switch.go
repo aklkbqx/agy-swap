@@ -39,7 +39,7 @@ func (a *Application) tuiSwitchAccount(ctx context.Context, email string, accoun
 	if err != nil {
 		return "Switch failed: " + err.Error(), "error"
 	}
-	alreadyUsing := a.credentials.Current(ctx) == token
+	alreadyUsing := tokensMatchCredential(a.credentials.Current(ctx), token)
 	if !a.applyAccount(ctx, token, email) {
 		return "Could not switch to " + email, "error"
 	}

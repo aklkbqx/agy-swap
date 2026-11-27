@@ -74,7 +74,7 @@ func (a *Application) checkNewAccount(ctx context.Context, email string) (*eligi
 		return nil, false
 	}
 	stop := a.spinner("Checking Antigravity access...")
-	a.quota.refreshSelected(ctx, accounts, true, nil, email)
+	a.quota.RefreshEmailsForAdd(ctx, accounts, []string{email})
 	stop()
 	account, _ := accounts.Get(email)
 	ineligible, ok := accountEligibility(account)
@@ -84,7 +84,11 @@ func (a *Application) checkNewAccount(ctx context.Context, email string) (*eligi
 	if a.inTUISuspend {
 		return ineligible, true
 	}
-	fmt.Fprintf(a.Out, "\n%s⚠ %s needs Google verification before Antigravity can use it.%s\n", a.p.Yellow, email, a.p.Reset)
+	if ineligible.Suspended {
+		fmt.Fprintf(a.Out, "\n%s✕ %s appears suspended by Google (TOS violation).%s\n", a.p.Red, email, a.p.Reset)
+	} else {
+		fmt.Fprintf(a.Out, "\n%s⚠ %s needs Google verification before Antigravity can use it.%s\n", a.p.Yellow, email, a.p.Reset)
+	}
 	a.printVerification(ineligible)
 	if ineligible.URL == "" || !a.stdinTTY {
 		fmt.Fprintf(a.Out, "%sRun 'agy-swap verify %s' to open the page.%s\n", a.p.Gray, email, a.p.Reset)

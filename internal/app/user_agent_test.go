@@ -10,12 +10,13 @@ import (
 )
 
 func TestCloudRequestsSendClientUserAgent(t *testing.T) {
+	defaultUA := "antigravity/hub/" + cloudClientVersion + " (aidev_client; os_type=" + runtime.GOOS + "; arch=" + runtime.GOARCH + "; cl=" + cloudClientCL + ")"
 	for _, tc := range []struct {
 		name, env, want string
 	}{
-		{"default", "", "antigravity/hub/" + cloudClientVersion + " " + runtime.GOOS + "/" + runtime.GOARCH},
+		{"default", "", defaultUA},
 		{"override", "antigravity/9.9.9 test", "antigravity/9.9.9 test"},
-		{"blank override", "   ", "antigravity/hub/" + cloudClientVersion + " " + runtime.GOOS + "/" + runtime.GOARCH},
+		{"blank override", "   ", defaultUA},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("AGY_SWAP_USER_AGENT", tc.env)

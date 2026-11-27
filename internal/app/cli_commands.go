@@ -186,6 +186,23 @@ func localActiveEmail(accounts *Accounts, current string) string {
 			}
 			if matched {
 				if matchedEmail != "" && !strings.EqualFold(matchedEmail, email) {
+					matchedEmail = ""
+					break
+				}
+				matchedEmail = email
+			}
+		}
+		if matchedEmail != "" {
+			return matchedEmail
+		}
+	}
+	currentAccess := tokenAccessToken(current)
+	if currentAccess != "" {
+		matchedEmail := ""
+		for _, email := range accounts.Order {
+			acc := accounts.ByEmail[email]
+			if stored := getString(acc, "token_data"); stored != "" && tokenAccessToken(stored) == currentAccess {
+				if matchedEmail != "" && !strings.EqualFold(matchedEmail, email) {
 					return ""
 				}
 				matchedEmail = email
@@ -261,7 +278,10 @@ func selectNext(accounts *Accounts, active, family string) (Account, int) {
 	now := time.Now()
 	for offset := 1; offset <= accounts.Len(); offset++ {
 		account := accounts.ByEmail[accounts.Order[(activeIndex+offset)%accounts.Len()]]
-		if _, verify := accountEligibility(account); verify {
+		if _, ineligible := accountEligibility(account); ineligible {
+			continue
+		}
+		if accountIsProtected(account) {
 			continue
 		}
 		wait, known := accountCooldown(account, now, family)
@@ -270,9 +290,16 @@ func selectNext(accounts *Accounts, active, family string) (Account, int) {
 	if len(list) == 0 {
 		for offset := 1; offset <= accounts.Len(); offset++ {
 			account := accounts.ByEmail[accounts.Order[(activeIndex+offset)%accounts.Len()]]
+			// Never fall back to suspended (TOS_VIOLATION) or protected accounts.
+			if accountIsSuspended(account) || accountIsProtected(account) {
+				continue
+			}
 			wait, known := accountCooldown(account, now, family)
 			list = append(list, candidate{account, wait, known})
 		}
+	}
+	if len(list) == 0 {
+		return nil, -1
 	}
 	for _, item := range list {
 		if item.known && item.wait == 0 {
@@ -308,6 +335,17 @@ func nextEligible(ranked []recommendation, active string) (recommendation, bool)
 	return recommendation{}, false
 }
 
+func reloadOverrideFromArgs(args cliArgs) string {
+	switch {
+	case args.restartIDE:
+		return "app-restart"
+	case args.noRestartIDE:
+		return "manual"
+	default:
+		return ""
+	}
+}
+
 func (a *Application) cmdNext(ctx context.Context, args cliArgs) int {
 	stopUpdateCheck := a.startBackgroundUpdateCheck(ctx)
 	defer stopUpdateCheck()
@@ -323,7 +361,11 @@ func (a *Application) cmdNext(ctx context.Context, args cliArgs) int {
 	if err != nil {
 		return a.storeError(err)
 	}
-	failures := a.quota.Refresh(ctx, accounts, true, nil)
+	targets := scopedEligibleEmails(accounts, settings, "", "")
+	var failures map[string]string
+	if len(targets) > 0 {
+		failures = a.quota.RefreshEmails(ctx, accounts, targets)
+	}
 	if failure := failures["store"]; failure != "" {
 		return a.storeError(errors.New(failure))
 	}
@@ -335,21 +377,24 @@ func (a *Application) cmdNext(ctx context.Context, args cliArgs) int {
 		settings.Policy.Name = "round-robin"
 	}
 	active := a.activeEmail(ctx, accounts, a.credentials.Current(ctx))
-	choice, ok := nextEligible(rankAccounts(accounts, settings, active, "", args.family, ""), active)
+	ranked := rankAccounts(accounts, settings, active, "", args.family, "")
+	// Never rotate into protected accounts via next.
+	filtered := make([]recommendation, 0, len(ranked))
+	for _, item := range ranked {
+		if accountIsProtected(accounts.ByEmail[item.Email]) && !strings.EqualFold(item.Email, active) {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	choice, ok := nextEligible(filtered, active)
 	if !ok {
 		fmt.Fprintln(a.Err, "No eligible account with fresh quota; use switch ACCOUNT for an explicit override.")
 		return 1
 	}
 	next := accounts.ByEmail[choice.Email]
-	lock, err := acquireFileLock(a.paths.SessionLock)
-	if err != nil {
-		return a.storeError(err)
-	}
-	defer func() { _ = lock.Close() }()
 	fmt.Fprintf(a.Out, "Rotating to %s...\n", getString(next, "email"))
 	token, tokenErr := a.accountToken(ctx, next)
-	if tokenErr == nil && a.credentials.applyUnlocked(ctx, token, getString(next, "email")) {
-		a.recordSwitch(getString(next, "email"))
+	if tokenErr == nil && a.applyAccountWithMode(ctx, token, getString(next, "email"), reloadOverrideFromArgs(args)) {
 		fmt.Fprintf(a.Out, "%s✓ Successfully auto-rotated to %s.%s\n", a.p.Green, getString(next, "email"), a.p.Reset)
 		return 0
 	}
@@ -390,7 +435,7 @@ func (a *Application) cmdSwitch(ctx context.Context, args cliArgs) int {
 		return 1
 	}
 	fmt.Fprintf(a.Out, "Switching to %s%s%s %s<%s>%s...\n", a.p.Bold, getString(account, "name"), a.p.Reset, a.p.Gray, email, a.p.Reset)
-	if a.applyAccount(ctx, token, email) {
+	if a.applyAccountWithMode(ctx, token, email, reloadOverrideFromArgs(args)) {
 		fmt.Fprintf(a.Out, "%s✓ Successfully switched to %s.%s\n", a.p.Green, email, a.p.Reset)
 		if _, verify := accountEligibility(account); verify {
 			fmt.Fprintf(a.Out, "%s⚠ %s needs Google verification before Antigravity can use it. Run 'agy-swap verify %s'.%s\n", a.p.Yellow, email, email, a.p.Reset)

@@ -16,26 +16,23 @@ const (
 	stateSchema      = 1
 	historySchema    = 1
 	maxHistoryBytes  = 8 * 1024 * 1024
-	quotaCache       = 60 * time.Second
-	tuiAutoRefresh   = 60 * time.Second
-	cloudCodeAPI     = "https://daily-cloudcode-pa.googleapis.com/v1internal:"
-	oauthTokenURL    = "https://oauth2.googleapis.com/token"
-	githubRepo       = "aklkbqx/agy-swap"
+	quotaCache       = config.QuotaCache
+	tuiAutoRefresh   = config.TUIAutoRefresh
+	cloudCodeAPI     = config.CloudCodeAPI
+	gcpCloudCodeAPI  = config.GCPCloudCodeAPI
+	oauthTokenURL    = config.OAuthTokenURL
+	githubRepo       = config.GithubRepo
 )
 
-const defaultOAuthClientID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+const (
+	defaultOAuthClientID = config.DefaultOAuthClientID
+	gcpOAuthClientID     = config.GCPOAuthClientID
+	wifOAuthClientID     = config.WIFOAuthClientID
+)
 
-var oauthClientSecrets = map[string]string{
-	defaultOAuthClientID: "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",
-	"884354919052-36trc1jjb3tguiac32ov6cod268c5blh.apps.googleusercontent.com": "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",
-}
+var oauthClientSecrets = config.OAuthClientSecrets
 
-var tierNames = map[string]string{
-	"free-tier":          "Free",
-	"g1-pro-tier":        "Google AI Pro",
-	"g1-ultra-tier":      "Google AI Ultra",
-	"g1-ultra-lite-tier": "Google AI Ultra Lite",
-}
+var tierNames = config.TierNames
 
 // Paths is shared with internal/store through internal/config.
 type Paths = config.Paths

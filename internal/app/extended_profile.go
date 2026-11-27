@@ -162,6 +162,116 @@ func setConfigValue(settings *AppSettings, key, value string) error {
 			return err
 		}
 		settings.UI.SplitOffset = parsed
+	case "quota.poll_mode":
+		if !oneOf(value, "safe", "balanced", "live") {
+			return errors.New("quota.poll_mode must be safe, balanced, or live")
+		}
+		settings.Quota.PollMode = value
+	case "quota.active_min_gap_seconds":
+		parsed, err := parseInt(10, 3600)
+		if err != nil {
+			return err
+		}
+		settings.Quota.ActiveMinGapSeconds = parsed
+	case "quota.candidate_stale_seconds":
+		parsed, err := parseInt(60, 86400)
+		if err != nil {
+			return err
+		}
+		settings.Quota.CandidateStaleSeconds = parsed
+	case "quota.project_memo_ttl_hours":
+		parsed, err := parseInt(1, 168)
+		if err != nil {
+			return err
+		}
+		settings.Quota.ProjectMemoTTLHours = parsed
+	case "quota.max_concurrency":
+		parsed, err := parseInt(1, 4)
+		if err != nil {
+			return err
+		}
+		settings.Quota.MaxConcurrency = parsed
+	case "ide.reload_mode":
+		if !oneOf(value, "hub-restart", "app-restart", "manual", "rpc-fast") {
+			return errors.New("ide.reload_mode must be hub-restart, app-restart, manual, or rpc-fast")
+		}
+		settings.IDE.ReloadMode = value
+	case "ide.wait_for_idle_timeout_ms":
+		parsed, err := parseInt(1000, 120000)
+		if err != nil {
+			return err
+		}
+		settings.IDE.WaitForIdleTimeoutMs = parsed
+	case "auto_swap.enabled":
+		parsed, err := parseBool()
+		if err != nil {
+			return err
+		}
+		settings.AutoSwap.Enabled = parsed
+	case "auto_swap.mode":
+		if !oneOf(value, "turn-boundary", "reactive-only") {
+			return errors.New("auto_swap.mode must be turn-boundary or reactive-only")
+		}
+		settings.AutoSwap.Mode = value
+	case "auto_swap.handoff_mode":
+		if !oneOf(value, "clean-summary", "resume") {
+			return errors.New("auto_swap.handoff_mode must be clean-summary or resume")
+		}
+		settings.AutoSwap.HandoffMode = value
+	case "auto_swap.switch_out_pct":
+		parsed, err := parseInt(0, 50)
+		if err != nil {
+			return err
+		}
+		settings.AutoSwap.SwitchOutPct = parsed
+	case "auto_swap.switch_in_pct":
+		parsed, err := parseInt(10, 100)
+		if err != nil {
+			return err
+		}
+		settings.AutoSwap.SwitchInPct = parsed
+	case "auto_swap.min_dwell_seconds":
+		parsed, err := parseInt(300, 86400)
+		if err != nil {
+			return err
+		}
+		settings.AutoSwap.MinDwellSeconds = parsed
+	case "auto_swap.max_swaps_per_hour":
+		parsed, err := parseInt(1, 4)
+		if err != nil {
+			return err
+		}
+		settings.AutoSwap.MaxSwapsPerHour = parsed
+	case "auto_swap.max_swaps_per_day":
+		parsed, err := parseInt(1, 12)
+		if err != nil {
+			return err
+		}
+		settings.AutoSwap.MaxSwapsPerDay = parsed
+	case "auto_swap.pace_jitter_min_ms":
+		parsed, err := parseInt(0, 30000)
+		if err != nil {
+			return err
+		}
+		settings.AutoSwap.PaceJitterMinMs = parsed
+	case "auto_swap.pace_jitter_max_ms":
+		parsed, err := parseInt(0, 60000)
+		if err != nil {
+			return err
+		}
+		settings.AutoSwap.PaceJitterMaxMs = parsed
+	case "auto_swap.prefer_paid_tiers":
+		parsed, err := parseBool()
+		if err != nil {
+			return err
+		}
+		settings.AutoSwap.PreferPaidTiers = parsed
+	case "auto_swap.exclude_free_tier":
+		parsed, err := parseBool()
+		if err != nil {
+			return err
+		}
+		settings.AutoSwap.ExcludeFreeTier = parsed
 	default:
 		return fmt.Errorf("unknown configuration key %q", key)
 	}
@@ -601,6 +711,40 @@ func (a *Application) buildRecommendations(ctx context.Context, accounts *Accoun
 	return rankAccounts(accounts, settings, active, profileName, family, tag)
 }
 
+func candidateStaleWindow(settings AppSettings) time.Duration {
+	if settings.Quota.CandidateStaleSeconds >= 60 {
+		return time.Duration(settings.Quota.CandidateStaleSeconds) * time.Second
+	}
+	return 10 * time.Minute
+}
+
+// scopedEligibleEmails returns only accounts matching profile/tag that are not
+// already known to be suspended or awaiting Google verification.
+func scopedEligibleEmails(accounts *Accounts, settings AppSettings, profileName, tag string) []string {
+	if accounts == nil {
+		return nil
+	}
+	profile, hasProfile := settings.Profiles[profileName]
+	var out []string
+	for _, email := range accounts.Order {
+		if tag != "" && !containsStringValue(settings.Tags[email], tag) {
+			continue
+		}
+		if hasProfile && len(profile.ReserveAccounts) > 0 && email != profile.Account && !containsStringValue(profile.ReserveAccounts, email) {
+			continue
+		}
+		if hasProfile && len(profile.ReserveAccounts) == 0 && email != profile.Account {
+			continue
+		}
+		account := accounts.ByEmail[email]
+		if _, ineligible := accountEligibility(account); ineligible {
+			continue
+		}
+		out = append(out, email)
+	}
+	return out
+}
+
 // rankAccounts orders accounts for a policy relative to the active account:
 // ready accounts first, then profile primaries before reserves, then score.
 func rankAccounts(accounts *Accounts, settings AppSettings, active, profileName, family, tag string) []recommendation {
@@ -617,6 +761,7 @@ func rankAccounts(accounts *Accounts, settings AppSettings, active, profileName,
 	if family == "" {
 		family = settings.Policy.PreferFamily
 	}
+	staleWindow := candidateStaleWindow(settings)
 	result := make([]recommendation, 0, accounts.Len())
 	now := time.Now().UTC()
 	activeIndex := -1
@@ -636,18 +781,25 @@ func rankAccounts(accounts *Accounts, settings AppSettings, active, profileName,
 		remaining, known, group := accountRemaining(account, family)
 		wait, waitKnown := accountCooldown(account, now, family)
 		age, ageKnown := quotaAge(account, now)
-		_, needsVerify := accountEligibility(account)
+		elig, ineligible := accountEligibility(account)
+		isSuspended := ineligible && elig.Suspended
+		isProtected := accountIsProtected(account)
 		item := recommendation{Email: email, Name: getString(account, "name"), Remaining: remaining, Family: group, Reasons: []string{}}
-		item.Ready = !needsVerify && known && ageKnown && age <= 2*time.Minute && (!waitKnown || wait <= 0) && remaining > 0 && remaining >= float64(settings.Policy.MinRemainingPct)
-		if needsVerify {
+		item.Ready = !ineligible && known && ageKnown && age <= staleWindow && (!waitKnown || wait <= 0) && remaining > 0 && remaining >= float64(settings.Policy.MinRemainingPct)
+		if isSuspended {
+			item.Reasons = append(item.Reasons, "account suspended (TOS)")
+		} else if ineligible {
 			item.Reasons = append(item.Reasons, "needs Google verification")
+		}
+		if isProtected {
+			item.Reasons = append(item.Reasons, "protected account")
 		}
 		if known {
 			item.Reasons = append(item.Reasons, fmt.Sprintf("%s has %.1f%% remaining", group, remaining))
 		} else {
 			item.Reasons = append(item.Reasons, "quota unknown")
 		}
-		if !ageKnown || age > 2*time.Minute {
+		if !ageKnown || age > staleWindow {
 			item.Reasons = append(item.Reasons, "quota needs refresh")
 		}
 		if remaining < float64(settings.Policy.MinRemainingPct) {
@@ -658,7 +810,9 @@ func rankAccounts(accounts *Accounts, settings AppSettings, active, profileName,
 			item.Reasons = append(item.Reasons, "cooldown for "+item.Wait)
 		}
 		item.Score = int(remaining)
-		if needsVerify {
+		if isSuspended {
+			item.Score -= 2000
+		} else if ineligible {
 			item.Score -= 1000
 		}
 		switch policy {
@@ -717,7 +871,11 @@ func (a *Application) cmdRecommend(ctx context.Context, opts extendedOptions, po
 		}
 	}
 	if opts.Refresh || opts.Apply {
-		failures := a.quota.Refresh(ctx, accounts, true, nil)
+		targets := scopedEligibleEmails(accounts, settings, profile, opts.Tag)
+		var failures map[string]string
+		if len(targets) > 0 {
+			failures = a.quota.RefreshEmails(ctx, accounts, targets)
+		}
 		if failure := failures["store"]; failure != "" {
 			return a.extendedError("recommend", opts, errors.New(failure))
 		}

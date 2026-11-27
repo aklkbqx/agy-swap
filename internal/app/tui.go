@@ -303,6 +303,22 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 	if a.store != nil {
 		activity = newTUIActivity(a.store.scanner)
 	}
+	pollMode := state.settings.Quota.PollMode
+	if pollMode == "" {
+		pollMode = "safe"
+	}
+	if state.settings.Quota.ActiveMinGapSeconds >= 10 {
+		activity.minGap = time.Duration(state.settings.Quota.ActiveMinGapSeconds) * time.Second
+	}
+	if a.quota != nil {
+		if state.settings.Quota.MaxConcurrency >= 1 {
+			a.quota.maxConcurrency = state.settings.Quota.MaxConcurrency
+		}
+		if state.settings.Quota.ProjectMemoTTLHours >= 1 {
+			a.quota.projectMemoTTL = time.Duration(state.settings.Quota.ProjectMemoTTLHours) * time.Hour
+		}
+		a.quota.activeHint = func() string { return state.active }
+	}
 	tried := map[string]time.Time{}
 	var activityPolled time.Time
 	lastMinute := time.Now().Minute()
@@ -608,7 +624,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 					}(now)
 				}
 				busy := activity.due(now)
-				if due := state.dueEmails(now, tried, a.quota.BackoffUntil, busy); len(due) > 0 {
+				if due := state.dueEmailsForMode(now, tried, a.quota.BackoffUntil, busy, pollMode); len(due) > 0 {
 					for _, email := range due {
 						tried[email] = now
 					}
@@ -650,7 +666,7 @@ func (a *Application) cmdInteractive(rootCtx context.Context) int {
 			if refreshCoord.busy() || switching || a.demo || a.quota == nil || !value.busy {
 				continue
 			}
-			if due := state.dueEmails(value.now, tried, a.quota.BackoffUntil, true); len(due) > 0 {
+			if due := state.dueEmailsForMode(value.now, tried, a.quota.BackoffUntil, true, pollMode); len(due) > 0 {
 				for _, email := range due {
 					tried[email] = value.now
 				}

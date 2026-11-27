@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -97,120 +96,6 @@ func (c *Credentials) shouldMirrorOSKeyring() bool {
 	return filepath.Clean(c.paths.Home) == filepath.Clean(realHome)
 }
 
-func ideStateDBPaths(home string) []string {
-	home = strings.TrimSpace(home)
-	if home == "" {
-		return nil
-	}
-	return []string{
-		filepath.Join(home, "Library", "Application Support", "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
-		filepath.Join(home, ".config", "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
-	}
-}
-
-func syncIDEOnboardingEmail(home, email string) {
-	email = normalizeEmail(email)
-	if email == "" || strings.TrimSpace(home) == "" {
-		return
-	}
-	sqliteBin, err := exec.LookPath("sqlite3")
-	if err != nil || sqliteBin == "" {
-		return
-	}
-	for _, dbPath := range ideStateDBPaths(home) {
-		if _, err := os.Stat(dbPath); err != nil {
-			continue
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		out, err := exec.CommandContext(ctx, sqliteBin, "-cmd", ".timeout 1500", dbPath,
-			"SELECT value FROM ItemTable WHERE key = 'google.google-antigravity';").Output()
-		cancel()
-		if err != nil {
-			continue
-		}
-		raw := strings.TrimSpace(string(out))
-		if idx := strings.IndexByte(raw, '{'); idx > 0 {
-			raw = raw[idx:]
-		}
-		if raw == "" {
-			continue
-		}
-		var outer map[string]any
-		if json.Unmarshal([]byte(raw), &outer) != nil || outer == nil {
-			continue
-		}
-		storage, ok := outer["antigravity-storage"].(map[string]any)
-		if !ok || storage == nil {
-			continue
-		}
-		if strings.EqualFold(getString(storage, "agy.onboarding.lastLoginUsername"), email) {
-			continue
-		}
-		storage["agy.onboarding.lastLoginUsername"] = email
-		outer["antigravity-storage"] = storage
-		updatedJSON, err := json.Marshal(outer)
-		if err != nil {
-			continue
-		}
-		hexVal := hex.EncodeToString(updatedJSON)
-		updateSQL := "UPDATE ItemTable SET value = CAST(X'" + hexVal + "' AS TEXT) WHERE key = 'google.google-antigravity';"
-		uCtx, uCancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_ = exec.CommandContext(uCtx, sqliteBin, "-cmd", ".timeout 1500", dbPath, updateSQL).Run()
-		uCancel()
-	}
-}
-
-func clearIDEOnboardingEmail(home string) {
-	if strings.TrimSpace(home) == "" {
-		return
-	}
-	sqliteBin, err := exec.LookPath("sqlite3")
-	if err != nil || sqliteBin == "" {
-		return
-	}
-	for _, dbPath := range ideStateDBPaths(home) {
-		if _, err := os.Stat(dbPath); err != nil {
-			continue
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		out, err := exec.CommandContext(ctx, sqliteBin, "-cmd", ".timeout 1500", dbPath,
-			"SELECT value FROM ItemTable WHERE key = 'google.google-antigravity';").Output()
-		cancel()
-		if err != nil {
-			continue
-		}
-		raw := strings.TrimSpace(string(out))
-		if idx := strings.IndexByte(raw, '{'); idx > 0 {
-			raw = raw[idx:]
-		}
-		if raw == "" {
-			continue
-		}
-		var outer map[string]any
-		if json.Unmarshal([]byte(raw), &outer) != nil || outer == nil {
-			continue
-		}
-		storage, ok := outer["antigravity-storage"].(map[string]any)
-		if !ok || storage == nil {
-			continue
-		}
-		if _, exists := storage["agy.onboarding.lastLoginUsername"]; !exists {
-			continue
-		}
-		delete(storage, "agy.onboarding.lastLoginUsername")
-		outer["antigravity-storage"] = storage
-		updatedJSON, err := json.Marshal(outer)
-		if err != nil {
-			continue
-		}
-		hexVal := hex.EncodeToString(updatedJSON)
-		updateSQL := "UPDATE ItemTable SET value = CAST(X'" + hexVal + "' AS TEXT) WHERE key = 'google.google-antigravity';"
-		uCtx, uCancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_ = exec.CommandContext(uCtx, sqliteBin, "-cmd", ".timeout 1500", dbPath, updateSQL).Run()
-		uCancel()
-	}
-}
-
 func (c *Credentials) shouldReloadIDEHubs() bool {
 	return c.shouldReloadIDEHubsForBinary(currentSwapExecutable())
 }
@@ -254,12 +139,10 @@ func (c *Credentials) hubReloadMarkerPath() string {
 	return filepath.Join(filepath.Dir(c.paths.OAuthToken), "cache", "agy-swap-hub-reload")
 }
 
-// reloadRunningIDEHubs records the switch in hubReloadMarkerPath and sends
-// SIGTERM to any running backing agy --hub process. The session-guard wrapper
-// sees the changed marker and starts the hub again on the same port with the
-// newly switched account, which triggers Antigravity IDE's instance_changed
-// webview refresh without exhausting its crash recovery.
-func (c *Credentials) reloadRunningIDEHubs() {
+// reloadRunningIDEHubsTargeted writes the reload marker and sends SIGTERM
+// strictly to discovered `agy --hub` PIDs from daemon/hub_*.json, falling back
+// to pkill only when no discovery descriptor is present.
+func (c *Credentials) reloadRunningIDEHubsTargeted(home string) {
 	if !c.shouldReloadIDEHubs() {
 		return
 	}
@@ -271,6 +154,12 @@ func (c *Credentials) reloadRunningIDEHubs() {
 		return
 	}
 	if err := os.WriteFile(marker, []byte(strconv.FormatInt(time.Now().UnixNano(), 10)), 0o600); err != nil {
+		return
+	}
+	if hubs := discoverRunningIDEHubs(home); len(hubs) > 0 {
+		for _, hub := range hubs {
+			_ = signalProcessTerm(hub.PID)
+		}
 		return
 	}
 	signalRunningIDEHubs()
@@ -297,17 +186,31 @@ func (c *Credentials) keyringMarkerPaths() []string {
 		return nil
 	}
 	var out []string
-	seen := make(map[string]struct{}, 3)
+	seen := make(map[string]struct{}, 6)
+	add := func(marker string) {
+		if strings.TrimSpace(marker) == "" {
+			return
+		}
+		clean := filepath.Clean(marker)
+		if _, ok := seen[clean]; ok {
+			return
+		}
+		seen[clean] = struct{}{}
+		out = append(out, clean)
+	}
+	// Explicitly cover all three Antigravity marker locations:
+	// ~/.gemini/cache (agy --hub DefaultKeyringMarkerPath),
+	// ~/.gemini/antigravity-cli/cache (CLI), and ~/.gemini/antigravity/cache (IDE/ACP).
+	if strings.TrimSpace(c.paths.Home) != "" {
+		add(filepath.Join(c.paths.Home, ".gemini", "cache", "antigravity-keyring-unavailable"))
+		add(filepath.Join(c.paths.Home, ".gemini", "antigravity-cli", "cache", "antigravity-keyring-unavailable"))
+		add(filepath.Join(c.paths.Home, ".gemini", "antigravity", "cache", "antigravity-keyring-unavailable"))
+	}
 	for _, tokenPath := range []string{c.paths.OAuthToken, c.paths.IDEOAuthToken, c.paths.JetskiToken} {
 		if tokenPath == "" {
 			continue
 		}
-		marker := filepath.Join(filepath.Dir(tokenPath), "cache", "antigravity-keyring-unavailable")
-		if _, ok := seen[marker]; ok {
-			continue
-		}
-		seen[marker] = struct{}{}
-		out = append(out, marker)
+		add(filepath.Join(filepath.Dir(tokenPath), "cache", "antigravity-keyring-unavailable"))
 	}
 	return out
 }
@@ -452,6 +355,13 @@ func (c *Credentials) writeOAuthFiles(tokenData, email string) bool {
 	if inner == nil || getString(inner, "access_token") == "" {
 		return false
 	}
+	if strings.TrimSpace(getString(decoded, "auth_method")) == "" && strings.TrimSpace(getString(decoded, "wif_provider")) == "" {
+		if oauthClientID(decoded) == gcpOAuthClientID {
+			decoded["auth_method"] = "gcp"
+		} else {
+			decoded["auth_method"] = "consumer"
+		}
+	}
 	snapshot, err := snapshotFiles(c.sessionFilePaths(email != "")...)
 	if err != nil {
 		return false
@@ -473,50 +383,17 @@ func (c *Credentials) writeOAuthFiles(tokenData, email string) bool {
 		return false
 	}
 	if email != "" {
-		prevActive := ""
+		// Keep "old" empty so local session files never accumulate a cross-account roster.
 		ga := map[string]any{"active": email, "old": []any{}}
-		if data, readErr := os.ReadFile(c.paths.GoogleAccounts); readErr == nil {
-			var existing map[string]any
-			if json.Unmarshal(data, &existing) == nil {
-				oldActive := getString(existing, "active")
-				prevActive = oldActive
-				var oldList []any
-				if raw, ok := existing["old"].([]any); ok {
-					oldList = raw
-				}
-				if oldActive != "" && oldActive != email && !containsString(oldList, oldActive) {
-					oldList = append([]any{oldActive}, oldList...)
-				}
-				filtered := make([]any, 0, len(oldList))
-				for _, item := range oldList {
-					if value, ok := item.(string); ok && value != email {
-						filtered = append(filtered, value)
-					}
-				}
-				ga = map[string]any{"active": email, "old": filtered}
-			}
-		}
 		if err := atomicWriteJSON(c.paths.GoogleAccounts, ga); err != nil {
 			_ = restoreFiles(snapshot)
 			return false
-		}
-		if !strings.EqualFold(prevActive, email) {
-			syncIDEOnboardingEmail(c.paths.Home, email)
 		}
 	}
 	return true
 }
 
-func containsString(values []any, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
-}
-
-func (c *Credentials) applyUnlocked(ctx context.Context, tokenData, email string) bool {
+func (c *Credentials) applyUnlockedWithReload(ctx context.Context, tokenData, email string, autoReload bool) bool {
 	if decodeToken(tokenData) == nil {
 		return false
 	}
@@ -537,8 +414,8 @@ func (c *Credentials) applyUnlocked(ctx context.Context, tokenData, email string
 		if c.shouldMirrorOSKeyring() {
 			_ = c.Set(ctx, tokenData)
 		}
-		if !strings.EqualFold(prevEmail, email) || (prevRefresh != "" && prevRefresh != tokenRefreshToken(tokenData)) {
-			c.reloadRunningIDEHubs()
+		if autoReload && (!strings.EqualFold(prevEmail, email) || (prevRefresh != "" && prevRefresh != tokenRefreshToken(tokenData))) {
+			c.reloadRunningIDEHubsTargeted(c.paths.Home)
 		}
 		return true
 	}
@@ -549,6 +426,13 @@ func (c *Credentials) applyUnlocked(ctx context.Context, tokenData, email string
 		var err error
 		prepared, err = preparer.PrepareSession(tokenData)
 		if err != nil {
+			// When a Windows token exceeds WinCred's 2560B blob limit on the real OS
+			// backend, fall back cleanly to file-based session storage with keyring
+			// bypass markers while keeping explicit preparedSessionBackend rejections intact.
+			if _, isOS := c.backend.(osCredentialBackend); isOS && errors.Is(err, errWindowsCredentialTooLarge) {
+				c.writeKeyringBypassMarker()
+				return c.writeOAuthFiles(tokenData, email)
+			}
 			return false
 		}
 	}
@@ -601,7 +485,16 @@ func (c *Credentials) Apply(ctx context.Context, tokenData, email string) bool {
 		return false
 	}
 	defer func() { _ = lock.Close() }()
-	return c.applyUnlocked(ctx, tokenData, email)
+	return c.applyUnlockedWithReload(ctx, tokenData, email, true)
+}
+
+func (c *Credentials) ApplyWithoutReload(ctx context.Context, tokenData, email string) bool {
+	lock, err := acquireFileLock(c.paths.SessionLock)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = lock.Close() }()
+	return c.applyUnlockedWithReload(ctx, tokenData, email, false)
 }
 
 func (c *Credentials) deleteOAuthFiles() bool {
@@ -634,7 +527,7 @@ func (c *Credentials) Clear(ctx context.Context) bool {
 	}
 	defer func() { _ = lock.Close() }()
 	ok := c.clearUnlocked(ctx)
-	clearIDEOnboardingEmail(c.paths.Home)
+	clearIDEOnboardingStateOffline(c.paths.Home)
 	c.stopRunningIDEHubs()
 	return ok
 }

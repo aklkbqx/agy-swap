@@ -20,15 +20,20 @@ const (
 	QuotaCache       = 60 * time.Second
 	TUIAutoRefresh   = 60 * time.Second
 	CloudCodeAPI     = "https://daily-cloudcode-pa.googleapis.com/v1internal:"
+	GCPCloudCodeAPI  = "https://cloudcode-pa.googleapis.com/v1internal:"
 	OAuthTokenURL    = "https://oauth2.googleapis.com/token"
 	GithubRepo       = "aklkbqx/agy-swap"
 )
 
-const DefaultOAuthClientID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+const (
+	DefaultOAuthClientID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+	GCPOAuthClientID     = "884354919052-36trc1jjb3tguiac32ov6cod268c5blh.apps.googleusercontent.com"
+	WIFOAuthClientID     = "a2a6f0e3e-3ff0-462b-869a-47277df4c806"
+)
 
 var OAuthClientSecrets = map[string]string{
 	DefaultOAuthClientID: "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",
-	"884354919052-36trc1jjb3tguiac32ov6cod268c5blh.apps.googleusercontent.com": "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",
+	GCPOAuthClientID:     "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",
 }
 
 var TierNames = map[string]string{
@@ -91,4 +96,36 @@ func PrivateDirMode() os.FileMode {
 		return 0o777
 	}
 	return 0o700
+}
+
+// IDEUserDataDirs returns the OS-appropriate Antigravity IDE user data
+// directories (matching Antigravity IDE's product.json nameShort).
+func IDEUserDataDirs(home string) []string {
+	if home == "" {
+		return nil
+	}
+	switch runtime.GOOS {
+	case "darwin":
+		return []string{filepath.Join(home, "Library", "Application Support", "Antigravity IDE")}
+	case "windows":
+		dirs := make([]string, 0, 2)
+		if appData := os.Getenv("APPDATA"); appData != "" {
+			dirs = append(dirs, filepath.Join(appData, "Antigravity IDE"))
+		}
+		fallback := filepath.Join(home, "AppData", "Roaming", "Antigravity IDE")
+		if len(dirs) == 0 || filepath.Clean(dirs[0]) != filepath.Clean(fallback) {
+			dirs = append(dirs, fallback)
+		}
+		return dirs
+	default:
+		dirs := make([]string, 0, 2)
+		if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+			dirs = append(dirs, filepath.Join(xdg, "Antigravity IDE"))
+		}
+		fallback := filepath.Join(home, ".config", "Antigravity IDE")
+		if len(dirs) == 0 || filepath.Clean(dirs[0]) != filepath.Clean(fallback) {
+			dirs = append(dirs, fallback)
+		}
+		return dirs
+	}
 }

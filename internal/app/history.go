@@ -343,8 +343,9 @@ func (a *Application) cmdForecast(ctx context.Context, opts extendedOptions, pos
 }
 
 type runtimeNotificationState struct {
-	Sent map[string]string  `json:"sent,omitempty"`
-	Last map[string]float64 `json:"last,omitempty"`
+	Sent     map[string]string  `json:"sent,omitempty"`
+	Last     map[string]float64 `json:"last,omitempty"`
+	AutoSwap *AutoSwapState     `json:"auto_swap,omitempty"`
 }
 
 func (a *Application) loadNotificationState() runtimeNotificationState {
@@ -362,6 +363,9 @@ func (a *Application) loadNotificationState() runtimeNotificationState {
 	return state
 }
 func (a *Application) saveNotificationState(state runtimeNotificationState) {
+	if lock, err := acquireFileLock(a.paths.RuntimeState + ".lock"); err == nil {
+		defer func() { _ = lock.Close() }()
+	}
 	_ = atomicWriteJSON(a.paths.RuntimeState, state)
 }
 
@@ -537,10 +541,56 @@ func (a *Application) recordSwitch(email string) {
 	}
 }
 
+func (a *Application) syncAccountLocalIdentity(email string) {
+	if a == nil || a.store == nil || strings.TrimSpace(email) == "" {
+		return
+	}
+	accounts, err := a.store.Load(false)
+	if err != nil {
+		return
+	}
+	acc, ok := accounts.Get(email)
+	if !ok {
+		return
+	}
+	hadID := strings.TrimSpace(getString(acc, "installation_id")) != ""
+	hadUUID := strings.TrimSpace(getString(acc, "installation_uuid")) != ""
+	installID, installUUID := ensureAccountIdentity(acc)
+	if !hadID || !hadUUID {
+		_ = a.store.Save(accounts)
+	}
+	syncAccountIdentityFiles(a.paths.Home, installID, installUUID)
+}
+
 func (a *Application) applyAccount(ctx context.Context, token, email string) bool {
-	if !a.credentials.Apply(ctx, token, email) {
+	return a.applyAccountWithMode(ctx, token, email, "")
+}
+
+func (a *Application) applyAccountWithMode(ctx context.Context, token, email, overrideMode string) bool {
+	prevEmail := a.credentials.StoredActiveEmail()
+	prevRefresh := tokenRefreshToken(a.credentials.readOAuthToken())
+	// Sync per-account local installation UUIDs before writing session files and
+	// reloading IDE hubs so freshly restarted hubs pick up the target account's IDs.
+	a.syncAccountLocalIdentity(email)
+	if !a.credentials.ApplyWithoutReload(ctx, token, email) {
 		return false
 	}
 	a.recordSwitch(email)
+
+	changed := !strings.EqualFold(prevEmail, email) || (prevRefresh != "" && prevRefresh != tokenRefreshToken(token))
+	if !changed && strings.TrimSpace(overrideMode) == "" {
+		return true
+	}
+	settings, _ := a.loadSettings()
+	mode := strings.TrimSpace(overrideMode)
+	if mode == "" {
+		mode = settings.IDE.ReloadMode
+	}
+	waitTimeout := time.Duration(settings.IDE.WaitForIdleTimeoutMs) * time.Millisecond
+	if waitTimeout <= 0 {
+		waitTimeout = 30 * time.Second
+	}
+	isGCPTos := oauthAuthMethod(decodeToken(token)) != "consumer"
+	a.reloadIDEForSwitch(ctx, mode, waitTimeout, email, isGCPTos)
 	return true
 }

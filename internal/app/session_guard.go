@@ -124,6 +124,32 @@ func matchAccountByToken(ctx context.Context, accounts *Accounts, vault AccountV
 	return matchedEmail
 }
 
+func tokenAccessToken(tokenData string) string {
+	decoded := decodeToken(tokenData)
+	inner := tokenObject(decoded)
+	if inner == nil {
+		inner = decoded
+	}
+	if inner == nil {
+		return ""
+	}
+	return strings.TrimSpace(getString(inner, "access_token"))
+}
+
+// tokensMatchCredential reports whether two encoded credentials represent the
+// same OAuth access/refresh token pair (ignoring metadata backfills like
+// auth_method written to disk for agy 1.5.18 compatibility).
+func tokensMatchCredential(a, b string) bool {
+	if a == b {
+		return a != ""
+	}
+	accA, accB := tokenAccessToken(a), tokenAccessToken(b)
+	if accA == "" || accA != accB {
+		return false
+	}
+	return tokenRefreshToken(a) == tokenRefreshToken(b)
+}
+
 func shouldHarvestToken(existingToken, candidateToken string) bool {
 	if strings.TrimSpace(candidateToken) == "" {
 		return false
@@ -131,7 +157,7 @@ func shouldHarvestToken(existingToken, candidateToken string) bool {
 	if strings.TrimSpace(existingToken) == "" {
 		return true
 	}
-	if hashToken(existingToken) == hashToken(candidateToken) {
+	if hashToken(existingToken) == hashToken(candidateToken) || tokensMatchCredential(existingToken, candidateToken) {
 		return false
 	}
 	candInner := tokenObject(decodeToken(candidateToken))
@@ -244,7 +270,7 @@ func (a *Application) reconcileActiveSession(ctx context.Context) {
 	needsSync := !strings.EqualFold(a.credentials.StoredActiveEmail(), intendedEmail)
 	if !needsSync {
 		for _, p := range surfacePaths {
-			if readOAuthTokenFromFile(p) != intendedToken {
+			if !tokensMatchCredential(readOAuthTokenFromFile(p), intendedToken) {
 				needsSync = true
 				break
 			}
@@ -376,7 +402,7 @@ fi
 if [ "${AGY_SWAP_SKIP_SYNC:-0}" != "1" ] && [ -n "$swap_command" ] && [ -x "$swap_command" ]; then
   "$swap_command" --sync-session >/dev/null 2>&1 || true
 fi
-export WSL_INTEROP="${WSL_INTEROP:-1}"
+export AGY_CLI_FORCE_FILE_TOKEN_STORAGE="${AGY_CLI_FORCE_FILE_TOKEN_STORAGE:-1}"
 is_hub=0
 for arg in "$@"; do
   if [ "$arg" = "--" ]; then
@@ -596,7 +622,7 @@ func (a *Application) ensureAgyLauncherGuardForPathLocked(agyBin string) {
 	if !strings.HasPrefix(text, "#!") || (!strings.Contains(text, ".local/libexec/agy") && !strings.Contains(text, "Managed by agy-swap session guard")) {
 		return
 	}
-	if strings.Contains(text, "--sync-session") && strings.Contains(text, "WSL_INTEROP") && strings.Contains(text, "hub_pid") && strings.Contains(text, "reload_marker=") && strings.Contains(text, "is_hub=0") && !strings.Contains(text, "python3 -") {
+	if strings.Contains(text, "--sync-session") && strings.Contains(text, "AGY_CLI_FORCE_FILE_TOKEN_STORAGE") && !strings.Contains(text, "WSL_INTEROP") && strings.Contains(text, "hub_pid") && strings.Contains(text, "reload_marker=") && strings.Contains(text, "is_hub=0") && !strings.Contains(text, "python3 -") {
 		syncAgyBinarySidecar(agyBin)
 		return
 	}

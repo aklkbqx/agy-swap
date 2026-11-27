@@ -62,6 +62,8 @@ func New(version string, in io.Reader, out, errOut io.Writer) (*Application, err
 	}
 	app := &Application{Version: version, BuildID: "unknown", In: in, Out: out, Err: errOut, lineReader: lineReader, paths: paths, store: store, credentials: NewCredentials(paths), vault: NewAccountVault(paths), http: httpService, quota: NewQuotaService(httpService, store), stdinTTY: readerTerminal(in), stdoutTTY: stdoutTTY, color: stdoutTTY && os.Getenv("NO_COLOR") == ""}
 	app.quota.SetVault(app.vault)
+	app.quota.localHubHome = paths.Home
+	app.quota.activeHint = func() string { return app.credentials.StoredActiveEmail() }
 	if os.Getenv("AGY_SWAP_QUOTA_DEBUG") == "1" {
 		app.quota.SetDiagnostics(errOut)
 	}
@@ -83,11 +85,15 @@ type cliArgs struct {
 	legacyAdd, legacyList, legacyNext, legacySwitch, legacyStatus, legacyLogout bool
 	legacyRemove, stringSwitch                                                  string
 	updateCheck, limitClear, groupSet                                           bool
+	restartIDE, noRestartIDE                                                    bool
 }
 
 func (a *Application) Run(ctx context.Context, argv []string) int {
 	if len(argv) > 0 && argv[0] == "__update-finalize" {
 		return a.runUpdateFinalizer(ctx, argv[1:])
+	}
+	if len(argv) > 0 && argv[0] == "__internal-restart-ide" {
+		return a.runInternalRestartIDE(ctx, argv[1:])
 	}
 	if len(argv) > 0 && (argv[0] == "--sync-session" || argv[0] == "session-sync" || argv[0] == "__session-sync") {
 		a.reconcileActiveSession(ctx)
@@ -190,7 +196,7 @@ func (a *Application) printUsage(w io.Writer) {
                 [--verbose]
                 {add,list,limits,logout,next,switch,remove,status,verify,update,version,limit,
                  doctor,config,alias,tag,profile,bind,unbind,recommend,statusline,watch,
-                 history,stats,forecast,backup,metrics,completion,account,target,run,install-agy,donate} ...
+                 history,stats,forecast,backup,metrics,completion,account,target,run,auto-swap,install-agy,donate} ...
 
 Minimal Multi-Account Switcher for Google Antigravity CLI (agy)
 
@@ -219,7 +225,8 @@ extended commands:
   stats/forecast      Summarize history and show reset forecasts
   backup/metrics      Export/import backups and expose local Prometheus metrics
   target              Check experimental CLI/IDE target adapters
-  run now             Launch a configured CLI target immediately
+  run                 Launch a configured CLI target (e.g. 'agy-swap run -c', '--auto-swap')
+  auto-swap           Manage auto-swap and circuit breaker (enable|disable|status|reset)
   install-agy         Download, verify, and install the Antigravity CLI (agy)
   donate              Show GitHub Sponsors support link (--open)
   completion          Print bash, zsh, fish, or PowerShell completion
@@ -289,6 +296,10 @@ func parseCLI(argv []string) (cliArgs, error) {
 			result.refresh = true
 		case "--force":
 			result.force = true
+		case "--restart-ide":
+			result.restartIDE = true
+		case "--no-restart-ide":
+			result.noRestartIDE = true
 		case "--add":
 			result.legacyAdd = true
 		case "--list":

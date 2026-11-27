@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"io"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -14,9 +16,82 @@ import (
 )
 
 const (
-	winCredMaxBlobSize = 2560
-	winVaultGzipPrefix = "agy-swap-gz:"
+	winCredMaxBlobSize      = 2560
+	winVaultGzipPrefix      = "agy-swap-gz:"
+	winVaultDPAPIPrefix     = "dpapi:"
+	cryptProtectUIForbidden = 0x1
 )
+
+var (
+	crypt32            = windows.NewLazySystemDLL("crypt32.dll")
+	procCryptProtect   = crypt32.NewProc("CryptProtectData")
+	procCryptUnprotect = crypt32.NewProc("CryptUnprotectData")
+	kernel32Vault      = windows.NewLazySystemDLL("kernel32.dll")
+	procLocalFreeVault = kernel32Vault.NewProc("LocalFree")
+)
+
+type dataBlob struct {
+	cbData uint32
+	pbData *byte
+}
+
+// protectVaultValue encrypts a vault.json entry for the current Windows user
+// with DPAPI (CryptProtectData). If DPAPI is unavailable (for example under a
+// headless session with no user profile), it falls back to storing plain so
+// headless automation keeps working.
+func protectVaultValue(plain string) string {
+	if plain == "" || strings.HasPrefix(plain, winVaultDPAPIPrefix) {
+		return plain
+	}
+	raw := []byte(plain)
+	in := dataBlob{cbData: uint32(len(raw)), pbData: &raw[0]}
+	var out dataBlob
+	ok, _, _ := procCryptProtect.Call(
+		uintptr(unsafe.Pointer(&in)),
+		0,
+		0,
+		0,
+		0,
+		cryptProtectUIForbidden,
+		uintptr(unsafe.Pointer(&out)),
+	)
+	if ok == 0 || out.pbData == nil || out.cbData == 0 {
+		return plain
+	}
+	defer procLocalFreeVault.Call(uintptr(unsafe.Pointer(out.pbData)))
+	enc := unsafe.Slice(out.pbData, out.cbData)
+	return winVaultDPAPIPrefix + base64.StdEncoding.EncodeToString(enc)
+}
+
+func unprotectVaultValue(stored string) (string, bool) {
+	if stored == "" {
+		return "", false
+	}
+	if !strings.HasPrefix(stored, winVaultDPAPIPrefix) {
+		return stored, true
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(stored, winVaultDPAPIPrefix))
+	if err != nil || len(raw) == 0 {
+		return "", false
+	}
+	in := dataBlob{cbData: uint32(len(raw)), pbData: &raw[0]}
+	var out dataBlob
+	ok, _, _ := procCryptUnprotect.Call(
+		uintptr(unsafe.Pointer(&in)),
+		0,
+		0,
+		0,
+		0,
+		cryptProtectUIForbidden,
+		uintptr(unsafe.Pointer(&out)),
+	)
+	if ok == 0 || out.pbData == nil || out.cbData == 0 {
+		return "", false
+	}
+	defer procLocalFreeVault.Call(uintptr(unsafe.Pointer(out.pbData)))
+	dec := unsafe.Slice(out.pbData, out.cbData)
+	return string(dec), len(dec) > 0
+}
 
 func encodeWindowsVaultBlob(value string) ([]byte, bool) {
 	blob := []byte(value)

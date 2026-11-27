@@ -43,8 +43,8 @@ func TestCredentialsApplyAndClearSkipSecurityAndMaintainKeyringBypassMarker(t *t
 		}
 	}
 
-	if got := app.credentials.Current(context.Background()); got != token {
-		t.Fatalf("Current() = %q, want %q", got, token)
+	if got := app.credentials.Current(context.Background()); !tokensMatchCredential(got, token) {
+		t.Fatalf("Current() = %q, want credential matching %q", got, token)
 	}
 	if got := strings.Join(calls(), ""); got != "" {
 		t.Fatalf("expected 0 /usr/bin/security calls during Current, got %q", got)
@@ -109,7 +109,7 @@ func TestReconcileActiveSessionHarvestsRefreshAndRestoresClobberedActiveAccount(
 	}
 
 	// 1. Active OAuth token on disk must be restored to beta@example.com.
-	if got := app.credentials.readOAuthToken(); got != betaActive {
+	if got := app.credentials.readOAuthToken(); !tokensMatchCredential(got, betaActive) {
 		t.Fatalf("OAuthToken after sync = %q, want betaActive %q", got, betaActive)
 	}
 	if got := app.credentials.StoredActiveEmail(); got != "beta@example.com" {
@@ -167,7 +167,7 @@ func TestActiveAccountInPlaceTokenRefreshRecognizedAndHarvested(t *testing.T) {
 
 	app.reconcileActiveSession(ctx)
 
-	if got := app.credentials.readOAuthToken(); got != betaRefreshed {
+	if got := app.credentials.readOAuthToken(); !tokensMatchCredential(got, betaRefreshed) {
 		t.Fatalf("OAuthToken should keep refreshed beta token, got %q", got)
 	}
 	vaultBeta, ok := app.vault.Get(ctx, accountSecretRef("beta@example.com"))
@@ -219,7 +219,7 @@ func TestReconcileActiveSessionHarvestsIDERefreshAndPropagatesAcrossSurfaces(t *
 		t.Fatalf("vault token for beta = %q, want %q", vaultBeta, betaIDERefreshed)
 	}
 	for _, surfacePath := range []string{app.paths.OAuthToken, app.paths.IDEOAuthToken, app.paths.JetskiToken} {
-		if got := readOAuthTokenFromFile(surfacePath); got != betaIDERefreshed {
+		if got := readOAuthTokenFromFile(surfacePath); !tokensMatchCredential(got, betaIDERefreshed) {
 			t.Fatalf("surface %s token = %q, want propagated %q", surfacePath, got, betaIDERefreshed)
 		}
 	}
@@ -239,7 +239,7 @@ func TestReconcileActiveSessionHarvestsIDERefreshAndPropagatesAcrossSurfaces(t *
 		t.Fatalf("vault token for alpha = %q, want harvested %q", vaultAlpha, alphaRefreshed)
 	}
 	for _, surfacePath := range []string{app.paths.OAuthToken, app.paths.IDEOAuthToken, app.paths.JetskiToken} {
-		if got := readOAuthTokenFromFile(surfacePath); got != betaIDERefreshed {
+		if got := readOAuthTokenFromFile(surfacePath); !tokensMatchCredential(got, betaIDERefreshed) {
 			t.Fatalf("surface %s after clobber restore = %q, want %q", surfacePath, got, betaIDERefreshed)
 		}
 	}
@@ -277,8 +277,8 @@ func TestEnsureAgyLauncherGuardWrapsAndUpgradesAgyBinary(t *testing.T) {
 			t.Fatal(err)
 		}
 		wrapper := string(wrapperBytes)
-		if !strings.Contains(wrapper, "--sync-session") || !strings.Contains(wrapper, "WSL_INTEROP") {
-			t.Fatalf("expected wrapper to invoke --sync-session and export WSL_INTEROP, got:\n%s", wrapper)
+		if !strings.Contains(wrapper, "--sync-session") || !strings.Contains(wrapper, "AGY_CLI_FORCE_FILE_TOKEN_STORAGE") {
+			t.Fatalf("expected wrapper to invoke --sync-session and export AGY_CLI_FORCE_FILE_TOKEN_STORAGE, got:\n%s", wrapper)
 		}
 		if !strings.Contains(wrapper, `if [ "$arg" = "--hub" ]; then`) || !strings.Contains(wrapper, "hub_pid") || !strings.Contains(wrapper, `exec "$real_command" "$@"`) {
 			t.Fatalf("expected wrapper to supervise --hub and exec real_command for --version, got:\n%s", wrapper)
@@ -442,8 +442,8 @@ exit "$status"
 		if !strings.Contains(wrapper, "AGY_NORMAL_MODE") || !strings.Contains(wrapper, "--dangerously-skip-permissions") {
 			t.Fatalf("expected AGY_NORMAL_MODE behavior to be preserved, got:\n%s", wrapper)
 		}
-		if !strings.Contains(wrapper, "--sync-session") || !strings.Contains(wrapper, "WSL_INTEROP") {
-			t.Fatalf("expected upgraded wrapper to invoke --sync-session and export WSL_INTEROP, got:\n%s", wrapper)
+		if !strings.Contains(wrapper, "--sync-session") || !strings.Contains(wrapper, "AGY_CLI_FORCE_FILE_TOKEN_STORAGE") {
+			t.Fatalf("expected upgraded wrapper to invoke --sync-session and export AGY_CLI_FORCE_FILE_TOKEN_STORAGE, got:\n%s", wrapper)
 		}
 	})
 }

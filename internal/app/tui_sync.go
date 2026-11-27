@@ -61,25 +61,29 @@ type tuiActivity struct {
 	list     func() []string
 	files    map[string]fileStamp
 	listedAt time.Time
+	minGap   time.Duration
 	// at is when a log last grew; read is when the active account was read
 	// because of it.
 	at, read time.Time
 }
 
 func newTUIActivity(scanner *LogScanner) *tuiActivity {
-	return &tuiActivity{list: func() []string {
-		if scanner == nil {
-			return nil
-		}
-		var paths []string
-		for i, candidate := range scanner.selected() {
-			if i == 5 {
-				break // the newest few are where Antigravity writes now
+	return &tuiActivity{
+		minGap: tuiActivityGap,
+		list: func() []string {
+			if scanner == nil {
+				return nil
 			}
-			paths = append(paths, candidate.path)
-		}
-		return paths
-	}}
+			var paths []string
+			for i, candidate := range scanner.selected() {
+				if i == 5 {
+					break // the newest few are where Antigravity writes now
+				}
+				paths = append(paths, candidate.path)
+			}
+			return paths
+		},
+	}
 }
 
 // poll looks at the log files and notes activity when one changed.
@@ -124,7 +128,11 @@ func (w *tuiActivity) poll(now time.Time) {
 func (w *tuiActivity) due(now time.Time) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.at.After(w.read) && now.Sub(w.at) >= tuiActivityQuiet && now.Sub(w.read) >= tuiActivityGap
+	gap := w.minGap
+	if gap <= 0 {
+		gap = tuiActivityGap
+	}
+	return w.at.After(w.read) && now.Sub(w.at) >= tuiActivityQuiet && now.Sub(w.read) >= gap
 }
 
 func (w *tuiActivity) markRead(now time.Time) {
@@ -133,8 +141,16 @@ func (w *tuiActivity) markRead(now time.Time) {
 	w.read = now
 }
 
-// dueEmails are the accounts whose quota should be read now.
+// dueEmails are the accounts whose quota should be read now (live mode default
+// for backward compatibility with direct unit tests).
 func (s *tuiState) dueEmails(now time.Time, tried map[string]time.Time, backoff func(email string) time.Time, activity bool) []string {
+	return s.dueEmailsForMode(now, tried, backoff, activity, "live")
+}
+
+// dueEmailsForMode returns the accounts due for background refresh under the
+// configured poll mode ("safe", "balanced", or "live"). VERIFY and SUSPENDED
+// accounts are always excluded from background polling.
+func (s *tuiState) dueEmailsForMode(now time.Time, tried map[string]time.Time, backoff func(email string) time.Time, activity bool, mode string) []string {
 	if s.accounts == nil {
 		return nil
 	}
@@ -144,12 +160,15 @@ func (s *tuiState) dueEmails(now time.Time, tried map[string]time.Time, backoff 
 		if getString(account, "token_data") == "" && getString(account, "secret_ref") == "" {
 			continue // nothing to read with
 		}
+		if _, ineligible := accountEligibility(account); ineligible {
+			continue // never poll VERIFY or SUSPENDED accounts automatically
+		}
 		active := strings.EqualFold(email, s.active)
 		if active && activity && !backoff(email).After(now) {
 			due = append(due, email)
 			continue
 		}
-		if !quotaDueAt(account, active, tried[email], backoff(email)).After(now) {
+		if !quotaDueAtForMode(account, active, tried[email], backoff(email), mode).After(now) {
 			due = append(due, email)
 		}
 	}

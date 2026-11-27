@@ -187,3 +187,15 @@ func TestVerifyLiveBypassesEdgeCacheHitWithVersionQuery(t *testing.T) {
 		t.Fatalf("expected versioned query to bypass stale CF-Cache-Status HIT, got: %v", err)
 	}
 }
+
+func TestVerifyLiveAcceptsPrettyPrintedDockerVersionJSON(t *testing.T) {
+	site, server := newFakeSite(t)
+	site.overrides["version.json"] = "{\n  \"version\": \"2.0.0\",\n  \"release\": \"v2.0.0-abc1234\",\n  \"builtAt\": \"2026-11-26T18:00:00Z\"\n}\n"
+	if err := verifyLive("2.0.0", site.dist, server.URL, server.Client()); err != nil {
+		t.Fatalf("pretty-printed Docker-injected version.json rejected: %v", err)
+	}
+	site.overrides["version.json"] = "{\n  \"version\": \"1.9.9\",\n  \"release\": \"v1.9.9-old\"\n}\n"
+	if err := verifyLive("2.0.0", site.dist, server.URL, server.Client()); err == nil || !strings.Contains(err.Error(), "/version.json") {
+		t.Fatalf("mismatched pretty-printed version.json accepted: %v", err)
+	}
+}

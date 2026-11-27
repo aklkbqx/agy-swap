@@ -258,14 +258,14 @@ func TestFetchOnboardsNewAccountAndExtractsOperationEligibility(t *testing.T) {
 	email := "new@example.invalid"
 	account := Account{"email": email, "token_data": tokenBlob(t, email, true, "r", time.Now().Add(time.Hour))}
 
-	_, err := service.Fetch(context.Background(), account)
+	_, err := service.FetchForAdd(context.Background(), account)
 	var ineligible *eligibilityError
 	if !errors.As(err, &ineligible) || ineligible.URL != "https://accounts.google.com/v?op=1" {
 		t.Fatalf("expected onboarding eligibility error, got %#v", err)
 	}
 
 	mode.Store("op-ok")
-	snapshot, err := service.Fetch(context.Background(), account)
+	snapshot, err := service.FetchForAdd(context.Background(), account)
 	if err != nil || polls.Load() == 0 || getString(getMap(snapshot["tier"]), "name") != "Free" {
 		t.Fatalf("expected onboarded snapshot, polls=%d err=%v snapshot=%#v", polls.Load(), err, snapshot)
 	}

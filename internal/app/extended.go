@@ -33,6 +33,8 @@ type extendedOptions struct {
 	Family          string
 	Tag             string
 	Mode            string
+	Handoff         string
+	AutoSwap        bool
 	RunArgs         []string
 	Interval        time.Duration
 	Limit           int
@@ -53,13 +55,22 @@ func isExtendedCommand(argv []string) bool {
 			continue
 		}
 		switch arg {
-		case "doctor", "config", "alias", "tag", "profile", "bind", "unbind", "recommend", "statusline", "watch", "history", "stats", "forecast", "backup", "metrics", "completion", "account", "target", "run", "install-agy", "install", "agy", "donate", "sponsor":
+		case "doctor", "config", "alias", "tag", "profile", "bind", "unbind", "recommend", "statusline", "watch", "history", "stats", "forecast", "backup", "metrics", "completion", "account", "target", "run", "auto-swap", "install-agy", "install", "agy", "donate", "sponsor":
 			return true
 		default:
 			return false
 		}
 	}
 	return false
+}
+
+func isRunOwnFlag(arg string) bool {
+	switch arg {
+	case "-h", "--help", "--json", "--account", "--target", "--profile", "--family", "--auto-swap", "--handoff", "--":
+		return true
+	default:
+		return false
+	}
 }
 
 func parseExtended(argv []string) (string, extendedOptions, []string, error) {
@@ -73,6 +84,10 @@ func parseExtended(argv []string) (string, extendedOptions, []string, error) {
 	var positional []string
 	for i := 1; i < len(argv); i++ {
 		arg := argv[i]
+		if command == "run" && strings.HasPrefix(arg, "-") && !isRunOwnFlag(arg) {
+			opts.RunArgs = append([]string(nil), argv[i:]...)
+			break
+		}
 		take := func() (string, error) {
 			if i+1 >= len(argv) {
 				return "", fmt.Errorf("%s requires a value", arg)
@@ -158,6 +173,19 @@ func parseExtended(argv []string) (string, extendedOptions, []string, error) {
 				return "", opts, nil, err
 			}
 			opts.Mode = value
+		case "--auto-swap":
+			opts.AutoSwap = true
+		case "--handoff":
+			value, err := take()
+			if err != nil {
+				return "", opts, nil, err
+			}
+			switch strings.ToLower(strings.TrimSpace(value)) {
+			case "clean-summary", "resume":
+				opts.Handoff = strings.ToLower(strings.TrimSpace(value))
+			default:
+				return "", opts, nil, fmt.Errorf("invalid --handoff %q (use clean-summary or resume)", value)
+			}
 		case "--policy", "--reserve":
 			value, err := take()
 			if err != nil {
@@ -239,7 +267,7 @@ func normalizeExtendedArgv(argv []string) []string {
 
 func extendedOptionTakesValue(arg string) bool {
 	switch arg {
-	case "--passphrase", "--output", "--dir", "-d", "--account", "--target", "--profile", "--family", "--tag", "--mode", "--interval", "--limit", "--threshold", "--policy", "--reserve":
+	case "--passphrase", "--output", "--dir", "-d", "--account", "--target", "--profile", "--family", "--tag", "--mode", "--handoff", "--interval", "--limit", "--threshold", "--policy", "--reserve":
 		return true
 	default:
 		return false
@@ -335,6 +363,8 @@ func (a *Application) runExtended(ctx context.Context, argv []string) int {
 		code = a.cmdTarget(opts, positional)
 	case "run":
 		code = a.cmdRunNow(ctx, opts, positional)
+	case "auto-swap":
+		code = a.cmdAutoSwap(ctx, opts, positional)
 	case "install-agy", "install", "agy":
 		code = a.cmdInstallAgy(ctx, opts, positional)
 	case "donate", "sponsor":
@@ -350,6 +380,7 @@ func accountSummary(account Account, active bool) map[string]any {
 		"email":      getString(account, "email"),
 		"name":       getString(account, "name"),
 		"active":     active,
+		"protected":  accountIsProtected(account),
 		"secret_ref": getString(account, "secret_ref"),
 		"has_token":  getString(account, "token_data") != "" || getString(account, "secret_ref") != "",
 	}
@@ -360,8 +391,12 @@ func accountSummary(account Account, active bool) map[string]any {
 		result["cooldowns"] = limits
 	}
 	if ineligible, ok := accountEligibility(account); ok {
+		state := "verify_required"
+		if ineligible.Suspended {
+			state = "suspended"
+		}
 		result["eligibility"] = map[string]any{
-			"state":   "verify_required",
+			"state":   state,
 			"reason":  ineligible.Reason,
 			"message": ineligible.Message,
 			"has_url": ineligible.URL != "",
@@ -450,6 +485,37 @@ func (a *Application) cmdAccount(ctx context.Context, opts extendedOptions, posi
 		}
 		b, _ := json.MarshalIndent(data, "", "  ")
 		fmt.Fprintln(a.Out, string(b))
+		return 0
+	case "protect", "unprotect":
+		if len(positional) < 2 {
+			return a.extendedError("account "+sub, opts, fmt.Errorf("usage: account %s ACCOUNT", sub))
+		}
+		email, resolveErr := resolveConfiguredTarget(positional[1], accounts, mustSettings(a.store))
+		if resolveErr != nil || email == "" {
+			if resolveErr == nil {
+				resolveErr = errors.New("account not found")
+			}
+			return a.extendedError("account "+sub, opts, resolveErr)
+		}
+		protect := sub == "protect"
+		acc := accounts.ByEmail[email]
+		if protect {
+			acc["protected"] = true
+		} else {
+			delete(acc, "protected")
+		}
+		if err := a.store.Save(accounts); err != nil {
+			return a.extendedError("account "+sub, opts, err)
+		}
+		data := map[string]any{"email": email, "protected": protect}
+		if opts.JSON {
+			return a.extendedResult("account "+sub, opts, data, nil)
+		}
+		if protect {
+			fmt.Fprintf(a.Out, "Protected %s from automatic rotation.\n", email)
+		} else {
+			fmt.Fprintf(a.Out, "Removed protection from %s.\n", email)
+		}
 		return 0
 	case "migrate":
 		if !opts.Force {

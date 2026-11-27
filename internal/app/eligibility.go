@@ -12,12 +12,19 @@ import (
 // eligibilityError is Google's answer that an account cannot use Antigravity
 // until its owner acts in a browser: verify the account or appeal a block.
 type eligibilityError struct {
-	Reason  string
-	Message string
-	URL     string // a checked Google page, or empty
+	Reason    string
+	Message   string
+	URL       string // a checked Google page, or empty
+	Suspended bool   // true for TOS_VIOLATION / appeal blocks (distinct from VERIFY)
 }
 
 func (e *eligibilityError) Error() string {
+	if e.Suspended {
+		if e.Message != "" {
+			return "Google suspended this account: " + e.Message
+		}
+		return "Google suspended this account"
+	}
 	if e.Message != "" {
 		return eligibilityErrorPrefix + ": " + e.Message
 	}
@@ -26,6 +33,20 @@ func (e *eligibilityError) Error() string {
 
 // eligibilityErrorPrefix starts every eligibilityError message.
 const eligibilityErrorPrefix = "Google needs this account verified"
+
+// isSuspendedEligibility reports whether Google's error indicates an account
+// suspension / ToS block (as opposed to a routine identity verification check).
+func isSuspendedEligibility(reason, message, appealURL string) bool {
+	if strings.TrimSpace(appealURL) != "" {
+		return true
+	}
+	upper := strings.ToUpper(reason)
+	if strings.Contains(upper, "TOS_VIOLATION") || strings.Contains(upper, "SUSPEND") || strings.Contains(upper, "BANNED") || strings.Contains(upper, "DISABLED") {
+		return true
+	}
+	lower := strings.ToLower(message)
+	return strings.Contains(lower, "suspended") || strings.Contains(lower, "terms of service") || strings.Contains(lower, "policy violation")
+}
 
 // verificationReason says whether Google's reason code asks for verification.
 func verificationReason(reason string) bool {
@@ -69,10 +90,11 @@ func eligibilityFromErrorBody(status int, body []byte) *eligibilityError {
 		meta := detail.Metadata
 		link := firstNonEmpty(meta["validation_url"], meta["appeal_url"])
 		message := cleanText(meta["uiMessage"])
-		if link == "" && !verificationText(detail.Reason, message) {
+		suspended := isSuspendedEligibility(detail.Reason, message, meta["appeal_url"])
+		if link == "" && !suspended && !verificationText(detail.Reason, message) {
 			continue
 		}
-		return &eligibilityError{Reason: cleanText(detail.Reason), Message: message, URL: safeGoogleURL(link)}
+		return &eligibilityError{Reason: cleanText(detail.Reason), Message: message, URL: safeGoogleURL(link), Suspended: suspended}
 	}
 	return nil
 }
@@ -122,13 +144,15 @@ func eligibilityFromLoad(info map[string]any) *eligibilityError {
 	}
 	ineligible := getSlice(info["ineligibleTiers"])
 	checkTier := func(tier map[string]any) *eligibilityError {
-		link := firstNonEmpty(getString(tier, "validationUrl"), getString(tier, "appealUrl"))
+		appealURL := getString(tier, "appealUrl")
+		link := firstNonEmpty(getString(tier, "validationUrl"), appealURL)
 		message := cleanText(firstNonEmpty(getString(tier, "reasonMessage"), getString(tier, "validationErrorMessage")))
 		reason := getString(tier, "reasonCode")
-		if link == "" && !verificationText(reason, message) {
+		suspended := isSuspendedEligibility(reason, message, appealURL)
+		if link == "" && !suspended && !verificationText(reason, message) {
 			return nil
 		}
-		return &eligibilityError{Reason: cleanText(reason), Message: message, URL: safeGoogleURL(link)}
+		return &eligibilityError{Reason: cleanText(reason), Message: message, URL: safeGoogleURL(link), Suspended: suspended}
 	}
 	for _, raw := range ineligible {
 		tier := getMap(raw)
@@ -173,16 +197,39 @@ func firstNonEmpty(values ...string) string {
 }
 
 func (e *eligibilityError) record(now time.Time) map[string]any {
-	return map[string]any{"state": "verify_required", "reason": e.Reason, "message": e.Message, "url": e.URL, "checked_at": isoTime(now)}
+	state := "verify_required"
+	if e.Suspended {
+		state = "suspended"
+	}
+	return map[string]any{"state": state, "reason": e.Reason, "message": e.Message, "url": e.URL, "checked_at": isoTime(now)}
 }
 
 // accountEligibility reads the stored record and checks its link again.
 func accountEligibility(account Account) (*eligibilityError, bool) {
 	record := getMap(account["eligibility"])
-	if getString(record, "state") != "verify_required" {
+	state := getString(record, "state")
+	if state != "verify_required" && state != "suspended" {
 		return nil, false
 	}
-	return &eligibilityError{Reason: cleanText(getString(record, "reason")), Message: cleanText(getString(record, "message")), URL: safeGoogleURL(getString(record, "url"))}, true
+	return &eligibilityError{
+		Reason:    cleanText(getString(record, "reason")),
+		Message:   cleanText(getString(record, "message")),
+		URL:       safeGoogleURL(getString(record, "url")),
+		Suspended: state == "suspended",
+	}, true
+}
+
+func accountIsSuspended(account Account) bool {
+	elig, ok := accountEligibility(account)
+	return ok && elig.Suspended
+}
+
+func accountIsProtected(account Account) bool {
+	if account == nil {
+		return false
+	}
+	v, _ := account["protected"].(bool)
+	return v
 }
 
 // eligibilityPassedError marks errors occurring after Google confirmed the

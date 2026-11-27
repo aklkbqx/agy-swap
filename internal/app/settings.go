@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -24,9 +25,41 @@ type AppSettings struct {
 	Statusline    StatuslineConfig        `json:"statusline,omitempty"`
 	Targets       map[string]TargetConfig `json:"targets,omitempty"`
 	UI            UIConfig                `json:"ui,omitempty"`
+	Quota         QuotaConfig             `json:"quota,omitempty"`
+	IDE           IDEConfig               `json:"ide,omitempty"`
+	AutoSwap      AutoSwapConfig          `json:"auto_swap,omitempty"`
 	UpdatedAt     string                  `json:"updated_at,omitempty"`
 	revision      string
 	loaded        bool
+}
+
+type QuotaConfig struct {
+	PollMode              string `json:"poll_mode,omitempty"` // safe, balanced, live
+	ActiveMinGapSeconds   int    `json:"active_min_gap_seconds,omitempty"`
+	CandidateStaleSeconds int    `json:"candidate_stale_seconds,omitempty"`
+	ProjectMemoTTLHours   int    `json:"project_memo_ttl_hours,omitempty"`
+	MaxConcurrency        int    `json:"max_concurrency,omitempty"`
+}
+
+type IDEConfig struct {
+	ReloadMode           string `json:"reload_mode,omitempty"` // hub-restart, app-restart, manual, rpc-fast
+	WaitForIdleTimeoutMs int    `json:"wait_for_idle_timeout_ms,omitempty"`
+}
+
+type AutoSwapConfig struct {
+	Enabled            bool   `json:"enabled,omitempty"`
+	Mode               string `json:"mode,omitempty"`         // turn-boundary, reactive-only
+	HandoffMode        string `json:"handoff_mode,omitempty"` // clean-summary, resume
+	SwitchOutPct       int    `json:"switch_out_pct,omitempty"`
+	SwitchInPct        int    `json:"switch_in_pct,omitempty"`
+	MinDwellSeconds    int    `json:"min_dwell_seconds,omitempty"`
+	MaxSwapsPerHour    int    `json:"max_swaps_per_hour,omitempty"`
+	MaxSwapsPerDay     int    `json:"max_swaps_per_day,omitempty"`
+	PaceJitterMinMs    int    `json:"pace_jitter_min_ms,omitempty"`
+	PaceJitterMaxMs    int    `json:"pace_jitter_max_ms,omitempty"`
+	HaltOnTosViolation bool   `json:"halt_on_tos_violation"`
+	PreferPaidTiers    bool   `json:"prefer_paid_tiers"`
+	ExcludeFreeTier    bool   `json:"exclude_free_tier,omitempty"`
 }
 
 type Profile struct {
@@ -83,6 +116,13 @@ type UIConfig struct {
 	StackOffset int `json:"stack_offset,omitempty"`
 }
 
+func defaultIDEReloadMode() string {
+	if runtime.GOOS == "windows" {
+		return "manual"
+	}
+	return "hub-restart"
+}
+
 func defaultSettings() AppSettings {
 	return AppSettings{
 		Schema:        stateSchema,
@@ -95,6 +135,32 @@ func defaultSettings() AppSettings {
 		History:       HistoryConfig{Enabled: true, RetentionDays: 30, MaxBytes: maxHistoryBytes},
 		Targets:       map[string]TargetConfig{},
 		UI:            UIConfig{},
+		Quota: QuotaConfig{
+			PollMode:              "safe",
+			ActiveMinGapSeconds:   60,
+			CandidateStaleSeconds: 600,
+			ProjectMemoTTLHours:   24,
+			MaxConcurrency:        1,
+		},
+		IDE: IDEConfig{
+			ReloadMode:           defaultIDEReloadMode(),
+			WaitForIdleTimeoutMs: 30000,
+		},
+		AutoSwap: AutoSwapConfig{
+			Enabled:            false,
+			Mode:               "turn-boundary",
+			HandoffMode:        "clean-summary",
+			SwitchOutPct:       5,
+			SwitchInPct:        25,
+			MinDwellSeconds:    900,
+			MaxSwapsPerHour:    2,
+			MaxSwapsPerDay:     6,
+			PaceJitterMinMs:    3000,
+			PaceJitterMaxMs:    8000,
+			HaltOnTosViolation: true,
+			PreferPaidTiers:    true,
+			ExcludeFreeTier:    false,
+		},
 	}
 }
 
@@ -158,6 +224,110 @@ func normalizeSettings(s AppSettings) (AppSettings, error) {
 	if s.History.MaxBytes < 64*1024 || s.History.MaxBytes > 256*1024*1024 {
 		return AppSettings{}, errors.New("history max_bytes is outside the supported range")
 	}
+	// Quota polling & cache hygiene defaults.
+	if strings.TrimSpace(s.Quota.PollMode) == "" {
+		s.Quota.PollMode = defaults.Quota.PollMode
+	}
+	if !oneOf(s.Quota.PollMode, "safe", "balanced", "live") {
+		return AppSettings{}, errors.New("quota poll_mode must be safe, balanced, or live")
+	}
+	if s.Quota.ActiveMinGapSeconds <= 0 {
+		s.Quota.ActiveMinGapSeconds = defaults.Quota.ActiveMinGapSeconds
+	}
+	if s.Quota.ActiveMinGapSeconds < 10 {
+		s.Quota.ActiveMinGapSeconds = 10
+	}
+	if s.Quota.CandidateStaleSeconds <= 0 {
+		s.Quota.CandidateStaleSeconds = defaults.Quota.CandidateStaleSeconds
+	}
+	if s.Quota.CandidateStaleSeconds < 60 {
+		s.Quota.CandidateStaleSeconds = 60
+	}
+	if s.Quota.ProjectMemoTTLHours <= 0 {
+		s.Quota.ProjectMemoTTLHours = defaults.Quota.ProjectMemoTTLHours
+	}
+	if s.Quota.ProjectMemoTTLHours > 168 {
+		s.Quota.ProjectMemoTTLHours = 168
+	}
+	if s.Quota.MaxConcurrency <= 0 {
+		s.Quota.MaxConcurrency = defaults.Quota.MaxConcurrency
+	}
+	if s.Quota.MaxConcurrency > 4 {
+		s.Quota.MaxConcurrency = 4
+	}
+	// IDE reload policy defaults.
+	if strings.TrimSpace(s.IDE.ReloadMode) == "" {
+		s.IDE.ReloadMode = defaults.IDE.ReloadMode
+	}
+	if !oneOf(s.IDE.ReloadMode, "hub-restart", "app-restart", "manual", "rpc-fast") {
+		return AppSettings{}, errors.New("ide reload_mode must be hub-restart, app-restart, manual, or rpc-fast")
+	}
+	if s.IDE.WaitForIdleTimeoutMs <= 0 {
+		s.IDE.WaitForIdleTimeoutMs = defaults.IDE.WaitForIdleTimeoutMs
+	}
+	if s.IDE.WaitForIdleTimeoutMs < 1000 {
+		s.IDE.WaitForIdleTimeoutMs = 1000
+	}
+	if s.IDE.WaitForIdleTimeoutMs > 120000 {
+		s.IDE.WaitForIdleTimeoutMs = 120000
+	}
+	// Auto-swap defaults and non-bypassable safety hard floors.
+	if strings.TrimSpace(s.AutoSwap.Mode) == "" {
+		s.AutoSwap.Mode = defaults.AutoSwap.Mode
+	}
+	if !oneOf(s.AutoSwap.Mode, "turn-boundary", "reactive-only") {
+		return AppSettings{}, errors.New("auto_swap mode must be turn-boundary or reactive-only")
+	}
+	if strings.TrimSpace(s.AutoSwap.HandoffMode) == "" {
+		s.AutoSwap.HandoffMode = defaults.AutoSwap.HandoffMode
+	}
+	if !oneOf(s.AutoSwap.HandoffMode, "clean-summary", "resume") {
+		return AppSettings{}, errors.New("auto_swap handoff_mode must be clean-summary or resume")
+	}
+	if s.AutoSwap.SwitchOutPct < 0 {
+		s.AutoSwap.SwitchOutPct = 0
+	}
+	if s.AutoSwap.SwitchOutPct > 50 {
+		s.AutoSwap.SwitchOutPct = 50
+	}
+	if s.AutoSwap.SwitchInPct < s.AutoSwap.SwitchOutPct+10 {
+		s.AutoSwap.SwitchInPct = s.AutoSwap.SwitchOutPct + 10
+	}
+	if s.AutoSwap.SwitchInPct > 100 {
+		s.AutoSwap.SwitchInPct = 100
+	}
+	if s.AutoSwap.MinDwellSeconds <= 0 {
+		s.AutoSwap.MinDwellSeconds = defaults.AutoSwap.MinDwellSeconds
+	}
+	if s.AutoSwap.MinDwellSeconds < 300 {
+		s.AutoSwap.MinDwellSeconds = 300
+	}
+	if s.AutoSwap.MaxSwapsPerHour <= 0 {
+		s.AutoSwap.MaxSwapsPerHour = defaults.AutoSwap.MaxSwapsPerHour
+	}
+	if s.AutoSwap.MaxSwapsPerHour > 4 {
+		s.AutoSwap.MaxSwapsPerHour = 4
+	}
+	if s.AutoSwap.MaxSwapsPerDay <= 0 {
+		s.AutoSwap.MaxSwapsPerDay = defaults.AutoSwap.MaxSwapsPerDay
+	}
+	if s.AutoSwap.MaxSwapsPerDay > 12 {
+		s.AutoSwap.MaxSwapsPerDay = 12
+	}
+	if s.AutoSwap.PaceJitterMinMs < 0 {
+		s.AutoSwap.PaceJitterMinMs = 0
+	}
+	if s.AutoSwap.PaceJitterMinMs > 30000 {
+		s.AutoSwap.PaceJitterMinMs = 30000
+	}
+	if s.AutoSwap.PaceJitterMaxMs < s.AutoSwap.PaceJitterMinMs {
+		s.AutoSwap.PaceJitterMaxMs = s.AutoSwap.PaceJitterMinMs
+	}
+	if s.AutoSwap.PaceJitterMaxMs > 60000 {
+		s.AutoSwap.PaceJitterMaxMs = 60000
+	}
+	// Non-bypassable safety invariant: always halt auto-swap on TOS violations.
+	s.AutoSwap.HaltOnTosViolation = true
 	for name, profile := range s.Profiles {
 		if strings.TrimSpace(name) == "" || strings.TrimSpace(profile.Account) == "" {
 			return AppSettings{}, errors.New("profiles require a name and account")

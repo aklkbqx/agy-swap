@@ -1,15 +1,20 @@
 package app
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
-	"syscall"
+	"sync"
+	"sync/atomic"
+	"time"
 )
 
 var builtinRunTargets = map[string]string{
@@ -68,11 +73,11 @@ func (a *Application) prepareRunAccount(ctx context.Context, target string, sett
 }
 
 func (a *Application) cmdRunNow(ctx context.Context, opts extendedOptions, positional []string) int {
-	if len(positional) == 0 || positional[0] != "now" {
-		return a.extendedError("run", opts, errors.New("usage: run now [--account ACCOUNT] [--target NAME] [-- AGY_ARGS...]"))
+	if len(positional) > 0 && positional[0] == "now" {
+		positional = positional[1:]
 	}
-	if len(positional) > 1 {
-		return a.extendedError("run", opts, errors.New("arguments for agy must follow --"))
+	if len(positional) > 0 {
+		return a.extendedError("run", opts, errors.New("usage: run [now] [--account ACCOUNT] [--target NAME] [--auto-swap] [--handoff clean-summary|resume] [-- AGY_ARGS...]"))
 	}
 	settings, err := a.loadSettings()
 	if err != nil {
@@ -108,9 +113,27 @@ func (a *Application) cmdRunNow(ctx context.Context, opts extendedOptions, posit
 		}
 	}
 
-	// Let the foreground child own SIGINT directly (instead of CommandContext
-	// sending SIGKILL) while forwarding SIGTERM/cancellation cleanly and
-	// restoring terminal state + harvesting refreshed session tokens afterward.
+	autoSwapActive := opts.AutoSwap || settings.AutoSwap.Enabled
+	handoffMode := opts.Handoff
+	if handoffMode == "" {
+		handoffMode = settings.AutoSwap.HandoffMode
+	}
+	if handoffMode == "" {
+		handoffMode = "clean-summary"
+	}
+
+	// For supervised agy runs, unwrap any agy-swap session-guard shell wrapper so
+	// we spawn the real binary directly with AGY_SWAP_SKIP_SYNC=1 and
+	// AGY_CLI_FORCE_FILE_TOKEN_STORAGE=1, never injecting --dangerously-skip-permissions.
+	isAgyTarget := opts.Target == "" || opts.Target == "agy" || command == "agy" || command == "agy.exe"
+	execPath := path
+	if autoSwapActive && isAgyTarget {
+		execPath = unwrapManagedAgyBinary(a.paths.Home, path)
+	}
+
+	// Let the foreground child own SIGINT directly while forwarding cancellation
+	// cleanly via cross-OS process group / Job Object draining and restoring
+	// terminal state + harvesting refreshed session tokens afterward.
 	runTerm := captureTerminalState(a.In, a.Out)
 	defer func() {
 		runTerm.Restore(true)
@@ -120,37 +143,189 @@ func (a *Application) cmdRunNow(ctx context.Context, opts extendedOptions, posit
 	signal.Notify(sigintGuard, os.Interrupt)
 	defer signal.Stop(sigintGuard)
 
-	cmd := exec.Command(path, opts.RunArgs...)
-	cmd.Stdin = a.In
-	cmd.Stdout = a.Out
-	cmd.Stderr = a.Err
-	if err := cmd.Start(); err != nil {
-		return a.extendedError("run now", opts, fmt.Errorf("%s failed to start: %w", command, err))
+	currentArgs := append([]string(nil), opts.RunArgs...)
+	maxRestarts := 0
+	if autoSwapActive {
+		maxRestarts = settings.AutoSwap.MaxSwapsPerHour
+		if maxRestarts <= 0 || maxRestarts > 4 {
+			maxRestarts = 4
+		}
 	}
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			if cmd.Process != nil {
-				_ = cmd.Process.Signal(syscall.SIGTERM)
+
+	cwd, _ := os.Getwd()
+	for attempt := 0; attempt <= maxRestarts; attempt++ {
+		launchTime := time.Now().UTC()
+		quotaExhausted, waitErr := a.runManagedChild(ctx, execPath, currentArgs, autoSwapActive, launchTime)
+		a.reconcileActiveSession(context.Background())
+
+		if !autoSwapActive || !quotaExhausted || ctx.Err() != nil {
+			return a.finishRunExit(ctx, command, opts, waitErr)
+		}
+
+		// Re-resolve active account & evaluate guardrailed AutoSwapEngine.
+		accounts, loadErr := a.store.Load(true)
+		if loadErr != nil {
+			return a.finishRunExit(ctx, command, opts, waitErr)
+		}
+		active := a.activeEmail(ctx, accounts, a.credentials.Current(ctx))
+		outcome := a.attemptGuardrailedAutoSwap(ctx, active, opts.Profile, opts.Family, time.Now().UTC())
+		if !outcome.Swapped {
+			fmt.Fprintf(a.Err, "agy-swap: auto-swap skipped (%s): %s\n", outcome.Status, outcome.Reason)
+			return a.finishRunExit(ctx, command, opts, waitErr)
+		}
+
+		convID := extractConversationArg(currentArgs)
+		if convID == "" {
+			convID = findLatestConversationID(a.paths.Home, cwd)
+		}
+		var handoffFile string
+		if handoffMode == "resume" {
+			fmt.Fprintln(a.Err, "agy-swap: warning: --handoff=resume reuses conversation trajectory across accounts.")
+		} else {
+			brief, briefErr := buildCleanHandoffMarkdown(a.paths.Home, convID, cwd, defaultHandoffMaxBytes)
+			if briefErr == nil {
+				if written, writeErr := writeHandoffBrief(a.paths.Home, cwd, brief); writeErr == nil {
+					handoffFile = written
+				}
 			}
-		case <-done:
 		}
-	}()
-	waitErr := cmd.Wait()
-	close(done)
-	a.reconcileActiveSession(context.Background())
-	if waitErr != nil {
-		if ctx.Err() != nil {
-			return a.extendedError("run now", opts, ctx.Err())
-		}
-		var exitErr *exec.ExitError
-		if errors.As(waitErr, &exitErr) {
-			return exitErr.ExitCode()
-		}
-		return a.extendedError("run now", opts, fmt.Errorf("%s exited: %w", command, waitErr))
+		fmt.Fprintf(a.Err, "agy-swap: switched to %s; relaunching session (%s)...\n", outcome.TargetEmail, handoffMode)
+		currentArgs = buildHandoffRelaunchArgs(opts.RunArgs, handoffMode, handoffFile, convID)
 	}
-	return 0
+	return 1
+}
+
+func (a *Application) finishRunExit(ctx context.Context, command string, opts extendedOptions, waitErr error) int {
+	if waitErr == nil {
+		return 0
+	}
+	if ctx.Err() != nil {
+		return a.extendedError("run now", opts, ctx.Err())
+	}
+	var exitErr *exec.ExitError
+	if errors.As(waitErr, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return a.extendedError("run now", opts, fmt.Errorf("%s exited: %w", command, waitErr))
+}
+
+func (a *Application) runManagedChild(ctx context.Context, execPath string, args []string, watchQuota bool, launchTime time.Time) (bool, error) {
+	cmd := exec.Command(execPath, args...)
+	if watchQuota {
+		cmd.Env = buildSupervisedAgyEnv(os.Environ(), runtime.GOOS)
+	}
+	interactiveTTY := a.stdinTTY && a.stdoutTTY
+	handle := configureManagedChild(cmd, interactiveTTY)
+	defer handle.close()
+
+	var quotaHit atomic.Bool
+	var wg sync.WaitGroup
+	var outPipe, errPipe io.ReadCloser
+	var pipeErr error
+
+	cmd.Stdin = a.In
+	if watchQuota && !interactiveTTY {
+		outPipe, pipeErr = cmd.StdoutPipe()
+		if pipeErr == nil {
+			errPipe, pipeErr = cmd.StderrPipe()
+		}
+		if pipeErr != nil {
+			cmd.Stdout = a.Out
+			cmd.Stderr = a.Err
+			outPipe, errPipe = nil, nil
+		}
+	} else {
+		cmd.Stdout = a.Out
+		cmd.Stderr = a.Err
+	}
+
+	if err := cmd.Start(); err != nil {
+		return false, err
+	}
+	handle.attachStarted(cmd)
+
+	teeScan := func(r io.ReadCloser, dst io.Writer) {
+		defer wg.Done()
+		scanner := bufio.NewScanner(r)
+		scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if isQuotaExhaustedOutputLine(line) {
+				quotaHit.Store(true)
+			}
+			_, _ = io.WriteString(dst, line+"\n")
+		}
+	}
+	if outPipe != nil {
+		wg.Add(1)
+		go teeScan(outPipe, a.Out)
+	}
+	if errPipe != nil {
+		wg.Add(1)
+		go teeScan(errPipe, a.Err)
+	}
+
+	waitCh := make(chan error, 1)
+	go func() {
+		wg.Wait()
+		waitCh <- cmd.Wait()
+	}()
+
+	// For interactive TTY sessions where we do not intercept stdout/stderr pipes,
+	// monitor Antigravity's log scanner for fresh post-launch quota exhaustion
+	// events once any active turn settles.
+	var logStop chan struct{}
+	if watchQuota && interactiveTTY {
+		logStop = make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(1500 * time.Millisecond)
+			defer ticker.Stop()
+			scanner := NewLogScanner(a.paths)
+			for {
+				select {
+				case <-logStop:
+					return
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if hasFreshQuotaExhaustion(scanner, launchTime) && !hasInFlightIDETurn(a.paths.Home, time.Now()) {
+						quotaHit.Store(true)
+						handle.signalGraceful(cmd)
+						return
+					}
+				}
+			}
+		}()
+	}
+
+	var waitErr error
+	select {
+	case waitErr = <-waitCh:
+	case <-ctx.Done():
+		waitErr = drainManagedChild(cmd, handle, waitCh, 5*time.Second)
+	}
+	if logStop != nil {
+		close(logStop)
+	}
+	return quotaHit.Load(), waitErr
+}
+
+func hasFreshQuotaExhaustion(scanner *LogScanner, since time.Time) bool {
+	if scanner == nil {
+		return false
+	}
+	_, evidence, _ := scanner.Scan()
+	for _, byFamily := range evidence {
+		for _, rec := range byFamily {
+			if rec.State != "limited" {
+				continue
+			}
+			if obs, err := parseUTC(rec.ObservedAt); err == nil && !obs.Before(since) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func resolveBinding(settings AppSettings, path string) Binding {
@@ -192,7 +367,11 @@ func (a *Application) prepareBoundRun(ctx context.Context, settings AppSettings,
 	if err != nil {
 		return err
 	}
-	failures := a.quota.Refresh(ctx, accounts, true, nil)
+	targets := scopedEligibleEmails(accounts, settings, binding.Profile, "")
+	var failures map[string]string
+	if len(targets) > 0 {
+		failures = a.quota.RefreshEmails(ctx, accounts, targets)
+	}
 	if failure := failures["store"]; failure != "" {
 		return errors.New(failure)
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -58,7 +59,14 @@ func verifyLive(releaseVersion, dist, baseURL string, client *http.Client) error
 	for _, path := range []string{"/install.html", "/robots.txt", "/sitemap.xml", "/llms.txt"} {
 		expect(path, http.StatusOK)
 	}
-	if ver := expect("/version.json", http.StatusOK); !bytes.Contains(ver, []byte(`"version":"`+releaseVersion+`"`)) {
+	if ver := expect("/version.json", http.StatusOK); len(ver) > 0 {
+		var payload struct {
+			Version string `json:"version"`
+		}
+		if err := json.Unmarshal(ver, &payload); err != nil || strings.TrimPrefix(strings.TrimSpace(payload.Version), "v") != releaseVersion {
+			fault("/version.json does not report %s", releaseVersion)
+		}
+	} else {
 		fault("/version.json does not report %s", releaseVersion)
 	}
 	if home := expect("/", http.StatusOK); !bytes.Contains(home, []byte(`"softwareVersion": "v`+releaseVersion+`"`)) {
@@ -91,7 +99,7 @@ func verifyLive(releaseVersion, dist, baseURL string, client *http.Client) error
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if rel == "sitemap.xml" || rel == "404.html" { // build date; 404 is checked below
+		if rel == "sitemap.xml" || rel == "404.html" || rel == "version.json" { // build date / Docker-injected metadata; checked above/below
 			return nil
 		}
 		local, err := os.ReadFile(path)

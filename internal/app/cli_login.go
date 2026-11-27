@@ -6,9 +6,22 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 )
+
+func withoutEnvKey(env []string, key string) []string {
+	prefix := key + "="
+	out := make([]string, 0, len(env))
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
 
 func (a *Application) newLoginCommand(ctx context.Context) *exec.Cmd {
 	var cmd *exec.Cmd
@@ -21,11 +34,15 @@ func (a *Application) newLoginCommand(ctx context.Context) *exec.Cmd {
 		}
 		cmd = exec.CommandContext(ctx, agyPath)
 	}
-	if len(cmd.Env) == 0 {
-		cmd.Env = append(os.Environ(), "AGY_SWAP_SKIP_SYNC=1", "WSL_INTEROP=1")
-	} else {
-		cmd.Env = append(cmd.Env, "AGY_SWAP_SKIP_SYNC=1", "WSL_INTEROP=1")
+	baseEnv := cmd.Env
+	if len(baseEnv) == 0 {
+		baseEnv = os.Environ()
 	}
+	if runtime.GOOS == "darwin" {
+		baseEnv = withoutEnvKey(baseEnv, "WSL_INTEROP")
+	}
+	baseEnv = append(baseEnv, "AGY_SWAP_SKIP_SYNC=1", "AGY_CLI_FORCE_FILE_TOKEN_STORAGE=1")
+	cmd.Env = baseEnv
 	return cmd
 }
 

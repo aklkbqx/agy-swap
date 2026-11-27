@@ -75,7 +75,7 @@ latest=$(cd "$tmp" && GOPATH="$tmp/gopath" GOFLAGS= GOTOOLCHAIN=auto go list -m 
 (cd "$tmp" && GOPATH="$tmp/gopath" GOBIN="$tmp/bin" GOFLAGS= GOTOOLCHAIN=auto go install "$module/cmd/agy-swap@latest" >/dev/null 2>&1)
 built=$("$tmp/bin/agy-swap" --version 2>/dev/null)
 built_go=$(go version -m "$tmp/bin/agy-swap" 2>/dev/null | head -1 | awk '{print $2}')
-if [ "$latest" = "$tag" ] && [ "$built" = "agy-swap $tag-dev" ] && [ -n "$built_go" ] && at_least "$built_go" "$floor"; then
+if [ "$latest" = "$tag" ] && { [ "$built" = "agy-swap $tag" ] || [ "$built" = "agy-swap $tag-dev" ]; } && [ -n "$built_go" ] && at_least "$built_go" "$floor"; then
   ok "Public proxy: \`$module@latest\` resolves to $tag; \`go install\` built \`$built\` with $built_go."
 else
   fail "go install: \`@latest\` resolves to ${latest:-nothing}, built \`${built:-nothing}\` with ${built_go:-unknown} (want $tag and at least $floor; the proxy can lag a few minutes after tagging)"

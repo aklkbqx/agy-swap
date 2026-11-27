@@ -118,8 +118,47 @@ func cloneRequestForRetry(request *http.Request) (*http.Request, error) {
 	return clone, nil
 }
 
+type isolatedHTTPClientKey struct{}
+
+// withIsolatedAccount binds an ephemeral non-keep-alive HTTP client with TLS
+// session resumption disabled to ctx so separate Google accounts never share a
+// TCP socket, TLS session ticket, or HTTP/2 connection.
+func (h *HTTPService) withIsolatedAccount(ctx context.Context) (context.Context, func()) {
+	if h == nil || h.client == nil {
+		return ctx, func() {}
+	}
+	base, ok := h.client.Transport.(*http.Transport)
+	if !ok || base == nil {
+		return ctx, func() {}
+	}
+	tr := base.Clone()
+	tr.DisableKeepAlives = true
+	tr.MaxIdleConns = 0
+	tr.MaxIdleConnsPerHost = 0
+	if tr.TLSClientConfig != nil {
+		tr.TLSClientConfig = tr.TLSClientConfig.Clone()
+	} else {
+		tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	tr.TLSClientConfig.ClientSessionCache = nil
+	isoClient := &http.Client{Transport: tr, Timeout: h.client.Timeout}
+	return context.WithValue(ctx, isolatedHTTPClientKey{}, isoClient), func() {
+		tr.CloseIdleConnections()
+	}
+}
+
+func (h *HTTPService) activeClientFor(request *http.Request) *http.Client {
+	if request != nil {
+		if iso, ok := request.Context().Value(isolatedHTTPClientKey{}).(*http.Client); ok && iso != nil {
+			return iso
+		}
+	}
+	return h.client
+}
+
 func (h *HTTPService) do(request *http.Request) (*http.Response, error) {
-	response, err := h.client.Do(request)
+	client := h.activeClientFor(request)
+	response, err := client.Do(request)
 	if err == nil {
 		return response, nil
 	}
@@ -176,9 +215,6 @@ func (h *HTTPService) jsonRequest(ctx context.Context, method, endpoint string, 
 	}
 	for key, value := range headers {
 		request.Header.Set(key, value)
-	}
-	if request.Header.Get("User-Agent") == "" {
-		request.Header.Set("User-Agent", "Mozilla/5.0")
 	}
 	requestCtx, cancel := context.WithTimeout(request.Context(), timeout)
 	defer cancel()
@@ -285,9 +321,28 @@ func extractEmailHint(tokenData string) string {
 	return normalizeEmail(getString(claims, "email"))
 }
 
+func oauthAuthMethod(decoded map[string]any) string {
+	if decoded == nil {
+		return "consumer"
+	}
+	if strings.TrimSpace(getString(decoded, "wif_provider")) != "" {
+		return "wif"
+	}
+	if method := strings.ToLower(strings.TrimSpace(getString(decoded, "auth_method"))); method != "" {
+		return method
+	}
+	if oauthClientID(decoded) == gcpOAuthClientID {
+		return "gcp"
+	}
+	return "consumer"
+}
+
 func oauthClientID(decoded map[string]any) string {
 	var idToken string
 	if decoded != nil {
+		if strings.TrimSpace(getString(decoded, "wif_provider")) != "" {
+			return wifOAuthClientID
+		}
 		idToken = getString(decoded, "id_token")
 		if inner := tokenObject(decoded); inner != nil {
 			idToken = firstString(getString(inner, "id_token"), idToken)
@@ -300,14 +355,23 @@ func oauthClientID(decoded map[string]any) string {
 		if _, ok := oauthClientSecrets[value]; ok {
 			return value
 		}
+		if value == wifOAuthClientID {
+			return value
+		}
 	case []any:
 		for _, raw := range value {
 			if item, ok := raw.(string); ok {
 				if _, found := oauthClientSecrets[item]; found {
 					return item
 				}
+				if item == wifOAuthClientID {
+					return item
+				}
 			}
 		}
+	}
+	if decoded != nil && strings.EqualFold(strings.TrimSpace(getString(decoded, "auth_method")), "gcp") {
+		return gcpOAuthClientID
 	}
 	return defaultOAuthClientID
 }
@@ -342,13 +406,17 @@ func (h *HTTPService) accessTokenData(ctx context.Context, tokenData string) (st
 		return "", tokenData, fmt.Errorf("refresh token is unavailable")
 	}
 	clientID := oauthClientID(decoded)
-	values := url.Values{"client_id": {clientID}, "client_secret": {oauthClientSecrets[clientID]}, "refresh_token": {refresh}, "grant_type": {"refresh_token"}}
+	values := url.Values{"client_id": {clientID}, "refresh_token": {refresh}, "grant_type": {"refresh_token"}}
+	if clientID != wifOAuthClientID {
+		if secret := oauthClientSecrets[clientID]; secret != "" {
+			values.Set("client_secret", secret)
+		}
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, h.oauthURL, strings.NewReader(values.Encode()))
 	if err != nil {
 		return "", tokenData, err
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	request.Header.Set("User-Agent", "Mozilla/5.0")
 	requestCtx, cancel := context.WithTimeout(request.Context(), 15*time.Second)
 	defer cancel()
 	response, err := h.do(request.WithContext(requestCtx))
@@ -396,8 +464,22 @@ func (h *HTTPService) accessTokenData(ctx context.Context, tokenData string) (st
 	}
 	return access, "go-keyring-base64:" + base64.StdEncoding.EncodeToString(encoded), nil
 }
+func (h *HTTPService) cloudEndpointFor(authMethod string) string {
+	if h == nil {
+		return cloudCodeAPI
+	}
+	if h.cloudAPI == cloudCodeAPI && strings.EqualFold(strings.TrimSpace(authMethod), "gcp") {
+		return gcpCloudCodeAPI
+	}
+	return h.cloudAPI
+}
+
 func (h *HTTPService) cloudPost(ctx context.Context, access, method string, body any) (map[string]any, error) {
-	result, status, err := h.jsonRequest(ctx, http.MethodPost, h.cloudAPI+method, map[string]string{"Authorization": "Bearer " + access, "Content-Type": "application/json", "User-Agent": cloudUserAgent()}, body, 15*time.Second, 4*1024*1024)
+	return h.cloudPostFor(ctx, access, "", method, body)
+}
+
+func (h *HTTPService) cloudPostFor(ctx context.Context, access, authMethod, method string, body any) (map[string]any, error) {
+	result, status, err := h.jsonRequest(ctx, http.MethodPost, h.cloudEndpointFor(authMethod)+method, map[string]string{"Authorization": "Bearer " + access, "Content-Type": "application/json", "User-Agent": cloudUserAgent()}, body, 15*time.Second, 4*1024*1024)
 	if err != nil {
 		if status != 0 {
 			var statusErr *httpStatusError
@@ -412,12 +494,12 @@ func (h *HTTPService) cloudPost(ctx context.Context, access, method string, body
 	return result, nil
 }
 
-func (h *HTTPService) cloudOperationURL(name string) (string, error) {
+func (h *HTTPService) cloudOperationURLFor(authMethod, name string) (string, error) {
 	trimmed := strings.TrimPrefix(strings.TrimSpace(name), "/")
 	if trimmed == "" || strings.Contains(trimmed, "..") || strings.ContainsAny(trimmed, "?#\\") || !strings.HasPrefix(trimmed, "operations/") {
 		return "", fmt.Errorf("invalid operation name")
 	}
-	base := strings.TrimSuffix(h.cloudAPI, ":")
+	base := strings.TrimSuffix(h.cloudEndpointFor(authMethod), ":")
 	if idx := strings.LastIndex(base, "/v1internal"); idx >= 0 {
 		return base[:idx+len("/v1internal")] + "/" + trimmed, nil
 	}
@@ -425,7 +507,11 @@ func (h *HTTPService) cloudOperationURL(name string) (string, error) {
 }
 
 func (h *HTTPService) cloudGet(ctx context.Context, access, operationName string) (map[string]any, error) {
-	endpoint, err := h.cloudOperationURL(operationName)
+	return h.cloudGetFor(ctx, access, "", operationName)
+}
+
+func (h *HTTPService) cloudGetFor(ctx context.Context, access, authMethod, operationName string) (map[string]any, error) {
+	endpoint, err := h.cloudOperationURLFor(authMethod, operationName)
 	if err != nil {
 		return nil, err
 	}

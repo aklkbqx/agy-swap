@@ -146,7 +146,10 @@ func (v *fileAccountVault) Get(_ context.Context, ref string) (string, bool) {
 	}
 	if statErr == nil && v.cached != nil && v.cachedFileInfo != nil && os.SameFile(info, v.cachedFileInfo) && info.ModTime().Equal(v.cachedFileInfo.ModTime()) && info.Size() == v.cachedFileInfo.Size() {
 		val, ok := v.cached[ref]
-		return val, ok && val != ""
+		if !ok || val == "" {
+			return "", false
+		}
+		return unprotectVaultValue(val)
 	}
 	lock, err := v.fileLock(false)
 	if err != nil {
@@ -159,7 +162,10 @@ func (v *fileAccountVault) Get(_ context.Context, ref string) (string, bool) {
 	}
 	v.updateCache(m)
 	val, ok := m[ref]
-	return val, ok && val != ""
+	if !ok || val == "" {
+		return "", false
+	}
+	return unprotectVaultValue(val)
 }
 
 func (v *fileAccountVault) Set(_ context.Context, ref, token string) bool {
@@ -179,7 +185,7 @@ func (v *fileAccountVault) Set(_ context.Context, ref, token string) bool {
 	if err != nil {
 		return false
 	}
-	m[ref] = token
+	m[ref] = protectVaultValue(token)
 	return v.writeMap(m) == nil
 }
 
