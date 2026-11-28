@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -39,10 +41,65 @@ var autoSwapPaceSleep = func(ctx context.Context, d time.Duration) {
 
 type autoSwapOutcome struct {
 	Swapped     bool   `json:"swapped"`
+	Adopted     bool   `json:"adopted,omitempty"`
 	TargetEmail string `json:"target_email,omitempty"`
-	Status      string `json:"status"` // swapped, circuit_open, dwell_wait, hourly_budget_exceeded, daily_budget_exceeded, no_candidate, disabled
+	Status      string `json:"status"` // swapped, adopted, circuit_open, dwell_wait, hourly_budget_exceeded, daily_budget_exceeded, no_candidate, disabled
 	Reason      string `json:"reason,omitempty"`
 	WaitSeconds int    `json:"wait_seconds,omitempty"`
+}
+
+func autoSwapMarkerPath(configDir string) string {
+	if strings.TrimSpace(configDir) == "" {
+		return ""
+	}
+	return filepath.Join(configDir, ".auto-swap-enabled")
+}
+
+func syncAutoSwapMarker(configDir string, enabled bool) {
+	marker := autoSwapMarkerPath(configDir)
+	if marker == "" {
+		return
+	}
+	if enabled {
+		if ensurePrivateDir(filepath.Dir(marker)) == nil {
+			_ = atomicWrite(marker, []byte("1\n"), 0o600)
+		}
+		return
+	}
+	_ = os.Remove(marker)
+}
+
+func autoSwapLockPath(configDir string) string {
+	if strings.TrimSpace(configDir) == "" {
+		return ""
+	}
+	return filepath.Join(configDir, ".autoswap.lock")
+}
+
+// tierPriorityScore ranks candidates by tier policy (lower score is better).
+func tierPriorityScore(activeTierRank, candTierRank int, tierPolicy string, preferPaid bool) int {
+	if tierPolicy == "highest-paid" {
+		if preferPaid {
+			return -candTierRank
+		}
+		return 0
+	}
+	if activeTierRank >= 0 {
+		if candTierRank == activeTierRank {
+			return 0
+		}
+		if preferPaid {
+			if candTierRank == 0 {
+				return 100
+			}
+			return absInt(candTierRank-activeTierRank)*10 - candTierRank
+		}
+		return absInt(candTierRank - activeTierRank)
+	}
+	if preferPaid {
+		return -candTierRank
+	}
+	return 0
 }
 
 func pruneRollingTimestamps(stamps []string, now time.Time) ([]string, int, int) {
@@ -149,12 +206,89 @@ func (a *Application) isAutoSwapFailureTrigger(errMsg string) bool {
 		strings.Contains(lower, "suspend")
 }
 
+// resolveOrAttemptAutoSwap coordinates multi-window sessions under a shared
+// file lock: if another session already switched the on-disk active account to
+// a healthy account different from sessionEmail, this session adopts it cleanly
+// without tripping rapid-429 breakers or consuming swap budgets.
+func (a *Application) resolveOrAttemptAutoSwap(ctx context.Context, sessionEmail, profileName, family string, now time.Time) autoSwapOutcome {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if lockPath := autoSwapLockPath(a.paths.ConfigDir); lockPath != "" {
+		if ensurePrivateDir(filepath.Dir(lockPath)) == nil {
+			if lock, err := acquireFileLock(lockPath); err == nil {
+				defer func() { _ = lock.Close() }()
+			}
+		}
+	}
+	settings, err := a.loadSettings()
+	if err != nil {
+		return autoSwapOutcome{Status: "error", Reason: err.Error()}
+	}
+	settings, err = normalizeSettings(settings)
+	if err != nil {
+		return autoSwapOutcome{Status: "error", Reason: err.Error()}
+	}
+	accounts, err := a.store.Load(true)
+	if err != nil {
+		return autoSwapOutcome{Status: "error", Reason: err.Error()}
+	}
+	diskActive := a.activeEmail(ctx, accounts, a.credentials.Current(ctx))
+	if sessionEmail != "" && diskActive != "" && !strings.EqualFold(diskActive, sessionEmail) {
+		if diskAcc, ok := accounts.ByEmail[diskActive]; ok &&
+			!accountIsSuspended(diskAcc) &&
+			(!settings.AutoSwap.ExcludeFreeTier || !accountIsFreeTier(diskAcc)) {
+			if _, inelig := accountEligibility(diskAcc); !inelig {
+				staleWindow := candidateStaleWindow(settings)
+				age, hasSnap := quotaAge(diskAcc, now)
+				refreshedOK := true
+				if (!hasSnap || age > staleWindow) && a.quota != nil {
+					failures := a.quota.RefreshEmails(ctx, accounts, []string{diskActive})
+					if failures[diskActive] != "" {
+						refreshedOK = false
+					} else {
+						diskAcc = accounts.ByEmail[diskActive]
+					}
+				}
+				if refreshedOK && !accountIsSuspended(diskAcc) {
+					if _, ineligAfter := accountEligibility(diskAcc); !ineligAfter {
+						wait, hasWait := accountCooldown(diskAcc, now, family)
+						pct, known := accountFamilyRemainingPct(diskAcc, family)
+						if (!hasWait || wait <= 0) && (!known || pct >= float64(settings.AutoSwap.SwitchInPct)) {
+							return autoSwapOutcome{
+								Swapped:     true,
+								Adopted:     true,
+								TargetEmail: diskActive,
+								Status:      "adopted",
+								Reason:      fmt.Sprintf("adopted active account %s (already switched from %s)", diskActive, sessionEmail),
+							}
+						}
+					}
+				}
+			}
+		}
+		return a.attemptGuardrailedAutoSwapLocked(ctx, diskActive, profileName, family, now)
+	}
+	return a.attemptGuardrailedAutoSwapLocked(ctx, firstString(sessionEmail, diskActive), profileName, family, now)
+}
+
 // attemptGuardrailedAutoSwap enforces every non-bypassable safety guardrail
 // (global circuit breaker, TOS_VIOLATION halt, rapid-429 detection, dwell time,
 // rolling 1h/24h budgets, protected/suspended exclusion, paid-tier preference,
 // lazy single-candidate refresh, hysteresis >= switch_in_pct, and 3-8s human
 // pacing jitter) before switching credentials.
 func (a *Application) attemptGuardrailedAutoSwap(ctx context.Context, activeEmail, profileName, family string, now time.Time) autoSwapOutcome {
+	if lockPath := autoSwapLockPath(a.paths.ConfigDir); lockPath != "" {
+		if ensurePrivateDir(filepath.Dir(lockPath)) == nil {
+			if lock, err := acquireFileLock(lockPath); err == nil {
+				defer func() { _ = lock.Close() }()
+			}
+		}
+	}
+	return a.attemptGuardrailedAutoSwapLocked(ctx, activeEmail, profileName, family, now)
+}
+
+func (a *Application) attemptGuardrailedAutoSwapLocked(ctx context.Context, activeEmail, profileName, family string, now time.Time) autoSwapOutcome {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
@@ -210,10 +344,14 @@ func (a *Application) attemptGuardrailedAutoSwap(ctx context.Context, activeEmai
 		if lastAt, parseErr := parseUTC(state.LastSwapAt); parseErr == nil {
 			dwell := time.Duration(cfg.MinDwellSeconds) * time.Second
 			if remaining := dwell - now.Sub(lastAt); remaining > 0 {
+				waitSec := int((remaining + time.Second - 1) / time.Second)
+				if waitSec < 1 {
+					waitSec = 1
+				}
 				return autoSwapOutcome{
 					Status:      "dwell_wait",
 					Reason:      fmt.Sprintf("minimum dwell time active (%s remaining)", formatDuration(remaining.Seconds())),
-					WaitSeconds: int(remaining.Seconds()),
+					WaitSeconds: waitSec,
 				}
 			}
 		}
@@ -223,9 +361,26 @@ func (a *Application) attemptGuardrailedAutoSwap(ctx context.Context, activeEmai
 	kept, swaps1h, swaps24h := pruneRollingTimestamps(state.SwapTimestamps, now)
 	state.SwapTimestamps = kept
 	if swaps1h >= cfg.MaxSwapsPerHour {
+		waitSec := 0
+		var earliest1h time.Time
+		for _, raw := range state.SwapTimestamps {
+			if t, parseErr := parseUTC(raw); parseErr == nil {
+				if age := now.Sub(t); age >= 0 && age <= time.Hour {
+					if earliest1h.IsZero() || t.Before(earliest1h) {
+						earliest1h = t
+					}
+				}
+			}
+		}
+		if !earliest1h.IsZero() {
+			if rem := earliest1h.Add(time.Hour).Sub(now); rem > 0 {
+				waitSec = max(5, int((rem+time.Second-1)/time.Second))
+			}
+		}
 		return autoSwapOutcome{
-			Status: "hourly_budget_exceeded",
-			Reason: fmt.Sprintf("hourly auto-swap budget reached (%d/%d)", swaps1h, cfg.MaxSwapsPerHour),
+			Status:      "hourly_budget_exceeded",
+			Reason:      fmt.Sprintf("hourly auto-swap budget reached (%d/%d)", swaps1h, cfg.MaxSwapsPerHour),
+			WaitSeconds: waitSec,
 		}
 	}
 	if swaps24h >= cfg.MaxSwapsPerDay {
@@ -235,7 +390,7 @@ func (a *Application) attemptGuardrailedAutoSwap(ctx context.Context, activeEmai
 		}
 	}
 
-	// Gate 3: Build eligible candidate list (respecting profile scope, protected, suspended, verify, free-tier exclusion).
+	// Gate 3: Build eligible candidate list (respecting profile scope, protected, suspended, verify, free-tier exclusion, tier policy).
 	allowed := map[string]bool{}
 	if profileName != "" {
 		for _, e := range scopedEligibleEmails(accounts, settings, profileName, "") {
@@ -243,16 +398,28 @@ func (a *Application) attemptGuardrailedAutoSwap(ctx context.Context, activeEmai
 		}
 	}
 
+	activeTierRank := -1
+	if activeAcc, ok := accounts.ByEmail[activeEmail]; ok && activeAcc != nil {
+		activeTierRank = accountTierRank(activeAcc)
+	}
+
 	type scoredCandidate struct {
-		email    string
-		tierRank int
-		pct      float64
-		known    bool
-		age      time.Duration
-		hasSnap  bool
-		orderIdx int
+		email     string
+		tierRank  int
+		tierScore int
+		pct       float64
+		known     bool
+		age       time.Duration
+		hasSnap   bool
+		orderIdx  int
 	}
 	candidates := make([]scoredCandidate, 0, accounts.Len())
+	var shortestCooldown time.Duration
+	recordCooldown := func(wait time.Duration) {
+		if wait > 0 && (shortestCooldown == 0 || wait < shortestCooldown) {
+			shortestCooldown = wait
+		}
+	}
 	for idx, email := range accounts.Order {
 		if strings.EqualFold(email, activeEmail) {
 			continue
@@ -270,28 +437,42 @@ func (a *Application) attemptGuardrailedAutoSwap(ctx context.Context, activeEmai
 		if cfg.ExcludeFreeTier && accountIsFreeTier(acc) {
 			continue
 		}
+		rank := accountTierRank(acc)
+		if cfg.TierPolicy == "same-tier-only" && activeTierRank >= 0 && rank != activeTierRank {
+			continue
+		}
 		if wait, hasWait := accountCooldown(acc, now, family); hasWait && wait > 0 {
+			recordCooldown(wait)
 			continue
 		}
 		pct, known := accountFamilyRemainingPct(acc, family)
 		age, hasSnap := quotaAge(acc, now)
 		candidates = append(candidates, scoredCandidate{
-			email:    email,
-			tierRank: accountTierRank(acc),
-			pct:      pct,
-			known:    known,
-			age:      age,
-			hasSnap:  hasSnap,
-			orderIdx: idx,
+			email:     email,
+			tierRank:  rank,
+			tierScore: tierPriorityScore(activeTierRank, rank, cfg.TierPolicy, cfg.PreferPaidTiers),
+			pct:       pct,
+			known:     known,
+			age:       age,
+			hasSnap:   hasSnap,
+			orderIdx:  idx,
 		})
 	}
 	if len(candidates) == 0 {
-		return autoSwapOutcome{Status: "no_candidate", Reason: "no eligible backup account available"}
+		waitSec := 0
+		if shortestCooldown > 0 && shortestCooldown <= 30*time.Minute {
+			waitSec = int((shortestCooldown+time.Second-1)/time.Second) + 1
+		}
+		return autoSwapOutcome{
+			Status:      "no_candidate",
+			Reason:      "no eligible backup account available",
+			WaitSeconds: waitSec,
+		}
 	}
 
 	sort.Slice(candidates, func(i, j int) bool {
-		if cfg.PreferPaidTiers && candidates[i].tierRank != candidates[j].tierRank {
-			return candidates[i].tierRank > candidates[j].tierRank
+		if candidates[i].tierScore != candidates[j].tierScore {
+			return candidates[i].tierScore < candidates[j].tierScore
 		}
 		if candidates[i].known != candidates[j].known {
 			return candidates[i].known
@@ -346,7 +527,11 @@ func (a *Application) attemptGuardrailedAutoSwap(ctx context.Context, activeEmai
 		if cfg.ExcludeFreeTier && accountIsFreeTier(acc) {
 			continue
 		}
+		if cfg.TierPolicy == "same-tier-only" && activeTierRank >= 0 && accountTierRank(acc) != activeTierRank {
+			continue
+		}
 		if wait, hasWait := accountCooldown(acc, now, family); hasWait && wait > 0 {
+			recordCooldown(wait)
 			continue
 		}
 		pct, known := accountFamilyRemainingPct(acc, family)
@@ -358,9 +543,14 @@ func (a *Application) attemptGuardrailedAutoSwap(ctx context.Context, activeEmai
 	}
 
 	if chosenEmail == "" {
+		waitSec := 0
+		if shortestCooldown > 0 && shortestCooldown <= 30*time.Minute {
+			waitSec = int((shortestCooldown+time.Second-1)/time.Second) + 1
+		}
 		return autoSwapOutcome{
-			Status: "no_candidate",
-			Reason: fmt.Sprintf("no candidate meets switch_in_pct (>= %d%%)", cfg.SwitchInPct),
+			Status:      "no_candidate",
+			Reason:      fmt.Sprintf("no candidate meets switch_in_pct (>= %d%%)", cfg.SwitchInPct),
+			WaitSeconds: waitSec,
 		}
 	}
 
@@ -484,6 +674,8 @@ func (a *Application) cmdAutoSwap(_ context.Context, opts extendedOptions, posit
 			"enabled":                 settings.AutoSwap.Enabled,
 			"mode":                    settings.AutoSwap.Mode,
 			"handoff_mode":            settings.AutoSwap.HandoffMode,
+			"tier_policy":             settings.AutoSwap.TierPolicy,
+			"exclude_free_tier":       settings.AutoSwap.ExcludeFreeTier,
 			"circuit_open":            state.CircuitOpen,
 			"circuit_reason":          state.CircuitReason,
 			"circuit_tripped_at":      state.CircuitTrippedAt,
@@ -508,6 +700,7 @@ func (a *Application) cmdAutoSwap(_ context.Context, opts extendedOptions, posit
 			circuitLabel = "OPEN (" + firstString(state.CircuitReason, "halted") + ")"
 		}
 		fmt.Fprintf(a.Out, "Auto-swap:        enabled=%v · mode=%s · handoff=%s\n", settings.AutoSwap.Enabled, settings.AutoSwap.Mode, settings.AutoSwap.HandoffMode)
+		fmt.Fprintf(a.Out, "Tier policy:      %s · exclude_free_tier=%v\n", settings.AutoSwap.TierPolicy, settings.AutoSwap.ExcludeFreeTier)
 		fmt.Fprintf(a.Out, "Circuit breaker:  %s\n", circuitLabel)
 		fmt.Fprintf(a.Out, "Budgets:          %d/%d per hour · %d/%d per 24h · min dwell %ds\n", swaps1h, settings.AutoSwap.MaxSwapsPerHour, swaps24h, settings.AutoSwap.MaxSwapsPerDay, settings.AutoSwap.MinDwellSeconds)
 		fmt.Fprintf(a.Out, "Thresholds:       switch_out <= %d%% · switch_in >= %d%%\n", settings.AutoSwap.SwitchOutPct, settings.AutoSwap.SwitchInPct)

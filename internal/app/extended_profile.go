@@ -218,6 +218,11 @@ func setConfigValue(settings *AppSettings, key, value string) error {
 			return errors.New("auto_swap.handoff_mode must be clean-summary or resume")
 		}
 		settings.AutoSwap.HandoffMode = value
+	case "auto_swap.tier_policy":
+		if !oneOf(value, "same-tier-first", "same-tier-only", "highest-paid") {
+			return errors.New("auto_swap.tier_policy must be same-tier-first, same-tier-only, or highest-paid")
+		}
+		settings.AutoSwap.TierPolicy = value
 	case "auto_swap.switch_out_pct":
 		parsed, err := parseInt(0, 50)
 		if err != nil {

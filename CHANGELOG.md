@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.27.0
+
+### Changes
+
+- Continuous supervised CLI auto-swapping (`agy-swap run --auto-swap`): remove the per-process restart limit, monitor a per-process `--log-file` on interactive `agy` runs to react quickly to quota exhaustion, refresh expired OAuth tokens in place before falling back to an account switch, wait in cancellable slices when dwell, budget, or cooldown limits block an immediate swap, and adopt already-switched active accounts across concurrent terminals under a shared lock (#113).
+- Tier-aware account rotation and fresher quota recovery: add `auto_swap.tier_policy` (`same-tier-first`, `same-tier-only`, `highest-paid`) and display tier policy in `agy-swap auto-swap status`, reconcile stale log-derived cooldowns automatically once a newer quota snapshot shows available capacity, and expand CLI log parsing for newer Gemini 4 model streams and `RESOURCE_EXHAUSTED` reset messages (#113).
+- Automatic `agy` launcher delegation and faster non-IDE switches: when `auto_swap.enabled` is turned on, delegate interactive runs from the managed `agy` wrapper to `agy-swap run --auto-swap` automatically (passing through `--version`, `--help`, `--hub`, and subcommands, with `AGY_SWAP_NO_AUTO=1` opt-out), skip Antigravity IDE hub-restart delays when no IDE hub is running, clear stale in-flight stream guards on stream exit or error, and prioritize the newest conversation turns in handoff briefs (#113).
+- Website update: synchronize release metadata and terminal story frames for v2.27.0.
+
 ## 2.26.0
 
 ### Changes

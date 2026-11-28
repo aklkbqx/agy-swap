@@ -368,7 +368,8 @@ func TestEnsureAgyLauncherGuardWrapsAndUpgradesAgyBinary(t *testing.T) {
 		}
 	})
 
-	t.Run("updates Antigravity IDE state.vscdb agy.onboarding.lastLoginUsername on Apply", func(t *testing.T) {
+	// Offline state.vscdb onboarding updates are handled by syncIDEOnboardingStateOffline.
+	t.Run("does not mutate Antigravity IDE state.vscdb directly on Apply", func(t *testing.T) {
 		sqliteBin, lookErr := exec.LookPath("sqlite3")
 		if lookErr != nil || sqliteBin == "" {
 			t.Skip("sqlite3 not installed")
@@ -393,8 +394,8 @@ INSERT INTO ItemTable (key, value) VALUES ('google.google-antigravity', '{"antig
 		if queryErr != nil {
 			t.Fatalf("select state.vscdb: %v", queryErr)
 		}
-		if !strings.Contains(string(out), `"agy.onboarding.lastLoginUsername":"switched@example.com"`) {
-			t.Fatalf("expected state.vscdb lastLoginUsername updated to switched@example.com, got %s", string(out))
+		if !strings.Contains(string(out), `"agy.onboarding.lastLoginUsername":"stale@example.com"`) || strings.Contains(string(out), `"switched@example.com"`) {
+			t.Fatalf("expected Apply not to mutate state.vscdb directly, got %s", string(out))
 		}
 	})
 

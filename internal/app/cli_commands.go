@@ -249,6 +249,9 @@ func resolveTarget(target string, accounts *Accounts) (string, error) {
 func accountCooldown(account Account, now time.Time, family string) (time.Duration, bool) {
 	maxWait, found := quotaWait(account, now, family)
 	for _, limit := range activeLimits(account, now) {
+		if isStaleLogLimitSupersededBySnapshot(account, limit.Limit) {
+			continue
+		}
 		if limitFamily := getString(limit.Limit, "family"); limitFamily == "" || familiesOverlap(account, limitFamily, family) {
 			found = true
 			if limit.Remaining > maxWait {

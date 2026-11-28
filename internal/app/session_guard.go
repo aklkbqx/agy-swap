@@ -191,6 +191,11 @@ func (a *Application) reconcileActiveSession(ctx context.Context) {
 
 	a.credentials.ensureKeyringBypassMarker()
 	a.ensureAgyLauncherGuardLocked()
+	if a.store != nil {
+		if settings, loadErr := a.loadSettings(); loadErr == nil {
+			syncAutoSwapMarker(a.paths.ConfigDir, settings.AutoSwap.Enabled)
+		}
+	}
 
 	surfacePaths := a.credentials.oauthTokenPaths()
 	diskTokens := make([]string, 0, len(surfacePaths))
@@ -358,6 +363,13 @@ func shellQuoteDouble(value string) string {
 // the hub ran (agy-swap rewrites it right before it stops hubs after a switch),
 // and gives up after ten restarts within ten seconds.
 func buildAgyLauncherScriptForPaths(realCommand, preferredSwapCommand, reloadMarker string, skipPermsByDefault bool) string {
+	return buildAgyLauncherScriptForPathsWithAutoSwap(realCommand, preferredSwapCommand, reloadMarker, "", skipPermsByDefault)
+}
+
+// buildAgyLauncherScriptForPathsWithAutoSwap builds the session-guard wrapper
+// with optional transparent auto-swap delegation when autoSwapMarker exists or
+// AGY_SWAP_AUTO=1 is set.
+func buildAgyLauncherScriptForPathsWithAutoSwap(realCommand, preferredSwapCommand, reloadMarker, autoSwapMarker string, skipPermsByDefault bool) string {
 	realExpr := `"$HOME/.local/libexec/agy"`
 	if strings.TrimSpace(realCommand) != "" {
 		realExpr = shellQuoteDouble(realCommand)
@@ -370,9 +382,26 @@ func buildAgyLauncherScriptForPaths(realCommand, preferredSwapCommand, reloadMar
 	if strings.TrimSpace(reloadMarker) != "" {
 		markerExpr = shellQuoteDouble(reloadMarker)
 	}
+	autoMarkerExpr := `""`
+	if strings.TrimSpace(autoSwapMarker) != "" {
+		autoMarkerExpr = shellQuoteDouble(autoSwapMarker)
+	}
+	skipPermsCase := ""
+	skipPermsInit := ""
+	autoExecBlock := `    exec "$swap_command" run --auto-swap -- "$@"`
 	execBlock := `"$real_command" "$@"`
 	if skipPermsByDefault {
-		execBlock = `if [ "${AGY_NORMAL_MODE:-0}" = "1" ]; then
+		skipPermsInit = "\nhas_skip_perms=0"
+		skipPermsCase = `
+    --dangerously-skip-permissions)
+      has_skip_perms=1
+      continue
+      ;;`
+		autoExecBlock = `    if [ "${AGY_NORMAL_MODE:-0}" != "1" ] && [ "$has_skip_perms" -eq 0 ]; then
+      exec "$swap_command" run --auto-swap -- --dangerously-skip-permissions "$@"
+    fi
+    exec "$swap_command" run --auto-swap -- "$@"`
+		execBlock = `if [ "${AGY_NORMAL_MODE:-0}" = "1" ] || [ "$has_skip_perms" -eq 1 ]; then
   "$real_command" "$@"
 else
   "$real_command" --dangerously-skip-permissions "$@"
@@ -382,12 +411,13 @@ fi`
 # Managed by agy-swap session guard
 real_command=` + realExpr + `
 case "${1:-}" in
-  --version|-v|--help)
+  --version|-v|--help|-h)
     exec "$real_command" "$@"
     ;;
 esac
 swap_command=` + swapExpr + `
 reload_marker=` + markerExpr + `
+auto_swap_marker=` + autoMarkerExpr + `
 if [ ! -x "$swap_command" ]; then
   for candidate in "$HOME/.local/bin/agy-swap" /opt/homebrew/bin/agy-swap /usr/local/bin/agy-swap "$HOME/go/bin/agy-swap"; do
     if [ -x "$candidate" ]; then
@@ -399,20 +429,51 @@ fi
 if [ ! -x "$swap_command" ]; then
   swap_command="$(command -v agy-swap 2>/dev/null || true)"
 fi
-if [ "${AGY_SWAP_SKIP_SYNC:-0}" != "1" ] && [ -n "$swap_command" ] && [ -x "$swap_command" ]; then
-  "$swap_command" --sync-session >/dev/null 2>&1 || true
-fi
-export AGY_CLI_FORCE_FILE_TOKEN_STORAGE="${AGY_CLI_FORCE_FILE_TOKEN_STORAGE:-1}"
-is_hub=0
+is_hub=0` + skipPermsInit + `
+is_subcmd=0
+expect_val=0
+checked_pos=0
 for arg in "$@"; do
   if [ "$arg" = "--" ]; then
     break
+  fi
+  if [ "$expect_val" -eq 1 ]; then
+    expect_val=0
+    continue
   fi
   if [ "$arg" = "--hub" ]; then
     is_hub=1
     break
   fi
+  case "$arg" in` + skipPermsCase + `
+    --add-dir|--agent|--conversation|--effort|--input-format|--json-schema|--log-file|--mode|--model|--output-format|--print|-p|--prompt|--print-timeout|--project|--prompt-interactive|-i|--resume|-r|--settings)
+      expect_val=1
+      continue
+      ;;
+    -*)
+      continue
+      ;;
+    *)
+      if [ "$checked_pos" -eq 0 ]; then
+        checked_pos=1
+        case "$arg" in
+          acp|agent|agents|auth|changelog|config|help|install|login|logout|mcp|mic-serve|models|plugin|plugins|remote-control|update)
+            is_subcmd=1
+            ;;
+        esac
+      fi
+      ;;
+  esac
 done
+if [ "${AGY_SWAP_SUPERVISED:-0}" != "1" ] && [ "${AGY_SWAP_NO_AUTO:-0}" != "1" ] && [ "$is_hub" -eq 0 ] && [ "$is_subcmd" -eq 0 ] && [ -n "$swap_command" ] && [ -x "$swap_command" ]; then
+  if [ "${AGY_SWAP_AUTO:-0}" = "1" ] || { [ -n "$auto_swap_marker" ] && [ -f "$auto_swap_marker" ]; }; then
+` + autoExecBlock + `
+  fi
+fi
+if [ "${AGY_SWAP_SKIP_SYNC:-0}" != "1" ] && [ -n "$swap_command" ] && [ -x "$swap_command" ]; then
+  "$swap_command" --sync-session >/dev/null 2>&1 || true
+fi
+export AGY_CLI_FORCE_FILE_TOKEN_STORAGE="${AGY_CLI_FORCE_FILE_TOKEN_STORAGE:-1}"
 if [ "$is_hub" -eq 1 ]; then
   stopping=0
   hub_pid=""
@@ -586,7 +647,8 @@ func (a *Application) ensureAgyLauncherGuardForPathLocked(agyBin string) {
 			}
 			return
 		}
-		script := buildAgyLauncherScriptForPaths(resolved, preferredSwap, a.credentials.hubReloadMarkerPath(), false)
+		autoMarker := autoSwapMarkerPath(a.paths.ConfigDir)
+		script := buildAgyLauncherScriptForPathsWithAutoSwap(resolved, preferredSwap, a.credentials.hubReloadMarkerPath(), autoMarker, false)
 		if writeLauncherWrapper(agyBin, []byte(script)) == nil {
 			syncAgyBinarySidecar(agyBin)
 		}
@@ -604,12 +666,13 @@ func (a *Application) ensureAgyLauncherGuardForPathLocked(agyBin string) {
 		libexecBin = filepath.Join(filepath.Dir(agyBin), ".agy.real")
 		realRef = libexecBin
 	}
+	autoMarker := autoSwapMarkerPath(a.paths.ConfigDir)
 
 	if isNativeExecutable(data) {
 		if err := moveOrCopyExecutable(agyBin, libexecBin); err != nil {
 			return
 		}
-		script := buildAgyLauncherScriptForPaths(realRef, preferredSwap, a.credentials.hubReloadMarkerPath(), false)
+		script := buildAgyLauncherScriptForPathsWithAutoSwap(realRef, preferredSwap, a.credentials.hubReloadMarkerPath(), autoMarker, false)
 		if err := writeLauncherWrapper(agyBin, []byte(script)); err != nil {
 			_ = moveOrCopyExecutable(libexecBin, agyBin)
 			return
@@ -622,7 +685,7 @@ func (a *Application) ensureAgyLauncherGuardForPathLocked(agyBin string) {
 	if !strings.HasPrefix(text, "#!") || (!strings.Contains(text, ".local/libexec/agy") && !strings.Contains(text, "Managed by agy-swap session guard")) {
 		return
 	}
-	if strings.Contains(text, "--sync-session") && strings.Contains(text, "AGY_CLI_FORCE_FILE_TOKEN_STORAGE") && !strings.Contains(text, "WSL_INTEROP") && strings.Contains(text, "hub_pid") && strings.Contains(text, "reload_marker=") && strings.Contains(text, "is_hub=0") && !strings.Contains(text, "python3 -") {
+	if strings.Contains(text, "--sync-session") && strings.Contains(text, "AGY_CLI_FORCE_FILE_TOKEN_STORAGE") && !strings.Contains(text, "WSL_INTEROP") && strings.Contains(text, "hub_pid") && strings.Contains(text, "reload_marker=") && strings.Contains(text, "auto_swap_marker=") && strings.Contains(text, "AGY_SWAP_SUPERVISED") && !strings.Contains(text, "skip_perms_default=") && strings.Contains(text, "is_hub=0") && !strings.Contains(text, "python3 -") {
 		syncAgyBinarySidecar(agyBin)
 		return
 	}
@@ -633,8 +696,8 @@ func (a *Application) ensureAgyLauncherGuardForPathLocked(agyBin string) {
 			realRef = existingReal
 		}
 	}
-	skipPerms := strings.Contains(text, "AGY_NORMAL_MODE") || strings.Contains(text, "--dangerously-skip-permissions")
-	script := buildAgyLauncherScriptForPaths(realRef, preferredSwap, a.credentials.hubReloadMarkerPath(), skipPerms)
+	skipPerms := (strings.Contains(text, "AGY_NORMAL_MODE") || strings.Contains(text, "--dangerously-skip-permissions")) && !strings.Contains(text, "skip_perms_default=0")
+	script := buildAgyLauncherScriptForPathsWithAutoSwap(realRef, preferredSwap, a.credentials.hubReloadMarkerPath(), autoMarker, skipPerms)
 	if writeLauncherWrapper(agyBin, []byte(script)) == nil {
 		syncAgyBinarySidecar(agyBin)
 	}

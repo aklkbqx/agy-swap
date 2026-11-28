@@ -256,14 +256,16 @@ type pendingRequest struct {
 }
 
 var (
-	emailLogPattern    = regexp.MustCompile(`(?i)applyAuthResult:\s*email=([^\s,]+)`)
-	errorLogPattern    = regexp.MustCompile(`(?i)RESOURCE_EXHAUSTED.*?Resets\s+in\s+((?:\d+\s*[dhms]\s*)+)`)
-	sendLogPattern     = regexp.MustCompile(`(?i)Sending user message to conversation\s+([0-9a-f-]+)`)
-	completeLogPattern = regexp.MustCompile(`(?i)Stream completed for\s+([0-9a-f-]+)`)
-	resolvedPattern    = regexp.MustCompile(`(?i)\bresolving model\s+(.+?)\s*$`)
-	labelPattern       = regexp.MustCompile(`(?i)\blabel\s*=\s*["']([^"']+)`)
-	ideTimePattern     = regexp.MustCompile(`(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})`)
-	glogTimePattern    = regexp.MustCompile(`\b[IWEF](\d{2})(\d{2})\s+(\d{2}):(\d{2}):(\d{2})`)
+	emailLogPattern      = regexp.MustCompile(`(?i)applyAuthResult:\s*email=([^\s,]+)`)
+	errorLogPattern      = regexp.MustCompile(`(?i)RESOURCE_EXHAUSTED.*?Resets\s+in\s+((?:\d+\s*[dhms]\s*)+)`)
+	resetsInPattern      = regexp.MustCompile(`(?i)Resets\s+in\s+((?:\d+\s*[dhms]\s*)+)`)
+	sendLogPattern       = regexp.MustCompile(`(?i)Sending user message to conversation\s+([0-9a-f-]+)`)
+	completeLogPattern   = regexp.MustCompile(`(?i)Stream completed for\s+([0-9a-f-]+)`)
+	streamExitLogPattern = regexp.MustCompile(`(?i)Stream goroutine exited for\s+([0-9a-f-]+)`)
+	resolvedPattern      = regexp.MustCompile(`(?i)\bresolving model\s+(.+?)\s*$`)
+	labelPattern         = regexp.MustCompile(`(?i)\blabel\s*=\s*["']([^"']+)`)
+	ideTimePattern       = regexp.MustCompile(`(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})`)
+	glogTimePattern      = regexp.MustCompile(`\b[IWEF](\d{2})(\d{2})\s+(\d{2}):(\d{2}):(\d{2})`)
 )
 
 func quotaKey(label string) string {
@@ -287,7 +289,7 @@ func modelFamily(label string) string {
 	if wordPresent(lower, "argon") {
 		return "argon"
 	}
-	for _, word := range []string{"gemini", "flash"} {
+	for _, word := range []string{"gemini", "flash", "neon", "hydrogen"} {
 		if wordPresent(lower, word) {
 			return "gemini"
 		}
@@ -359,6 +361,29 @@ func containsASCIIFold(value, lowerNeedle string) bool {
 	return false
 }
 
+// inferExhaustedModelFromLine derives quota family/model context directly from
+// modern agy 429 error wording when model labels are absent or shared (e.g.
+// Orchestrator (Neon) hitting Third-party quota reached).
+func inferExhaustedModelFromLine(line string, fallback modelContext) modelContext {
+	if containsASCIIFold(line, "third-party quota") || containsASCIIFold(line, "3p quota") {
+		if fallback.Family == "claude" || fallback.Family == "gpt" {
+			return fallback
+		}
+		return modelContext{Key: "third-party", Label: "Claude/GPT (Third-Party)", Family: "claude"}
+	}
+	if fallback.Family != "" {
+		return fallback
+	}
+	if containsASCIIFold(line, "individual quota") || containsASCIIFold(line, "resource_exhausted") {
+		label := fallback.Label
+		if strings.TrimSpace(label) == "" {
+			label = "Gemini"
+		}
+		return modelContext{Key: "gemini", Label: label, Family: "gemini"}
+	}
+	return fallback
+}
+
 func scanLogFile(path string, info os.FileInfo) (map[string]map[string]EvidenceRecord, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -366,6 +391,19 @@ func scanLogFile(path string, info os.FileInfo) (map[string]map[string]EvidenceR
 	}
 	defer func() { _ = file.Close() }()
 	offset := max(int64(0), info.Size()-logScanBytes)
+	currentEmail := ""
+	if offset > 0 {
+		hdr := make([]byte, 32*1024)
+		if n, _ := file.Read(hdr); n > 0 {
+			for _, hline := range strings.Split(string(hdr[:n]), "\n") {
+				if containsASCIIFold(hline, "applyauthresult:") {
+					if match := emailLogPattern.FindStringSubmatch(hline); match != nil {
+						currentEmail = normalizeEmail(match[1])
+					}
+				}
+			}
+		}
+	}
 	if _, err := file.Seek(offset, io.SeekStart); err != nil {
 		return nil, err
 	}
@@ -376,7 +414,6 @@ func scanLogFile(path string, info os.FileInfo) (map[string]map[string]EvidenceR
 	evidence := make(map[string]map[string]EvidenceRecord)
 	labels := make(map[string]modelContext)
 	pending := make(map[string]*pendingRequest)
-	currentEmail := ""
 	var current modelContext
 	pendingResolved := ""
 	record := func(email string, model modelContext, state string, observed time.Time, limit *LimitRecord) {
@@ -399,8 +436,9 @@ func scanLogFile(path string, info os.FileInfo) (map[string]map[string]EvidenceR
 			hasLabel := containsASCIIFold(line, "label") && strings.Contains(line, "=")
 			hasSend := containsASCIIFold(line, "sending user message to conversation")
 			hasResponse := strings.Contains(line, "streamGenerateContent") && strings.Contains(line, "ResponseID:")
-			hasError := containsASCIIFold(line, "resource_exhausted") && containsASCIIFold(line, "resets")
+			hasError := (containsASCIIFold(line, "resource_exhausted") || containsASCIIFold(line, "resourceexhausted")) && containsASCIIFold(line, "resets")
 			hasComplete := containsASCIIFold(line, "stream completed for")
+			hasExit := containsASCIIFold(line, "stream goroutine exited for")
 			if hasEmail {
 				if match := emailLogPattern.FindStringSubmatch(line); match != nil {
 					currentEmail = normalizeEmail(match[1])
@@ -444,8 +482,11 @@ func scanLogFile(path string, info os.FileInfo) (map[string]map[string]EvidenceR
 			if latest != nil && hasResponse {
 				latest.Response = true
 			}
-			if hasError && len(pending) <= 1 {
+			if hasError {
 				match := errorLogPattern.FindStringSubmatch(line)
+				if match == nil {
+					match = resetsInPattern.FindStringSubmatch(line)
+				}
 				if match != nil {
 					if latest != nil {
 						latest.Failed = true
@@ -454,6 +495,7 @@ func scanLogFile(path string, info os.FileInfo) (map[string]map[string]EvidenceR
 					if latest != nil {
 						email, model = latest.Email, latest.Model
 					}
+					model = inferExhaustedModelFromLine(line, model)
 					duration, okDuration := parseDuration(match[1])
 					observed, okTime := parseLogTimestamp(line, info.ModTime())
 					if email != "" && model.Family != "" && okDuration && duration > 0 && okTime {
@@ -474,6 +516,11 @@ func scanLogFile(path string, info os.FileInfo) (map[string]map[string]EvidenceR
 					if request != nil && request.Response && !request.Failed && ok {
 						record(request.Email, request.Model, "available", completed, nil)
 					}
+				}
+			}
+			if hasExit {
+				if match := streamExitLogPattern.FindStringSubmatch(line); match != nil {
+					delete(pending, match[1])
 				}
 			}
 		}

@@ -50,6 +50,7 @@ type AutoSwapConfig struct {
 	Enabled            bool   `json:"enabled,omitempty"`
 	Mode               string `json:"mode,omitempty"`         // turn-boundary, reactive-only
 	HandoffMode        string `json:"handoff_mode,omitempty"` // clean-summary, resume
+	TierPolicy         string `json:"tier_policy,omitempty"`  // same-tier-first, same-tier-only, highest-paid
 	SwitchOutPct       int    `json:"switch_out_pct,omitempty"`
 	SwitchInPct        int    `json:"switch_in_pct,omitempty"`
 	MinDwellSeconds    int    `json:"min_dwell_seconds,omitempty"`
@@ -150,6 +151,7 @@ func defaultSettings() AppSettings {
 			Enabled:            false,
 			Mode:               "turn-boundary",
 			HandoffMode:        "clean-summary",
+			TierPolicy:         "same-tier-first",
 			SwitchOutPct:       5,
 			SwitchInPct:        25,
 			MinDwellSeconds:    900,
@@ -283,6 +285,12 @@ func normalizeSettings(s AppSettings) (AppSettings, error) {
 	}
 	if !oneOf(s.AutoSwap.HandoffMode, "clean-summary", "resume") {
 		return AppSettings{}, errors.New("auto_swap handoff_mode must be clean-summary or resume")
+	}
+	if strings.TrimSpace(s.AutoSwap.TierPolicy) == "" {
+		s.AutoSwap.TierPolicy = defaults.AutoSwap.TierPolicy
+	}
+	if !oneOf(s.AutoSwap.TierPolicy, "same-tier-first", "same-tier-only", "highest-paid") {
+		return AppSettings{}, errors.New("auto_swap tier_policy must be same-tier-first, same-tier-only, or highest-paid")
 	}
 	if s.AutoSwap.SwitchOutPct < 0 {
 		s.AutoSwap.SwitchOutPct = 0
@@ -433,7 +441,11 @@ func (s *Store) saveSettingsUnlocked(settings AppSettings) error {
 		return err
 	}
 	settings.UpdatedAt = isoTime(time.Now().UTC())
-	return atomicWriteJSON(s.paths.Settings, settings)
+	if err := atomicWriteJSON(s.paths.Settings, settings); err != nil {
+		return err
+	}
+	syncAutoSwapMarker(s.paths.ConfigDir, settings.AutoSwap.Enabled)
+	return nil
 }
 
 func (s *Store) UpdateSettings(fn func(*AppSettings) error) (AppSettings, error) {

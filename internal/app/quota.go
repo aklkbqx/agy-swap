@@ -911,6 +911,7 @@ func (q *QuotaService) refreshWhereWithOptions(ctx context.Context, accounts *Ac
 			state = "failed"
 		} else {
 			original["quota_snapshot"] = result.snapshot
+			reconcileSnapshotLogLimits(original)
 			patch.snapshot = result.snapshot
 			patch.hasSnapshot = true
 			changed = true
@@ -946,6 +947,7 @@ func (q *QuotaService) refreshWhereWithOptions(ctx context.Context, accounts *Ac
 					}
 					if patch.hasSnapshot {
 						acc["quota_snapshot"] = patch.snapshot
+						reconcileSnapshotLogLimits(acc)
 					}
 				}
 				saveErr = q.store.Save(fresh)

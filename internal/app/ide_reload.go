@@ -31,6 +31,8 @@ type ideHubDescriptor struct {
 
 var ideRunningCheck = detectAntigravityIDERunning
 
+var allowIDEHubReloadInTests bool
+
 func isAntigravityIDERunning() bool {
 	if ideRunningCheck != nil {
 		return ideRunningCheck()
@@ -238,11 +240,14 @@ func triggerHubAuthStatusRPC(ctx context.Context, home string) int {
 var (
 	ideTurnSendRE     = regexp.MustCompile(`Sending user message to conversation\s+([A-Za-z0-9_.:-]+)`)
 	ideTurnCompleteRE = regexp.MustCompile(`Stream completed for\s+([A-Za-z0-9_.:-]+)`)
+	ideTurnExitedRE   = regexp.MustCompile(`Stream goroutine exited for\s+([A-Za-z0-9_.:-]+)`)
 )
 
+const inFlightTurnIdleStale = 15 * time.Second
+
 // hasInFlightIDETurn checks recent Antigravity logs for an unpaired
-// "Sending user message to conversation <id>" without a subsequent
-// "Stream completed for <id>" within the last 5 minutes.
+// "Sending user message to conversation <id>" without a subsequent completion,
+// stream goroutine exit, error termination, or >15s of inactivity.
 func hasInFlightIDETurn(home string, now time.Time) bool {
 	home = strings.TrimSpace(home)
 	if home == "" {
@@ -254,7 +259,10 @@ func hasInFlightIDETurn(home string, now time.Time) bool {
 		candidates = candidates[:5]
 	}
 	cutoff := now.Add(-5 * time.Minute)
-	openStreams := map[string]bool{}
+	type openEntry struct {
+		opened time.Time
+		seq    int64
+	}
 	for _, c := range candidates {
 		if c.info != nil && c.info.ModTime().Before(cutoff) {
 			continue
@@ -267,17 +275,72 @@ func hasInFlightIDETurn(home string, now time.Time) bool {
 		if len(raw) > 256*1024 {
 			raw = raw[len(raw)-256*1024:]
 		}
+		modTime := now
+		if c.info != nil {
+			modTime = c.info.ModTime()
+		}
+		openStreams := map[string]openEntry{}
+		var seq int64
+		var lastActivity time.Time
 		for _, line := range strings.Split(string(raw), "\n") {
+			ts, hasTS := parseLogTimestamp(line, modTime)
 			if m := ideTurnSendRE.FindStringSubmatch(line); len(m) == 2 {
-				openStreams[m[1]] = true
+				seq++
+				entryTS := ts
+				if !hasTS {
+					entryTS = modTime
+				}
+				openStreams[m[1]] = openEntry{opened: entryTS, seq: seq}
+				if entryTS.After(lastActivity) {
+					lastActivity = entryTS
+				}
 				continue
 			}
 			if m := ideTurnCompleteRE.FindStringSubmatch(line); len(m) == 2 {
 				delete(openStreams, m[1])
+				continue
+			}
+			if m := ideTurnExitedRE.FindStringSubmatch(line); len(m) == 2 {
+				delete(openStreams, m[1])
+				continue
+			}
+			if containsASCIIFold(line, "agent executor error:") || containsASCIIFold(line, "resource_exhausted") || containsASCIIFold(line, "resourceexhausted, http 429") {
+				latestID := ""
+				var latestSeq int64
+				for id, entry := range openStreams {
+					if entry.seq > latestSeq {
+						latestSeq = entry.seq
+						latestID = id
+					}
+				}
+				if latestID != "" {
+					delete(openStreams, latestID)
+				}
+				continue
+			}
+			if hasTS && (strings.Contains(line, "streamGenerateContent") || strings.Contains(line, "llm_monitor.go") || strings.Contains(line, "runner.go")) {
+				if ts.After(lastActivity) {
+					lastActivity = ts
+				}
 			}
 		}
+		if len(openStreams) == 0 {
+			continue
+		}
+		latest := lastActivity
+		for _, entry := range openStreams {
+			if entry.opened.After(latest) {
+				latest = entry.opened
+			}
+		}
+		if latest.IsZero() {
+			latest = modTime
+		}
+		if now.Sub(latest) <= inFlightTurnIdleStale {
+			return true
+		}
 	}
-	return len(openStreams) > 0
+	return false
 }
 
 // waitForIDEIdle waits up to timeout for any in-flight Antigravity stream to
@@ -518,7 +581,7 @@ func (a *Application) reloadIDEForSwitch(ctx context.Context, mode string, waitT
 	if strings.TrimSpace(mode) == "" {
 		mode = defaultIDEReloadMode()
 	}
-	if !a.credentials.shouldReloadIDEHubs() && runtime.GOOS != "windows" {
+	if !allowIDEHubReloadInTests && !a.credentials.shouldReloadIDEHubs() && runtime.GOOS != "windows" {
 		return
 	}
 	home := a.paths.Home
@@ -547,6 +610,9 @@ func (a *Application) reloadIDEForSwitch(ctx context.Context, mode string, waitT
 			syncIDEOnboardingStateOffline(home, email, isGCPTos)
 		}
 		if runtime.GOOS == "windows" {
+			return
+		}
+		if len(discoverRunningIDEHubs(home)) == 0 {
 			return
 		}
 		if !waitForIDEIdle(ctx, home, waitTimeout) {

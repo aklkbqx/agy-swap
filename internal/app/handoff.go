@@ -301,22 +301,39 @@ func buildCleanHandoffMarkdown(home, convID, cwd string, maxBytes int) (string, 
 		sb.WriteString("```\n")
 	}
 	if len(turns) > 0 {
-		// Keep up to the 6 most recent turns, bounded to fit within maxBytes.
+		// Keep up to the 6 most recent turns, prioritizing the newest turns first.
 		start := 0
 		if len(turns) > 6 {
 			start = len(turns) - 6
 		}
-		sb.WriteString("\n## Recent Exchange\n")
-		for _, turn := range turns[start:] {
+		recent := turns[start:]
+		budget := maxBytes - sb.Len() - 64 - len("\n## Recent Exchange\n")
+		selected := make([]string, 0, len(recent))
+		for idx := len(recent) - 1; idx >= 0; idx-- {
+			turn := recent[idx]
 			label := "User"
 			if turn.role == "assistant" {
 				label = "Assistant"
 			}
 			entry := fmt.Sprintf("\n### %s\n%s\n", label, truncateUTF8(turn.text, 1200))
-			if sb.Len()+len(entry) > maxBytes-64 {
+			if len(entry) > budget {
+				if len(selected) == 0 && budget > 48 {
+					avail := budget - len(fmt.Sprintf("\n### %s\n\n", label))
+					if avail > 24 {
+						entry = fmt.Sprintf("\n### %s\n%s\n", label, truncateUTF8(turn.text, avail))
+						selected = append(selected, entry)
+					}
+				}
 				break
 			}
-			sb.WriteString(entry)
+			selected = append(selected, entry)
+			budget -= len(entry)
+		}
+		if len(selected) > 0 {
+			sb.WriteString("\n## Recent Exchange\n")
+			for i := len(selected) - 1; i >= 0; i-- {
+				sb.WriteString(selected[i])
+			}
 		}
 	}
 
@@ -454,15 +471,17 @@ func unwrapManagedAgyBinary(home, candidate string) string {
 
 // buildSupervisedAgyEnv constructs a clean child environment for direct `agy`
 // execution: forces file token storage via the official agy 1.5.18 variable,
-// disables nested wrapper sync, and removes inherited WSL_INTEROP on macOS.
+// marks the process as supervised to prevent wrapper re-entry, disables nested
+// wrapper sync, and removes inherited WSL_INTEROP on macOS.
 func buildSupervisedAgyEnv(base []string, goos string) []string {
 	env := append([]string(nil), base...)
 	if goos == "darwin" {
 		env = withoutEnvKey(env, "WSL_INTEROP")
 	}
 	env = withoutEnvKey(env, "AGY_SWAP_SKIP_SYNC")
+	env = withoutEnvKey(env, "AGY_SWAP_SUPERVISED")
 	env = withoutEnvKey(env, "AGY_CLI_FORCE_FILE_TOKEN_STORAGE")
-	env = append(env, "AGY_SWAP_SKIP_SYNC=1", "AGY_CLI_FORCE_FILE_TOKEN_STORAGE=1")
+	env = append(env, "AGY_SWAP_SKIP_SYNC=1", "AGY_SWAP_SUPERVISED=1", "AGY_CLI_FORCE_FILE_TOKEN_STORAGE=1")
 	return env
 }
 
@@ -540,23 +559,30 @@ func buildHandoffRelaunchArgs(origArgs []string, handoffMode, handoffFile, convI
 	return preserved
 }
 
+func isTransientUpstreamLine(lower string) bool {
+	for _, transient := range []string{"500 internal", "502 bad gateway", "503 service", "504 gateway", "no such host", "connection reset", "i/o timeout", "tls handshake"} {
+		if strings.Contains(lower, transient) {
+			return true
+		}
+	}
+	return false
+}
+
 // isQuotaExhaustedOutputLine detects real quota exhaustion signals in `agy`
 // stdout/stderr/stream-json output while ignoring transient 5xx or DNS errors.
 func isQuotaExhaustedOutputLine(line string) bool {
 	lower := strings.ToLower(strings.TrimSpace(line))
-	if lower == "" {
+	if lower == "" || isTransientUpstreamLine(lower) {
 		return false
-	}
-	// Explicitly ignore transient upstream/network errors.
-	for _, transient := range []string{"500 internal", "502 bad gateway", "503 service", "504 gateway", "no such host", "connection reset", "i/o timeout", "tls handshake"} {
-		if strings.Contains(lower, transient) {
-			return false
-		}
 	}
 	for _, marker := range []string{
 		"resource_exhausted",
+		"resourceexhausted, http 429",
+		"resourceexhausted",
 		"model_capacity_exhausted",
 		"quota_exhausted",
+		"individual quota reached",
+		"third-party quota reached",
 		"quota exceeded",
 		"rate limit exceeded",
 		"exhausted your capacity",
@@ -566,4 +592,70 @@ func isQuotaExhaustedOutputLine(line string) bool {
 		}
 	}
 	return false
+}
+
+// isAuthExpiredOutputLine detects permanent auth/token failure signals in `agy`
+// output/logs while ignoring transient upstream or network errors.
+func isAuthExpiredOutputLine(line string) bool {
+	lower := strings.ToLower(strings.TrimSpace(line))
+	if lower == "" || isTransientUpstreamLine(lower) {
+		return false
+	}
+	for _, marker := range []string{
+		"http 401",
+		"unauthenticated",
+		"invalid_grant",
+		"token expired",
+		"expired=true",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// isRealAgyLogErrorLine filters out informational monitor/runner lines (which
+// may quote keywords like RESOURCE_EXHAUSTED inside tool arguments) so only
+// genuine error log entries trigger auto-swap.
+func isRealAgyLogErrorLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false
+	}
+	if strings.Contains(trimmed, "llm_monitor.go") || strings.Contains(trimmed, "runner.go") {
+		return false
+	}
+	return strings.HasPrefix(trimmed, "E") ||
+		strings.Contains(trimmed, "errorreport.go") ||
+		strings.Contains(trimmed, "agent executor error:") ||
+		strings.Contains(trimmed, "transport error (")
+}
+
+// inferExhaustedFamilyFromLine infers the affected quota family from an
+// exhaustion line ("claude" for third-party, "gemini" for individual/Gemini).
+func inferExhaustedFamilyFromLine(line string) string {
+	lower := strings.ToLower(line)
+	if strings.Contains(lower, "third-party quota") || strings.Contains(lower, "3p quota") ||
+		strings.Contains(lower, "claude") || strings.Contains(lower, "anthropic") ||
+		strings.Contains(lower, "gpt") || strings.Contains(lower, "openai") {
+		return "claude"
+	}
+	if strings.Contains(lower, "individual quota") || strings.Contains(lower, "gemini") {
+		return "gemini"
+	}
+	return ""
+}
+
+func hasLogFileFlag(args []string) (string, bool) {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--log-file" && i+1 < len(args) {
+			return strings.TrimSpace(args[i+1]), true
+		}
+		if strings.HasPrefix(arg, "--log-file=") {
+			return strings.TrimSpace(strings.TrimPrefix(arg, "--log-file=")), true
+		}
+	}
+	return "", false
 }

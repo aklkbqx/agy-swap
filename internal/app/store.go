@@ -56,12 +56,14 @@ func (s *Store) Load(syncLogs bool) (*Accounts, error) {
 	if syncLogs && accounts.Len() > 0 {
 		changed := migrateAndExpire(accounts, time.Now().UTC())
 		limits, evidence, scanErr := s.scanner.Scan()
-		if scanErr == nil {
-			for _, email := range accounts.Order {
-				account := accounts.ByEmail[email]
+		for _, email := range accounts.Order {
+			account := accounts.ByEmail[email]
+			if scanErr == nil {
 				if reconcileLogLimits(account, limits[email], evidence[email]) {
 					changed = true
 				}
+			} else if reconcileSnapshotLogLimits(account) {
+				changed = true
 			}
 		}
 		if changed {
@@ -303,6 +305,55 @@ func migrateAndExpire(accounts *Accounts, now time.Time) bool {
 	return changed
 }
 
+// isStaleLogLimitSupersededBySnapshot reports whether a log-derived cooldown is
+// older than a healthy live quota_snapshot for the same model family.
+func isStaleLogLimitSupersededBySnapshot(account Account, limit map[string]any) bool {
+	if account == nil || limit == nil || getString(limit, "source") != "log" {
+		return false
+	}
+	snapshot := getMap(account["quota_snapshot"])
+	if snapshot == nil {
+		return false
+	}
+	snapObs, err1 := parseUTC(getString(snapshot, "observed_at"))
+	limitObs, err2 := parseUTC(getString(limit, "observed_at"))
+	if err1 != nil || err2 != nil || !snapObs.After(limitObs) {
+		return false
+	}
+	limitFamily := getString(limit, "family")
+	wait, matched := quotaWait(account, snapObs, limitFamily)
+	if !matched || wait > 0 {
+		return false
+	}
+	pct, known := accountFamilyRemainingPct(account, limitFamily)
+	return known && pct >= 5.0
+}
+
+// reconcileSnapshotLogLimits removes stale source="log" limits once a newer
+// live quota_snapshot confirms the family has healthy remaining quota.
+func reconcileSnapshotLogLimits(account Account) bool {
+	if account == nil {
+		return false
+	}
+	limits := getMap(account["quota_limits"])
+	if len(limits) == 0 {
+		return false
+	}
+	changed := false
+	for key, raw := range limits {
+		if isStaleLogLimitSupersededBySnapshot(account, getMap(raw)) {
+			delete(limits, key)
+			changed = true
+		}
+	}
+	if len(limits) == 0 {
+		delete(account, "quota_limits")
+	} else if changed {
+		account["quota_limits"] = limits
+	}
+	return changed
+}
+
 func reconcileLogLimits(account Account, detected map[string]LimitRecord, evidence map[string]EvidenceRecord) bool {
 	limits := getMap(account["quota_limits"])
 	if limits == nil {
@@ -338,6 +389,9 @@ func reconcileLogLimits(account Account, detected map[string]LimitRecord, eviden
 		delete(account, "quota_limits")
 	} else {
 		account["quota_limits"] = limits
+		if reconcileSnapshotLogLimits(account) {
+			changed = true
+		}
 	}
 	return changed
 }

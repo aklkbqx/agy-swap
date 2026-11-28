@@ -11,7 +11,7 @@ if ([Enum]::IsDefined([Net.SecurityProtocolType], 'Tls13')) {
 }
 [Net.ServicePointManager]::SecurityProtocol = $tlsProto
 
-if ([string]::IsNullOrWhiteSpace($Version)) { $Version = '2.26.0' }
+if ([string]::IsNullOrWhiteSpace($Version)) { $Version = '2.27.0' }
 if ([string]::IsNullOrWhiteSpace($TargetDir)) { $TargetDir = Join-Path $env:LOCALAPPDATA 'Programs\agy-swap' }
 
 $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
